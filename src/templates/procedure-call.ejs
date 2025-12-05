@@ -13,7 +13,7 @@ const pathParamsNames = _.map(pathParams, "name");
 // 提取参数
 if (config.param?.extractRequestQuery && query && query.type) {
   const queryExtract = config.param?.extractRequestQuery?.split(",")
-  query.type = query.type.replace(new RegExp(`[\\s\\S\\n]+ (${queryExtract.join("|")}): ([a-z]+),[\\s\\S\\n]+`, "i"), "$2")
+  query.type = query.type.replace(new RegExp(`[\\s\\S\\n]+ ['"]?(${queryExtract.join("|")})['"]?: ([a-z]+),[\\s\\S\\n]+`, "i"), "$2")
 }
 
 const isFetchTemplate = config.httpClientType === HTTP_CLIENT.FETCH;
