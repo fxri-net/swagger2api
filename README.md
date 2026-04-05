@@ -119,7 +119,7 @@ request.getUsers().then((res) => console.log(res))
 
 ```typescript
 declare module "." {
-  interface AxiosResponse<T = any> {
+  interface AxiosResponse<T extends { [key: string]: any } = any> {
     /** 状态代码 */
     code: number
     /** 提示信息 */
