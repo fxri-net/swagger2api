@@ -38,6 +38,8 @@ export type Defines = {
       removePrefixIndex: string
       /** 移除使用--js参数时生成的d.ts文件 */
       removeDts: boolean
+      /** 移除空组件定义 */
+      removeEmptyComponents: boolean
       /** 提取参数，将query参数中的指定对象字段提取为根部字段，只提取第一次命中的字段 */
       extractRequestQuery: string
       /** 提取响应，将AxiosResponse返回值转移到raw字段，根部字段自己定义 */
@@ -49,5 +51,10 @@ export type Defines = {
     enum: { [key: string]: number }
   }
   /** 数据 */
-  data: { paths: { [key: string]: { [key: string]: any } }; [key: string]: any }
+  data: {
+    /** 路径 */
+    paths: Record<string, Record<string, any>>
+    /** 组件 */
+    components: Record<string, Record<string, any>>
+  }
 }

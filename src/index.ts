@@ -31,7 +31,7 @@ async function onLoadParam() {
   /** 参数 */
   datas.param = {
     config: getPValue(["--config", "-c"]),
-    configScan: getPKey(["--config-scan", "-cs"]),
+    configScan: getPKey(["--config-scan", "-cs"]) ?? true,
     configAll: getPKey(["--config-all", "-ca"]),
     quick: getPKey(["--quick", "-q"]),
     replaceTags: getPArray(["--replace-tags", "-rt"], { length: 2 }),
@@ -39,6 +39,7 @@ async function onLoadParam() {
     removeParam: getPKey(["--remove-param", "-rp"]),
     removePrefixIndex: getPValue(["--remove-prefix-index", "-rpi"]),
     removeDts: getPKey(["--remove-dts", "-rd"]),
+    removeEmptyComponents: getPKey(["--remove-empty-components", "-rec"]) ?? true,
     extractRequestQuery: getPValue(["--extract-request-query", "-erq"]),
     extractResponseRaw: getPKey(["--extract-response-raw", "-err"]),
     template: path.resolve(getDirname(), "./templates")
@@ -84,7 +85,7 @@ async function onLoadConfig() {
   if (datas.param.config) {
     // 指定配置文件
     confs.files = datas.param.config.split(",")
-  } else if (datas.param.configScan ?? true) {
+  } else if (datas.param.configScan) {
     // 扫描配置文件
     confs.files = glob.sync(["./**/saconfig*.json"], { ignore: "node_modules/**" })
   }
@@ -155,7 +156,7 @@ async function onLoadDoc(index = 0) {
 async function onGenerateApi(data: Defines["data"]) {
   // 检查格式
   if (typeof data?.paths != "object") return console.log("失败：缺少paths字段")
-  // 处理数据
+  // 处理路径
   Object.entries(data.paths).forEach((item) => {
     Object.keys(item[1]).forEach((item2) => {
       // 配置标签
@@ -186,6 +187,15 @@ async function onGenerateApi(data: Defines["data"]) {
       // 统计请求方式
       const method = id.split("/").slice(-1)[0]
       typeof datas.enum[method] == "number" ? datas.enum[method]++ : (datas.enum[method] = 1)
+    })
+  })
+  // 处理组件
+  Object.entries(data.components).forEach((item) => {
+    Object.keys(item[1]).forEach((item2) => {
+      // 移除空组件定义
+      if (datas.param.removeEmptyComponents && !Object.keys(data.components[item[0]][item2]).length) {
+        delete data.components[item[0]][item2]
+      }
     })
   })
   console.log("就绪：", ...Object.entries(datas.enum).map((item) => item.join("-")))

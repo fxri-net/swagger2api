@@ -13,7 +13,7 @@ const datas = {
  * @param param 参数
  * @return 选中的参数
  */
-export function getParam(name: string | string[], type = "value" as "key" | "value" | "array", param: { [key: string]: any } = {}) {
+export function getParam(name: string | string[], type = "value" as "key" | "value" | "array", param: Record<string, any> = {}) {
   // 处理名称
   if (!Array.isArray(name)) name = [name]
   // 配置数据
@@ -60,7 +60,7 @@ export function getPValue(name: string | string[]) {
  * @param param 参数
  * @return 选中的参数
  */
-export function getPArray(name: string | string[], param: { [key: string]: any } = {}) {
+export function getPArray(name: string | string[], param: Record<string, any> = {}) {
   return (getParam(name, "array", param) ?? []) as string[]
 }
 /**
