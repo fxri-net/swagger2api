@@ -210,4 +210,6 @@ npx @fxri/swagger2api [--replace-tags,-rt <regexp> <substr>]
 
 网站：[方弦研究信息网](https://fxri.net:444/)
 
-协议：MIT License
+协议：[MIT License](./LICENSE)
+
+商标："方弦™"为第 42 类商标（注册号 89648411），本开源许可不授予商标使用权，详见 [TRADEMARK.md](./TRADEMARK.md)
