@@ -1,0 +1,6 @@
+{
+  "baseBranch": "master",
+  "access": "public",
+  "commit": false,
+  "updateInternalDependencies": "patch"
+}
