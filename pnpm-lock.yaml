@@ -22,8 +22,8 @@ importers:
         version: 13.12.6
     devDependencies:
       '@fxri/toolkit':
-        specifier: ^1.4.1
-        version: 1.4.1(@types/node@20.19.21)
+        specifier: ^1.5.6
+        version: 1.5.6(@types/node@20.19.21)
       '@types/node':
         specifier: ^20.19.21
         version: 20.19.21
@@ -338,8 +338,8 @@ packages:
   '@fast-csv/parse@4.3.6':
     resolution: {integrity: sha512-uRsLYksqpbDmWaSmzvJcuApSEe38+6NQZBUsuAyMZKqHxH0g1wcJgsKUvN3WC8tewaqFjBMMGrkHmC+T7k8LvA==}
 
-  '@fxri/toolkit@1.4.1':
-    resolution: {integrity: sha512-w88OgK/INjxFhWimy6XKzjaaojFvhFD/LUAnnEi+8tICXRsnAeSaUyDo7tHSYlQB7+R27rOmgZ24e35xskQ/sw==}
+  '@fxri/toolkit@1.5.6':
+    resolution: {integrity: sha512-LbFg52qxVXyZu/xzZEEK/SutTasPg+6DNWsf8gnw0RoLvzeXP4+gpXUNkLra4cjGVppn9gVQuYPRjAHNhSBvwQ==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -2441,7 +2441,7 @@ snapshots:
       lodash.isundefined: 3.0.1
       lodash.uniq: 4.5.0
 
-  '@fxri/toolkit@1.4.1(@types/node@20.19.21)':
+  '@fxri/toolkit@1.5.6(@types/node@20.19.21)':
     dependencies:
       '@changesets/cli': 2.31.1(@types/node@20.19.21)
       commander: 15.0.0
