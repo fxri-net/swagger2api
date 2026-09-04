@@ -206,7 +206,7 @@ npx @fxri/swagger2api [--replace-tags,-rt <regexp> <substr>]
 
 作者：唐启云 <tqy@fxri.net>
 
-版权：Copyright © 2025 方弦研究所. All rights reserved.
+版权：Copyright © 2025-2026 方弦研究所. All rights reserved.
 
 网站：[方弦研究信息网](https://fxri.net:444/)
 
