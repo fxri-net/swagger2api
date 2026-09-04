@@ -212,4 +212,4 @@ npx @fxri/swagger2api [--replace-tags,-rt <regexp> <substr>]
 
 协议：[MIT License](./LICENSE)
 
-商标："方弦™"为第 42 类商标（注册号 89648411），本开源许可不授予商标使用权，详见 [TRADEMARK.md](./TRADEMARK.md)
+商标："方弦®"为第42类注册商标（注册号89648411），本开源许可不授予商标使用权，详见 [TRADEMARK.md](./TRADEMARK.md)
