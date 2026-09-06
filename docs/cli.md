@@ -1,6 +1,6 @@
 # CLI 参考
 
-> 本工具的可执行文件名为 `swagger2api`；如本地装过其他同名工具，使用作用域全名 `@fxri/swagger2api`。
+> 本工具的可执行文件名为 `swagger2api`。npx/dlx 执行时必须带作用域全名 `@fxri/swagger2api`——裸写 `npx swagger2api` 会拉取 npm 上同名的其他包；本地安装后可直接使用短名。
 
 ## 基本用法
 
