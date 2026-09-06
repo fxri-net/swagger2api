@@ -1,0 +1,47 @@
+# 文档站部署到 GitLab Pages（origin 自建 GitLab 实例）。
+# 仅 docs 相关文件变更时触发；构建产物为 VitePress 默认输出目录 public/。
+# 站点路径为项目页子路径 /swagger2api/，与 config.mts 默认 base 一致，无需注入 VITEPRESS_BASE。
+# ⚠️ 自建实例需确认 Pages 服务已启用（管理区 Settings > Preferences > Pages），
+#    首次部署后在 项目 > Deploy > Pages 查看访问地址。
+image: node:20
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - docs/**/*
+        - scripts/sync-changelog-doc.mjs
+        - .gitlab-ci.yml
+        - package.json
+        - pnpm-lock.yaml
+
+pages:
+  stage: deploy
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store/
+  before_script:
+    # 启用 corepack 按 package.json#packageManager 固定 pnpm 版本
+    - corepack enable
+    - corepack prepare pnpm@10.34.4 --activate
+    - pnpm config set store-dir .pnpm-store/
+    - pnpm install --frozen-lockfile
+  script:
+    # 同步更新日志进文档站后构建，GitLab Pages 规定产物必须位于 public/
+    - node scripts/sync-changelog-doc.mjs
+    - pnpm docs:build
+    - mv docs/.vitepress/dist public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - docs/**/*
+        - scripts/sync-changelog-doc.mjs
+        - .gitlab-ci.yml
+        - package.json
+        - pnpm-lock.yaml

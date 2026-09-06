@@ -5,5 +5,11 @@ dist
 saconfig*.json
 local
 *.tgz
+.eslintcache
 # @fxri/toolkit 归档排他锁（运行时文件，不入库）
 .archive.lock
+# VitePress 构建产物与缓存（不入库）
+docs/.vitepress/cache
+docs/.vitepress/dist
+# og-image 生成中间产物（由 scripts/generate-og-image.mjs 确定性再生，不入库）
+scripts/og-image-template.svg
