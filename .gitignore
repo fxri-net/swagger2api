@@ -5,3 +5,5 @@ dist
 saconfig*.json
 local
 *.tgz
+# @fxri/toolkit 归档排他锁（运行时文件，不入库）
+.archive.lock

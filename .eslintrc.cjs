@@ -56,6 +56,8 @@ module.exports = {
     // in plain CommonJS modules, you can't use `import foo = require('foo')` to pass this rule, so it has to be disabled
     "@typescript-eslint/no-var-requires": "off",
     "@typescript-eslint/no-unused-vars": "off",
+    // 关闭未使用表达式校验（允许短路表达式如 a && doSomething()）
+    "@typescript-eslint/no-unused-expressions": "off",
     "@typescript-eslint/no-explicit-any": "off",
     // The core 'no-unused-vars' rules (in the eslint:recommended ruleset)
     // does not work with type definitions
