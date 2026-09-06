@@ -6,6 +6,14 @@ outline: false
 
 > 完整变更历史以随包发布的 CHANGELOG.md 为准，本页由 `pnpm sync:changelog-doc` 从根 CHANGELOG.md 自动同步，请勿手改。
 
+## 1.2.7
+
+> 2026-09-06 发布
+
+### 🐛 补丁修复
+
+- 新增 VitePress 文档站（GitHub 与 GitLab Pages 双端自动部署），README 重构为橱窗式分层设计并重生成 og-image；全面核对文档与实现一致性，修正无效命令示例（`--quick,-q` 连写、npx 裸名等）与偏差描述，统一 npx 作用域全名口径
+
 ## 1.2.6
 
 > 2026-09-06 发布
