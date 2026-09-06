@@ -12,7 +12,7 @@
 
 分两种情况：
 
-- 没装过：全局安装 `pnpm install -g @fxri/swagger2api`，或直接 `npx swagger2api`
+- 没装过：全局安装 `pnpm install -g @fxri/swagger2api`，或直接 `npx @fxri/swagger2api`
 - 装过其他同名工具：带上作用域全名使用 `npx @fxri/swagger2api`
 
 ### Node 版本要求？
@@ -35,7 +35,7 @@ Node.js >= 20。工具依赖的运行时特性以 node@20 为下限，更低版�
 
 ### 每次生成都要确认一遍参数，太繁琐？
 
-用快速模式 `--quick,-q`：配置文件参数齐全时跳过确认，直接生成。搭配 `package.json` 脚本即一行命令更新接口。
+用快速模式 `--quick`：配置文件参数齐全时跳过确认，直接生成。搭配 `package.json` 脚本即一行命令更新接口。
 
 ### 生成的接口有重名后缀 _1、_2？
 

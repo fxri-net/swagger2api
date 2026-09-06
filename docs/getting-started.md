@@ -37,15 +37,11 @@ yarn add @fxri/swagger2api          # yarn
 ### 方式三：不安装、临时执行
 
 ```bash
-npx swagger2api                     # npm / yarn
+npx @fxri/swagger2api               # npm / yarn
 pnpm dlx @fxri/swagger2api          # pnpm
 ```
 
-零安装先体验。⚠️ 如果本地装过其他名字叫 swagger2api 的工具，需带上作用域全名：
-
-```bash
-npx @fxri/swagger2api
-```
+零安装先体验。⚠️ npx/dlx 必须带上作用域全名 `@fxri/swagger2api`——裸写 `npx swagger2api` 会拉取 npm 上同名的其他包。
 
 ## 生成接口代码
 
@@ -71,7 +67,7 @@ swagger2api
 | `output` | 生成代码的输出目录 |
 | `name` | 接口文件名称，默认后缀为 ts |
 
-生成结束后如参数有改动，配置文件会同步更新。
+生成结束后自动保存配置文件。
 
 ## 调用接口
 

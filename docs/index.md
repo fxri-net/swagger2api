@@ -60,8 +60,8 @@ yarn global add @fxri/swagger2api
 :::
 
 ```sh
-# 交互式生成接口代码
-npx swagger2api
+# 交互式生成接口代码（npx/dlx 均需带作用域全名，裸写会拉取同名其他包）
+npx @fxri/swagger2api
 ```
 
 详细步骤见[新手指南](./getting-started)。
