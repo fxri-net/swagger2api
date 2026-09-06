@@ -59,9 +59,17 @@ export const request = new Api()
 request.getUsers().then((res) => console.log(res))
 ```
 
+### fetch 还是 axios 客户端？
+
+客户端类型默认 fetch；需要 axios（如配合响应拦截器使用）时，透传 swagger-typescript-api 原生参数 `--axios` 即可切换。
+
+### 使用 --extract-response-raw 不生效？
+
+先确认是否传了 `--axios`：该参数仅 axios 客户端模板生效，客户端类型默认 fetch，不传 `--axios` 时该参数无效。生效后返回值结构会变化，需自行声明根部字段并在响应拦截器中设计实际返回值，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err)。
+
 ### 使用 --extract-response-raw 后返回值结构变了？
 
-该参数把 AxiosResponse 返回值转移到 raw 字段，需自行声明根部字段并在响应拦截器中设计实际返回值，两步配合详见[完整攻略 · 提取响应](./guide#提取响应-extract-response-raw)。
+该参数把 AxiosResponse 返回值转移到 raw 字段，需自行声明根部字段并在响应拦截器中设计实际返回值，两步配合详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err)。
 
 ### 更多 swagger-typescript-api 的参数能用吗？
 

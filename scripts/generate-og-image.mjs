@@ -5,7 +5,9 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const logo = readFileSync(join(root, "docs", "public", "logo.png"))
+// 高清原图（非 docs 导航用的迷你版），保证 1024×512 卡片上图标清晰；
+// 素材在本仓库外，路径经环境变量 OG_LOGO 覆盖（本机指向方弦设计素材目录）
+const logo = readFileSync(process.env.OG_LOGO ?? join(root, "docs", "public", "logo.png"))
 
 // 底色取自品牌图标紫（方弦图标-圆形.png 的主色），标题/副标题文案随站点定位
 const svg = `<svg width="1024" height="512" xmlns="http://www.w3.org/2000/svg">

@@ -1,206 +1,92 @@
-# @fxri/swagger2api
+<p align="center">
+  <img src="./docs/public/logo.png" width="128" alt="Swagger 转 API">
+</p>
 
-基于 swagger-typescript-api，将 Swagger 文档自动转为 TS/JS 格式的 API 文件。
+# Swagger 转 API
 
-## ✨ 特性
+[![npm version](https://img.shields.io/npm/v/@fxri/swagger2api)](https://www.npmjs.com/package/@fxri/swagger2api)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](./docs/getting-started.md#安装)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-- 🚀 **快速生成** - 从 Swagger JSON 快速生成 TS/JS 接口代码。
-- 📁 **特性区别** - 利用现有参数拼接了新的 operationId 字段，避免了重名接口会出现【_n】后缀的情况。
-- 📝 **拼接规则** - 将接口地址与请求方法拼接作为唯一ID，通过可选参数，将不带【{.+}】参数的【get】改为【query】作区分，然后移除【{.+}】参数，并移除地址的第一个参数。
-- ⚙️ **环境依赖** - 工具需要在 node@20 及以上运行时环境下使用。
-- 🔧 **CLI 工具** - 更多参数可查看 swagger-typescript-api 官方文档。
+> 国内网络建议优先 [Gitee 镜像](https://gitee.com/fxri/swagger2api)（与 GitHub 同源同步）；问题反馈走 [GitHub Issues](https://github.com/fxri-net/swagger2api/issues) 或 [Gitee Issues](https://gitee.com/fxri/swagger2api/issues)。
 
-## 💡 功能简介
+基于 [swagger-typescript-api](https://github.com/acacode/swagger-typescript-api) 封装的 CLI 工具：Swagger 文档一键转 TS/JS 格式的 API 文件。
 
-### 快速模式
+后端给到 Swagger 文档，接口代码还要照着手写；接口一多重名 `_n` 后缀满屏；多个项目的接口配置散落各处，更新要挨个跑命令。本工具把这些沉淀为**一行命令**：配置落盘可复用，生成静默无感，调用即取即用。
 
-1.直接使用配置文件参数，若配置文件不存在或者参数不全（如第一次运行该工具），则不会进入该模式。
+- **多文档配置**：自动扫描项目下全部 `saconfig*.json`，多项目接口集中管理，搭配快速模式一行命令全量更新（[怎么玩？](./docs/guide.md#多文档配置)）
+- **唯一 operationId**：接口地址 + 请求方法拼接，从源头告别 `_n` 重名后缀（[拼接规则](./docs/guide.md#唯一-operationid-拼接规则)）
+- **不懂生成的代码也能用**：接口文件含请求方法与类型定义，导入即调；参数全部有默认值，交互引导填写（[30 秒上手](./docs/getting-started.md)）
 
-### 指定配置
-
-1.指定配置文件路径，支持多选，用【,】分隔。
-
-2.使用该参数则不会触发扫描全部配置文件功能。
-
-### 多文档配置
-
-1.默认配置文件为saconfig.json，项目启动后会扫描当前项目下所有符合【./**/saconfig*.json】规则的文件（如【saconfig.json】【saconfig.admin.json】【config/saconfig.json】等），并在扫描到多个文件时提供选择列表，如只有一个文件，则直接进入下一步，该功能可在配置项中关闭。
-
-2.此功能扩展使用的话，可以作为一个独立工具使用，同时管理多个项目的接口配置。
-
-3.搭配上快速模式和加载全部配置文件参数，可以实现一行命令更新所有项目的接口配置。
-
-## 📦 安装
-
-pnpm
+## 🚀 30 秒上手
 
 ```bash
-# 全局安装
-pnpm install -g @fxri/swagger2api
+# 1. 项目目录下临时执行（免安装；已安装则直接 swagger2api）
+pnpm dlx @fxri/swagger2api
+
+# 2. 按提示填写 Swagger 文档地址、输出目录、文件名
+#    自动生成接口代码与 saconfig.json 配置文件
 ```
-
-```bash
-# 项目依赖
-pnpm install @fxri/swagger2api
-```
-
-yarn
-
-```bash
-# 全局安装
-yarn global add @fxri/swagger2api
-```
-
-```bash
-# 项目依赖
-yarn add @fxri/swagger2api
-```
-
-## 📝 PNPM 脚本
-
-在 `package.json` 中添加：
-
-生成 axios http 客户端，生成有关请求响应的附加信息，移除第一个前缀索引，使用快速模式。
-
-```json
-{
-  "scripts": {
-    "api": "swagger2api --axios --responses -q -rpi 0 -err"
-  }
-}
-
-{
-  "scripts": {
-    "api": "npx @fxri/swagger2api --axios --responses -q -rpi 0 -err"
-  }
-}
-```
-
-## 🚀 快速开始
-
-### 1. 生成接口代码
-
-如果没装过其他名字叫 swagger2api 的工具，那么在 shell 中直接使用就行，如果装过同名工具，则需要带上 @fxri 作用域。
-
-```bash
-npx swagger2api
-```
-
-```bash
-npx @fxri/swagger2api
-```
-
-### 2. 配置文件说明
-
-工具在脚本执行目录生成配置文件，作为生成接口时的默认参数，生成代码结束后，如果参数有改动，则会更新配置文件：
-
-```json
-{
-  "url": "https://example.com/v3/api-docs",
-  "output": "./src/api",
-  "name": "index"
-}
-```
-
-### 3. 调用接口
-
-直接调用生成的API类方法：
 
 ```typescript
-import { Api } from "./api"
+import { Api } from "./src/api/index"
+
 /** 请求器 */
 export const request = new Api()
 request.getUsers().then((res) => console.log(res))
 ```
 
-### 4. 提取响应（如没有使用提取响应参数，则忽略该项）
+完整步骤见 [新手指南](./docs/getting-started.md)。
 
-声明自定义的根部字段（以下字段为示例，请根据实际情况自行调整）：
+## ✨ 能力矩阵
 
-```typescript
-declare module "." {
-  interface AxiosResponse<T extends Record<string, any> = any> {
-    /** 状态代码 */
-    code: number
-    /** 提示信息 */
-    message: string
-    /** 响应数据 */
-    data: T["data"]
+| 能力 | 适用场景 | 文档 |
+| --- | --- | --- |
+| 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [新手指南](./docs/getting-started.md) |
+| 多文档配置 | 自动扫描 `./**/saconfig*.json`，多项目接口配置集中管理 | [完整攻略](./docs/guide.md#多文档配置) |
+| 快速模式 | 配置齐全时跳过二次确认，搭配脚本一行命令静默更新 | [完整攻略](./docs/guide.md#快速模式) |
+| 唯一 operationId | 接口地址 + 请求方法拼接唯一 ID，可选 get 转 query 作区分 | [完整攻略](./docs/guide.md#唯一-operationid-拼接规则) |
+| 灵活裁剪 | 移除路径参数 / 前缀索引、替换标签、移除空组件定义 | [CLI 参考](./docs/cli.md#配置选项) |
+| 响应提取 | AxiosResponse 转移到 raw 字段，根部字段自行声明 | [完整攻略](./docs/guide.md#提取响应--extract-response-raw-err) |
+| STA 参数透传 | swagger-typescript-api 原生参数全量可用 | [CLI 参考](./docs/cli.md) |
+
+## 📚 文档
+
+| 文档 | 适合谁 |
+| --- | --- |
+| [新手指南](./docs/getting-started.md) | 第一次接触，想 30 秒跑起来 |
+| [完整攻略](./docs/guide.md) | 日常使用：三种模式、响应提取、配置文件 |
+| [CLI 参考](./docs/cli.md) | 查命令、参数、默认值 |
+| [FAQ](./docs/faq.md) | 遇到问题先来这里找 |
+| [完整文档站](https://fxri-net.github.io/swagger2api/) | 在线阅读体验 |
+
+## 📦 安装
+
+```bash
+pnpm add -D @fxri/swagger2api   # 项目依赖（团队推荐，版本随仓库锁定）
+pnpm i -g @fxri/swagger2api     # 全局（个人多项目推荐）
+pnpm dlx @fxri/swagger2api      # 不安装临时执行
+```
+
+npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/getting-started.md#安装)。
+
+## 📁 多文档配置
+
+默认配置文件为 `saconfig.json`；工具会扫描项目下所有 `saconfig*.json`（如 `saconfig.admin.json`、`config/saconfig.json`），多文件时提供选择列表。搭配快速模式与加载全部配置参数，`package.json` 一行脚本即可静默更新所有项目的接口代码：
+
+```json
+{
+  "scripts": {
+    "api": "swagger2api --axios --responses -q -rpi 0 -err -ca"
   }
 }
 ```
 
-根据已声明字段，配置对应的返回值：
+此功能扩展使用的话，可以作为一个独立工具使用，同时管理多个项目的接口配置。详见 [完整攻略 · 多文档配置](./docs/guide.md#多文档配置)。
 
-```typescript
-// 响应拦截
-client.instance.interceptors.response.use(
-  (response) => ({ code: 0, message: "", data: null, raw: response }),
-  (error) => ({ code: -1, message: error.message, data: null, raw: error })
-)
-```
+## ⚙️ 环境要求
 
-每个方法会返回 Promise，可通过 async/await 或 .then() 处理响应。
-
-## ⚙️ 配置选项
-
-| 选项 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `url` | string | - | Swagger JSON 文件路径或 URL |
-| `output` | string | `'./src/api'` | 生成代码的输出目录 |
-| `name` | string | `'index'` | 接口文件名称，默认后缀为ts |
-| `--quick,-q` | boolean | `false` | 快速模式，直接使用配置文件参数，不再二次确认参数 |
-| `--config,-c` | string | `'saconfig.json'` | 填写配置文件路径，支持多选，用【,】分隔 |
-| `--config-all,-ca` | boolean | `false` | 加载全部配置文件，不进行选择 |
-| `--config-scan,-cs` | boolean | `true` | 扫描全部配置文件，并提供选择列表 |
-| `--replace-tags,-rt` | string[] | - | 替换标签，2个参数，第1个正则表达式（已包含^$头尾），第2个替换字符串 |
-| `--convert-get,-cg` | boolean | `false` | 转换无{.+}get为query |
-| `--remove-param,-rp` | boolean | `false` | 移除{.+}参数 |
-| `--remove-prefix-index,-rpi` | number | `-1` | 移除前缀索引 |
-| `--remove-dts,-rd` | boolean | `false` | 移除使用--js参数时生成的d.ts文件 |
-| `--remove-empty-components,-rec` | boolean | `true` | 移除空组件定义 |
-| `--extract-request-query,-erq` | string | - | 提取参数，将query参数中的指定对象字段提取为根部字段，支持多选，用【,】分隔，每个接口只提取第一次命中的字段 |
-| `--extract-response-raw,-err` | boolean | `false` | 提取响应，将AxiosResponse返回值转移到raw字段，根部字段自行定义，使用该参数需在响应拦截中重新设计实际的返回值 |
-
-扩展：[更多 swagger-typescript-api 配置选项](https://fig.io/manual/swagger-typescript-api)
-
-## 🔧 CLI 命令
-
-```bash
-# 快速模式，直接使用配置文件参数，不再二次确认参数
-
-npx swagger2api [--quick,-q] [--quick,-q <boolean>]
-
-npx @fxri/swagger2api [--quick,-q] [--quick,-q <boolean>]
-```
-
-```bash
-# 填写配置文件路径，支持多选，用【,】分隔，使用该配置后则不会触发配置扫描功能
-
-npx swagger2api [--config,-c <path>]
-
-npx @fxri/swagger2api [--config,-c <path>]
-```
-
-```bash
-# 移除前缀索引
-
-npx swagger2api [--remove-prefix-index,-rpi <number>]
-
-npx @fxri/swagger2api [--remove-prefix-index,-rpi <number>]
-```
-
-```bash
-# 替换标签，2个参数，第1个正则表达式（已包含^$头尾），第2个替换字符串
-
-npx swagger2api [--replace-tags,-rt <regexp> <substr>]
-
-npx @fxri/swagger2api [--replace-tags,-rt <regexp> <substr>]
-```
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
+- Node.js >= 20
 
 ## 📄 版权信息
 

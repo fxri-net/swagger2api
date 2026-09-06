@@ -34,6 +34,8 @@
 
 ## 提取响应（--extract-response-raw,-err）
 
+> ⚠️ 该参数仅 axios 客户端生效：需搭配 swagger-typescript-api 原生参数 `--axios` 使用。客户端类型默认 fetch，不传 `--axios` 时该参数无效。
+
 使用 `--extract-response-raw,-err` 后，AxiosResponse 返回值转移到 raw 字段，需两步配合：
 
 ### 1. 声明自定义的根部字段
@@ -68,6 +70,8 @@ client.instance.interceptors.response.use(
 ## 提取参数（--extract-request-query,-erq）
 
 将 query 参数中的指定对象字段提取为根部字段，支持多选，用【,】分隔，每个接口只提取第一次命中的字段。
+
+该替换发生在类型声明层面：生成代码时把 query 参数的类型表达式整体替换为提取后的根部字段类型，运行时调用逻辑不变，请求时按新类型传参即可。
 
 适用场景：后端把分页、筛选等公共参数包在 query 的一个对象里，提取后调用方直接传根部字段，不必层层嵌套。
 
