@@ -6,21 +6,29 @@ outline: false
 
 > 完整变更历史以随包发布的 CHANGELOG.md 为准，本页由 `pnpm sync:changelog-doc` 从根 CHANGELOG.md 自动同步，请勿手改。
 
+## 1.2.8
+
+> 2026-09-15 发布
+
+### ⚡ 优化改进
+
+- CHANGELOG 统一为 toolkit 现行口径——分组标题改用 9 语义槽位命名，条目剥离冗余类型前缀（类型已由分组标题承接）
+
 ## 1.2.7
 
 > 2026-09-06 发布
 
 ### ✨ 新增功能
 
-- 新增：新增 VitePress 文档站（GitHub 与 GitLab Pages 双端自动部署）
+- 新增 VitePress 文档站（GitHub 与 GitLab Pages 双端自动部署）
 
 ### 🐛 问题修复
 
-- 修复：全面核对文档与实现一致性，修正无效命令示例（`--quick,-q` 连写、npx 裸名等）与偏差描述，统一 npx 作用域全名口径
+- 全面核对文档与实现一致性，修正无效命令示例（`--quick,-q` 连写、npx 裸名等）与偏差描述，统一 npx 作用域全名口径
 
 ### 📝 文档更新
 
-- 文档：README 重构为橱窗式分层设计并重新生成 og-image
+- README 重构为橱窗式分层设计并重新生成 og-image
 
 ## 1.2.6
 
@@ -28,7 +36,7 @@ outline: false
 
 ### ⚡ 优化改进
 
-- 优化：升级生产依赖 glob 至 v13，修复依赖漏洞与 deprecated 告警，CLI 行为无变化
+- 升级生产依赖 glob 至 v13，修复依赖漏洞与 deprecated 告警，CLI 行为无变化
 
 ## 1.2.5
 
@@ -36,7 +44,7 @@ outline: false
 
 ### ⚡ 优化改进
 
-- 优化：发布清单补充 CHANGELOG.md 与 LICENSE，npm 包内可直接查看更新日志与许可信息
+- 发布清单补充 CHANGELOG.md 与 LICENSE，npm 包内可直接查看更新日志与许可信息
 
 ## 1.2.4
 
@@ -44,7 +52,7 @@ outline: false
 
 ### ⚡ 优化改进
 
-- 优化：移除项目内 @fxri/toolkit 依赖，工程化能力（任务管理、变更集、发版）统一改用全局安装的 toolkit（1.6.1），包产物无任何变化
+- 移除项目内 @fxri/toolkit 依赖，工程化能力（任务管理、变更集、发版）统一改用全局安装的 toolkit（1.6.1），包产物无任何变化
 
 ## 1.2.3
 
@@ -60,11 +68,11 @@ outline: false
 
 ### ⚡ 优化改进
 
-- 优化：升级 @fxri/toolkit 至 1.6.1（含 tasks archive 双重 CR 换行修复）
+- 升级 @fxri/toolkit 至 1.6.1（含 tasks archive 双重 CR 换行修复）
 
 ### 📝 文档更新
 
-- 文档：更新方弦 ® 注册商标信息（商标状态由申请中更新为已核准注册，第 42 类注册号 89648411）
+- 更新方弦 ® 注册商标信息（商标状态由申请中更新为已核准注册，第 42 类注册号 89648411）
 
 ## 1.2.1
 
@@ -72,7 +80,7 @@ outline: false
 
 ### ⚡ 优化改进
 
-- 优化：升级核心依赖（axios 1.12 → 1.20、swagger-typescript-api 13.2 → 13.12、tsup 8.5.0 → 8.5.1、@fxri/toolkit 1.1.3 → 1.3.0）
+- 升级核心依赖（axios 1.12 → 1.20、swagger-typescript-api 13.2 → 13.12、tsup 8.5.0 → 8.5.1、@fxri/toolkit 1.1.3 → 1.3.0）
 
 ## 1.2.0
 
@@ -80,7 +88,7 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：接入 @fxri/toolkit，引入 changesets 变更集发版流程与 .tasks 任务管理（纯工程化，不影响 API）
+- 接入 @fxri/toolkit，引入 changesets 变更集发版流程与 .tasks 任务管理（纯工程化，不影响 API）
 
 ## 1.1.13
 
@@ -88,7 +96,7 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：移除空组件定义（--remove-empty-components 参数）
+- 移除空组件定义（--remove-empty-components 参数）
 
 ## 1.1.12
 
@@ -96,7 +104,7 @@ outline: false
 
 ### 🐛 问题修复
 
-- 修复：提取参数时将可能存在的引号包含在内
+- 提取参数时将可能存在的引号包含在内
 
 ## 1.1.11
 
@@ -104,7 +112,7 @@ outline: false
 
 ### 🔧 功能调整
 
-- 修改：提取响应接口改为 AxiosResponse
+- 提取响应接口改为 AxiosResponse
 
 ## 1.1.10
 
@@ -112,7 +120,7 @@ outline: false
 
 ### 🔧 功能调整
 
-- 修改：提取响应接口改为 AxiosResponseRaw
+- 提取响应接口改为 AxiosResponseRaw
 
 ## 1.1.9
 
@@ -120,7 +128,7 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：替换标签支持 2 个参数（正则表达式 + 替换字符串）
+- 替换标签支持 2 个参数（正则表达式 + 替换字符串）
 
 ## 1.1.8
 
@@ -128,7 +136,7 @@ outline: false
 
 ### 🐛 问题修复
 
-- 修复：提取响应模板配置错误
+- 提取响应模板配置错误
 
 ## 1.1.7
 
@@ -136,7 +144,7 @@ outline: false
 
 ### 🔧 功能调整
 
-- 修改：调整打包逻辑
+- 调整打包逻辑
 
 ## 1.1.6
 
@@ -144,8 +152,8 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：提取响应，将 AxiosResponse 返回值转移到 raw 字段，根部字段自行定义
-- 新增：提取参数，将 query 参数中的指定对象字段提取为根部字段，支持多选
+- 提取响应，将 AxiosResponse 返回值转移到 raw 字段，根部字段自行定义
+- 提取参数，将 query 参数中的指定对象字段提取为根部字段，支持多选
 
 ## 1.1.5
 
@@ -153,7 +161,7 @@ outline: false
 
 ### 🔧 功能调整
 
-- 修改：debug 模式使用更精简的配置
+- debug 模式使用更精简的配置
 
 ## 1.1.4
 
@@ -161,7 +169,7 @@ outline: false
 
 ### 🐛 问题修复
 
-- 修复：默认开启扫描全部配置文件
+- 默认开启扫描全部配置文件
 
 ## 1.1.3
 
@@ -169,7 +177,7 @@ outline: false
 
 ### 🐛 问题修复
 
-- 修复：读取配置文件前先初始化参数
+- 读取配置文件前先初始化参数
 
 ## 1.1.2
 
@@ -177,7 +185,7 @@ outline: false
 
 ### 🔧 功能调整
 
-- 修改：调整 --remove-dts 参数
+- 调整 --remove-dts 参数
 
 ## 1.1.1
 
@@ -185,7 +193,7 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：多文档配置，默认文档改为 saconfig.json
+- 多文档配置，默认文档改为 saconfig.json
 
 ## 1.1.0
 
@@ -193,11 +201,11 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：引入 tsup 构建，支持 cjs / esm / dts 多格式产物
+- 引入 tsup 构建，支持 cjs / esm / dts 多格式产物
 
 ### 🔧 功能调整
 
-- 修改：拆分脚本入口，接口生成改用导入执行
+- 拆分脚本入口，接口生成改用导入执行
 
 ## 1.0.15
 
@@ -205,8 +213,8 @@ outline: false
 
 ### ✨ 新增功能
 
-- 新增：快速模式，直接使用配置文件参数
-- 新增：支持 -rd 移除使用 --js 参数时生成的 d.ts 文件
+- 快速模式，直接使用配置文件参数
+- 支持 -rd 移除使用 --js 参数时生成的 d.ts 文件
 
 ## 1.0.0
 
@@ -214,4 +222,4 @@ outline: false
 
 ### 🚨 重大变更
 
-- 重大：首个版本，上传项目并完成基于 swagger-typescript-api 的接口代码生成基础功能
+- 首个版本，上传项目并完成基于 swagger-typescript-api 的接口代码生成基础功能
