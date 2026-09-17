@@ -1,47 +1,46 @@
-# 文档站部署到 GitLab Pages（origin 自建 GitLab 实例）。
-# 仅 docs 相关文件变更时触发；构建产物为 VitePress 默认输出目录 public/。
+# GitLab CI：完整检查（test）+ 文档站构建部署（pages，origin 自建 GitLab 实例）。
+# test 的验收步骤清单唯一真源是 scripts/verify.mjs，此处只调用，不在 CI 里另写一份步骤，避免清单漂移。
+# 分支口径统一用 $CI_DEFAULT_BRANCH，不写死分支名；两类 job 各写一份 rules，不再额外加 workflow.rules 重复一遍。
 # 站点路径为项目页子路径 /swagger2api/，与 config.mts 默认 base 一致，无需注入 VITEPRESS_BASE。
 # ⚠️ 自建实例需确认 Pages 服务已启用（管理区 Settings > Preferences > Pages），
 #    首次部署后在 项目 > Deploy > Pages 查看访问地址。
-image: node:20
+stages:
+  - test
+  - deploy
 
-workflow:
+test:
+  # 与 .node-version 对齐，避免与 GitHub Actions 两侧 node 版本漂移
+  image: node:20.20.2
+  stage: test
+  before_script:
+    # corepack 按 package.json#packageManager 激活 pnpm，无需在此重复声明版本
+    - corepack enable
+  script:
+    - pnpm verify
   rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - docs/**/*
-        - scripts/sync-changelog-doc.mjs
-        - .gitlab-ci.yml
-        - package.json
-        - pnpm-lock.yaml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 pages:
+  image: node:20.20.2
   stage: deploy
-  cache:
-    key:
-      files:
-        - pnpm-lock.yaml
-    paths:
-      - .pnpm-store/
   before_script:
-    # 启用 corepack 按 package.json#packageManager 固定 pnpm 版本
     - corepack enable
-    - corepack prepare pnpm@10.34.4 --activate
-    - pnpm config set store-dir .pnpm-store/
-    - pnpm install --frozen-lockfile
   script:
+    - pnpm install --frozen-lockfile
     # 同步更新日志进文档站后构建，GitLab Pages 规定产物必须位于 public/
     - node scripts/sync-changelog-doc.mjs
     - pnpm docs:build
-    - mv docs/.vitepress/dist public
+    - rm -rf public && mv docs/.vitepress/dist public
   artifacts:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+    # CHANGELOG.md 会改变更新日志页内容，必须一并纳入触发路径
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       changes:
         - docs/**/*
         - scripts/sync-changelog-doc.mjs
+        - CHANGELOG.md
         - .gitlab-ci.yml
         - package.json
         - pnpm-lock.yaml

@@ -91,7 +91,7 @@ export default defineConfig({
     lastUpdated: { text: '最后更新于' },
     // 页脚「在 GitHub 上编辑此页」跳转目标
     editLink: {
-      pattern: `${repo}/edit/master/docs/:path`,
+      pattern: `${repo}/edit/main/docs/:path`,
       text: '在 GitHub 上编辑此页',
     },
     // 全站页脚
