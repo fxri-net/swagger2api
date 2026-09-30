@@ -6,10 +6,13 @@ saconfig*.json
 local
 *.tgz
 .eslintcache
-# @fxri/toolkit 归档排他锁（运行时文件，不入库）
 .archive.lock
 # VitePress 构建产物与缓存（不入库）
 docs/.vitepress/cache
 docs/.vitepress/dist
 # og-image 生成中间产物（由 scripts/generate-og-image.mjs 确定性再生，不入库）
 scripts/og-image-template.svg
+
+# @fxri/toolkit 忽略片段（运行时文件与个人本地配置，不入库）
+# 不想改团队 .gitignore 者，可把这些忽略行写进 .git/info/exclude（本地排除、不进版本控制）
+.toolkitrc.local.json
