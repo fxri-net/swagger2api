@@ -88,6 +88,10 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 - Node.js >= 20
 
+## 🛠️ 开发约定
+
+仓库级能力变更门禁、验收顺序与协作约束见 [AGENTS.md](./AGENTS.md)；提交信息遵循 `.trae/rules/git-commit-message.md`。
+
 ## 📄 版权信息
 
 作者：唐启云 <tqy@fxri.net>
