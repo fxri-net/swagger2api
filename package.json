@@ -29,7 +29,7 @@
     "lint:fix": "eslint \"src/**/*.ts\" \"scripts/**/*.mjs\" --fix",
     "verify": "node scripts/verify.mjs",
     "release": "pnpm build && pnpm publish",
-    "sync:changelog-doc": "node scripts/sync-changelog-doc.mjs",
+    "sync:changelog-doc": "toolkit changelog doc",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",

@@ -42,8 +42,7 @@ pages:
     - toolchain:ensure
   script:
     - pnpm install --frozen-lockfile
-    # 同步更新日志进文档站后构建，GitLab Pages 规定产物必须位于 public/
-    - node scripts/sync-changelog-doc.mjs
+    # 镜像由 AI 在开发过程中生成并随提交入库，流水线只构建；GitLab Pages 规定产物必须位于 public/
     - pnpm docs:build
     - rm -rf public && mv docs/.vitepress/dist public
   artifacts:
@@ -54,7 +53,7 @@ pages:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       changes:
         - docs/**/*
-        - scripts/sync-changelog-doc.mjs
+        - scripts/check-changelog-doc.mjs
         - CHANGELOG.md
         - .gitlab-ci.yml
         - package.json

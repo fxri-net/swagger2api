@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'scripts/sync-changelog-doc.mjs'
+      - 'scripts/check-changelog-doc.mjs'
       - '.github/workflows/deploy-docs.yml'
       - 'CHANGELOG.md'
       - 'package.json'

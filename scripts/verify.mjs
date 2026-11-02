@@ -24,23 +24,12 @@ function readTrimmed(file) {
 }
 
 /**
- * 校验更新日志镜像页与根 CHANGELOG.md 是否同步。
+ * 校验更新日志镜像页与根 CHANGELOG.md 是否同步；未安装全局 toolkit 时打印跳过。
  * @return {number} 进程退出码，0 表示同步
  */
 function checkChangelogSync() {
-  const page = join(root, "docs", "changelog.md")
-  // 换行归一化：本地 core.autocrlf 检出与 CI 换行符不同，直接比对会把换行差异误报成「未同步」
-  const normalize = (text) => text.replace(/\r\n/g, "\n")
-  const before = normalize(readFileSync(page, "utf8"))
-
-  const result = spawnSync(process.execPath, [join(root, "scripts", "sync-changelog-doc.mjs")], { cwd: root, stdio: "inherit" })
-  if (result.status !== 0) return result.status ?? 1
-
-  if (normalize(readFileSync(page, "utf8")) !== before) {
-    console.error("✖ docs/changelog.md 与根 CHANGELOG.md 不同步，已重新生成，请连同本次变更一并提交")
-    return 1
-  }
-  return 0
+  const result = spawnSync(process.execPath, [join(root, "scripts", "check-changelog-doc.mjs")], { cwd: root, stdio: "inherit" })
+  return result.status ?? 1
 }
 
 /**
