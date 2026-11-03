@@ -6,6 +6,14 @@ outline: [2, 2]
 
 > 完整变更历史以根 `CHANGELOG.md` 为准，本页由 `toolkit changelog doc` 自动同步，请勿手改。
 
+## 1.2.13
+
+> 2026-11-03 发布
+
+### 📝 文档更新
+
+- 环境要求中的 Node.js 版本对齐 package.json 的 engines（>=20.19.0）
+
 ## 1.2.12
 
 > 2026-11-03 发布
