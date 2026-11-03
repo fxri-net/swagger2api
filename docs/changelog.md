@@ -6,6 +6,15 @@ outline: [2, 2]
 
 > 完整变更历史以根 `CHANGELOG.md` 为准，本页由 `toolkit changelog doc` 自动同步，请勿手改。
 
+## 1.2.12
+
+> 2026-11-03 发布
+
+### ⚡ 优化改进
+
+- 统一 package.json 元数据，补齐 publishConfig.access、repository 的 git+ 前缀、文档站 homepage 与 keywords，engines 对齐 node >=20.19.0，bin 改为对象形式
+- tasks、changeset 等脚本改为经包装脚本调用全局 toolkit，未安装时跳过、设置 FX_REQUIRE_TOOLKIT=1 时失败
+
 ## 1.2.11
 
 > 2026-11-03 发布
