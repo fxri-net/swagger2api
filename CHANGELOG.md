@@ -1,5 +1,29 @@
 # @fxri/swagger2api
 
+## 1.2.9
+
+> 2026-11-03 发布
+
+### ✨ 新增功能
+
+- 仓库级三方一致质量门，统一实现、文档与变更集校验
+
+### ⚡ 优化改进
+
+- CHANGELOG 文档镜像改用全局 `toolkit changelog doc`，删除本地重复脚本
+- 验收与文档部署不再依赖本地同步脚本，未安装全局 toolkit 时跳过镜像检查
+- 文档站接入统一主题，公共视觉规则由 toolkit 分发
+- README 移除内部协作规则引用，更新日志去除发布运维细节
+- 验收脚本补文档链接与新增变更集检查
+
+### 🐛 问题修复
+
+- 升级 axios / glob / swagger-typescript-api 并用 overrides 锁定 transitives，清除生产依赖漏洞
+
+### 📝 文档更新
+
+- README 补充 AGENTS.md 入口
+
 ## 1.2.8
 
 > 2026-09-15 发布
