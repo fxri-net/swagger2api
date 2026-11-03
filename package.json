@@ -8,9 +8,19 @@
     "email": "tqy@fxri.net",
     "url": "https://fxri.net:444/"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fxri-net/swagger2api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fxri-net/swagger2api/issues"
+  },
+  "homepage": "https://fxri-net.github.io/swagger2api/",
   "type": "module",
   "main": "./dist/index.js",
-  "bin": "./dist/cli.js",
+  "bin": {
+    "swagger2api": "dist/cli.js"
+  },
   "files": [
     "dist",
     "README.md",
@@ -27,23 +37,29 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"scripts/**/*.mjs\" --no-cache",
     "lint:fix": "eslint \"src/**/*.ts\" \"scripts/**/*.mjs\" --fix",
+    "changeset": "node scripts/toolkit.mjs changelog",
+    "changelog:version": "node scripts/toolkit.mjs changelog version",
+    "sync:changelog-doc": "node scripts/toolkit.mjs changelog doc",
+    "tasks": "node scripts/toolkit.mjs tasks",
+    "tasks:archive": "node scripts/toolkit.mjs tasks archive",
     "verify": "node scripts/verify.mjs",
     "release": "pnpm build && pnpm publish",
-    "sync:changelog-doc": "toolkit changelog doc",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "api": "pnpm dev --axios --responses -q -rpi 0 -err",
-    "tasks": "toolkit tasks",
-    "tasks:archive": "toolkit tasks archive",
-    "changeset": "toolkit changelog",
-    "version": "toolkit changelog version"
+    "api": "pnpm dev --axios --responses -q -rpi 0 -err"
   },
   "keywords": [
     "swagger",
     "typescript",
-    "api"
+    "api",
+    "openapi",
+    "fxri"
   ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "packageManager": "pnpm@10.34.4",
   "dependencies": {
     "axios": "^1.21.0",
     "glob": "^14.0.3",
@@ -63,6 +79,10 @@
     "typescript": "^5.9.3",
     "vitepress": "^1.6.4"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
@@ -79,20 +99,5 @@
       "vite>esbuild": "^0.25.0",
       "source-map-js": "^1.2.2"
     }
-  },
-  "packageManager": "pnpm@10.34.4",
-  "engines": {
-    "node": ">=20"
-  },
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
-  },
-  "homepage": "https://github.com/fxri-net/swagger2api#readme",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/fxri-net/swagger2api.git"
-  },
-  "bugs": {
-    "url": "https://github.com/fxri-net/swagger2api/issues"
   }
 }
