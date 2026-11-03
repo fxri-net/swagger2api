@@ -90,7 +90,7 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 ## 🛠️ 开发约定
 
-仓库级能力变更门禁、验收顺序与协作约束见 [AGENTS.md](./AGENTS.md)；提交信息遵循 `.trae/rules/git-commit-message.md`。
+构建、调试与验收命令见[完整攻略](https://fxri-net.github.io/swagger2api/guide.html)。
 
 ## 📄 版权信息
 

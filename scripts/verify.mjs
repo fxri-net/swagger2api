@@ -120,6 +120,20 @@ function checkDocLinks() {
 }
 
 /**
+ * 文档站主题一致性：全局 toolkit 可用时执行 docs theme --check，未安装时打印跳过（远程 CI 不依赖该工具）。
+ * @return {number} 退出码
+ */
+function checkDocsTheme() {
+  const probe = spawnSync("toolkit", ["docs", "theme", "--help"], { encoding: "utf8", shell: isWindows })
+  if (probe.status !== 0) {
+    console.log("跳过文档站主题检查（未检测到 toolkit docs theme）")
+    return 0
+  }
+  const result = spawnSync("toolkit", ["docs", "theme", "--check"], { stdio: "inherit", shell: isWindows })
+  return result.status ?? 1
+}
+
+/**
  * 变更集一致性：触及 src/ 或手写 docs 的改动须新增变更集；docs/changelog.md 为生成物，不触发。
  * @return {number} 退出码
  */
@@ -207,6 +221,7 @@ const steps = [
   { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: skipDocs },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "更新日志同步核验", run: checkChangelogSync },
+  { label: "文档站主题一致性", run: checkDocsTheme },
   { label: "文档链接可达性", run: checkDocLinks },
   { label: "变更集一致性", run: checkChangeset },
 ]
