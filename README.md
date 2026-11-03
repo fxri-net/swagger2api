@@ -4,9 +4,11 @@
 
 # Swagger 转 API
 
+[![CI](https://github.com/fxri-net/swagger2api/actions/workflows/ci.yml/badge.svg)](https://github.com/fxri-net/swagger2api/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@fxri/swagger2api)](https://www.npmjs.com/package/@fxri/swagger2api)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](./docs/getting-started.md#安装)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![文档站](https://img.shields.io/badge/docs-fxri--net.github.io%2Fswagger2api-blueviolet)](https://fxri-net.github.io/swagger2api/)
 
 > 国内网络建议优先 [Gitee 镜像](https://gitee.com/fxri/swagger2api)（与 GitHub 同源同步）；问题反馈走 [GitHub Issues](https://github.com/fxri-net/swagger2api/issues) 或 [Gitee Issues](https://gitee.com/fxri/swagger2api/issues)。
 
