@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -13,6 +13,15 @@ const flags = new Set(process.argv.slice(2))
 const skipDocs = flags.has("--skip-docs")
 const skipLinks = flags.has("--skip-links")
 const skipChangeset = flags.has("--skip-changeset")
+// --full 强制全量：忽略本地改动面与安装缓存判断，等价于 CI 口径
+const full = flags.has("--full")
+// CI 环境一律全量：本地裁剪只服务于开发效率，不能让 CI 漏检安装与死链
+const ciValue = process.env.CI ?? ""
+const isCI = ciValue !== "" && ciValue !== "0" && ciValue.toLowerCase() !== "false"
+
+// 文档站构建触发面：站点输入含文档正文与内链，根 CHANGELOG 会同步进 docs，依赖清单决定构建工具版本
+const DOC_TOUCH_PREFIXES = ["docs/"]
+const DOC_TOUCH_FILES = new Set(["CHANGELOG.md", "README.md", "package.json", "pnpm-lock.yaml"])
 
 /**
  * 读取文本文件并去除首尾空白。
@@ -211,14 +220,58 @@ function smokeExports() {
   return result.status ?? 1
 }
 
+/**
+ * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
+ * @param {string[]} args git 参数
+ * @return {string[] | null} 输出行或 null
+ */
+function gitLines(args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" })
+  if (result.status !== 0) return null
+  return (result.stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+}
+
+/**
+ * 本次是否需要构建文档站：拿不到改动面时保守执行。
+ * @return {boolean} true 表示执行 docs:build
+ */
+function needDocsBuild() {
+  if (isCI || full) return true
+  const tracked = gitLines(["diff", "--name-only", "HEAD"])
+  const untracked = gitLines(["ls-files", "--others", "--exclude-standard"])
+  if (tracked === null || untracked === null) return true
+  for (const file of [...tracked, ...untracked]) {
+    if (DOC_TOUCH_FILES.has(file)) return true
+    if (DOC_TOUCH_PREFIXES.some((prefix) => file.startsWith(prefix))) return true
+  }
+  return false
+}
+
+/**
+ * 依赖是否需要重装：lockfile 比已安装快照新，或安装目录缺失。
+ * @return {boolean} true 表示执行 pnpm install
+ */
+function needInstall() {
+  if (isCI || full) return true
+  try {
+    return statSync(join(root, "pnpm-lock.yaml")).mtimeMs > statSync(join(root, "node_modules", ".pnpm", "lock.yaml")).mtimeMs
+  } catch {
+    return true
+  }
+}
+
+const installNeeded = needInstall()
+const docsNeeded = needDocsBuild()
+
 // 步骤清单即门禁定义：顺序有依赖（build 先于导出冒烟），增删步骤只改这里
 const steps = [
-  { label: "安装依赖（frozen 锁文件）", command: "pnpm", args: ["install", "--frozen-lockfile"], fatal: true },
+  { label: "安装依赖（frozen 锁文件）", command: "pnpm", args: ["install", "--frozen-lockfile"], fatal: true, skip: installNeeded ? "" : "lockfile 未变化" },
   { label: "类型检查", command: "pnpm", args: ["typecheck"] },
+  { label: "单元测试", command: "pnpm", args: ["test"] },
   // 走 lint 脚本而非直接调 eslint：检查范围（显式 glob）与冷缓存开关都收在 package.json 一处，避免两处漂移
   { label: "静态检查（冷缓存）", command: "pnpm", args: ["lint"] },
   { label: "构建", command: "pnpm", args: ["build"] },
-  { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: skipDocs },
+  { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "更新日志同步核验", run: checkChangelogSync },
   { label: "文档站主题一致性", run: checkDocsTheme },
@@ -232,7 +285,10 @@ const failures = []
 let executed = 0
 
 for (const step of steps) {
-  if (step.skip) continue
+  if (step.skip) {
+    console.log(`\n⊘ ${step.label}（${step.skip}，跳过）`)
+    continue
+  }
   console.log(`\n▶ ${step.label}`)
   executed += 1
   const status = step.run ? step.run() : runCommand(step)
