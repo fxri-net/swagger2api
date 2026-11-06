@@ -129,7 +129,7 @@ function checkDocLinks() {
 }
 
 /**
- * 文档站主题一致性：全局 toolkit 可用时执行 docs theme --check，未安装时打印跳过（远程 CI 不依赖该工具）。
+ * 文档站主题一致性：全局 toolkit 可用时执行 docs theme check，未安装时打印跳过（远程 CI 不依赖该工具）。
  * @return {number} 退出码
  */
 function checkDocsTheme() {
