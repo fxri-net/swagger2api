@@ -39,37 +39,51 @@ export default defineConfig({
     // 导航栏 logo（字符串路径由 VitePress 自动拼接 base 前缀）
     logo: '/logo.png',
     nav: [
-      { text: '指南', link: '/getting-started' },
-      { text: '完整攻略', link: '/guide' },
+      { text: '快速开始', link: '/getting-started' },
+      {
+        text: '指南',
+        items: [{ text: '完整攻略', link: '/guide' }],
+      },
       {
         text: '参考',
         items: [
           { text: 'CLI 参考', link: '/cli' },
-          { text: '配置选项', link: '/cli#配置选项' },
+          { text: '配置参考', link: '/config' },
         ],
       },
-      { text: 'FAQ', link: '/faq' },
-      { text: '更新日志', link: '/changelog' },
+      {
+        text: '帮助',
+        items: [
+          { text: '常见问题', link: '/faq' },
+          { text: '更新日志', link: '/changelog' },
+        ],
+      },
     ],
     sidebar: [
       {
         text: '开始',
         items: [
           { text: '首页', link: '/' },
-          { text: '新手指南', link: '/getting-started' },
-          { text: '完整攻略', link: '/guide' },
+          { text: '快速开始', link: '/getting-started' },
         ],
+      },
+      {
+        text: '指南',
+        items: [{ text: '完整攻略', link: '/guide' }],
       },
       {
         text: '参考',
         items: [
           { text: 'CLI 参考', link: '/cli' },
-          { text: '更新日志', link: '/changelog' },
+          { text: '配置参考', link: '/config' },
         ],
       },
       {
-        text: '答疑',
-        items: [{ text: 'FAQ', link: '/faq' }],
+        text: '帮助',
+        items: [
+          { text: '常见问题', link: '/faq' },
+          { text: '更新日志', link: '/changelog' },
+        ],
       },
     ],
     // 本地搜索 + 中文界面文案

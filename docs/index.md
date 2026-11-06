@@ -64,7 +64,7 @@ yarn global add @fxri/swagger2api
 npx @fxri/swagger2api
 ```
 
-详细步骤见[新手指南](./getting-started)。
+详细步骤见[快速开始](./getting-started)。
 
 ## 解决什么痛点
 
@@ -79,10 +79,10 @@ npx @fxri/swagger2api
 
 | 文档 | 适合谁 |
 | --- | --- |
-| [新手指南](./getting-started) | 第一次接触，想 30 秒跑起来 |
+| [快速开始](./getting-started) | 第一次接触，想 30 秒跑起来 |
 | [完整攻略](./guide) | 日常使用：三种模式、响应提取、配置文件 |
 | [CLI 参考](./cli) | 查命令、参数、默认值 |
-| [FAQ](./faq) | 遇到问题先来这里找 |
+| [常见问题](./faq) | 遇到问题先来这里找 |
 
 ## 环境要求
 

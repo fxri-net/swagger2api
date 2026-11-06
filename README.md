@@ -38,17 +38,17 @@ export const request = new Api()
 request.getUsers().then((res) => console.log(res))
 ```
 
-完整步骤见 [新手指南](./docs/getting-started.md)。
+完整步骤见 [快速开始](./docs/getting-started.md)。
 
 ## ✨ 能力矩阵
 
 | 能力 | 适用场景 | 文档 |
 | --- | --- | --- |
-| 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [新手指南](./docs/getting-started.md) |
+| 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [快速开始](./docs/getting-started.md) |
 | 多文档配置 | 自动扫描 `./**/saconfig*.json`，多项目接口配置集中管理 | [完整攻略](./docs/guide.md#多文档配置) |
 | 快速模式 | 配置齐全时跳过二次确认，搭配脚本一行命令静默更新 | [完整攻略](./docs/guide.md#快速模式) |
 | 唯一 operationId | 接口地址 + 请求方法拼接唯一 ID，可选 get 转 query 作区分 | [完整攻略](./docs/guide.md#唯一-operationid-拼接规则) |
-| 灵活裁剪 | 移除路径参数 / 前缀索引、替换标签、移除空组件定义 | [CLI 参考](./docs/cli.md#配置选项) |
+| 灵活裁剪 | 移除路径参数 / 前缀索引、替换标签、移除空组件定义 | [配置参考](./docs/config.md) |
 | 响应提取 | AxiosResponse 转移到 raw 字段，根部字段自行声明 | [完整攻略](./docs/guide.md#提取响应--extract-response-raw-err) |
 | STA 参数透传 | swagger-typescript-api 原生参数全量可用 | [CLI 参考](./docs/cli.md) |
 
@@ -56,10 +56,10 @@ request.getUsers().then((res) => console.log(res))
 
 | 文档 | 适合谁 |
 | --- | --- |
-| [新手指南](./docs/getting-started.md) | 第一次接触，想 30 秒跑起来 |
+| [快速开始](./docs/getting-started.md) | 第一次接触，想 30 秒跑起来 |
 | [完整攻略](./docs/guide.md) | 日常使用：三种模式、响应提取、配置文件 |
 | [CLI 参考](./docs/cli.md) | 查命令、参数、默认值 |
-| [FAQ](./docs/faq.md) | 遇到问题先来这里找 |
+| [常见问题](./docs/faq.md) | 遇到问题先来这里找 |
 | [完整文档站](https://fxri-net.github.io/swagger2api/) | 在线阅读体验 |
 
 ## 📦 安装

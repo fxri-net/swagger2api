@@ -275,6 +275,7 @@ const steps = [
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "更新日志同步核验", run: checkChangelogSync },
   { label: "文档站主题一致性", run: checkDocsTheme },
+  { label: "文档站导航规范（分类 / 命名 / 顶栏）", args: ["scripts/check-docs-nav.mjs"] },
   { label: "文档链接可达性", run: checkDocLinks },
   { label: "变更集一致性", run: checkChangeset },
 ]

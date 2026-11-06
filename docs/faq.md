@@ -1,10 +1,10 @@
-# FAQ
+# 常见问题
 
 > 目标读者：遇到疑问来查答案的用户。按主题分组，先答结论再给细节。
 
 ## 解决什么问题
 
-新手指南讲最短路径、完整攻略讲全流程，但真实使用中的疑问是碎片化的——本篇按「问题 → 答案」直给。没找到答案可去 [GitHub Issues](https://github.com/fxri-net/swagger2api/issues) 或 [Gitee Issues](https://gitee.com/fxri/swagger2api/issues) 提问。
+快速开始讲最短路径、完整攻略讲全流程，但真实使用中的疑问是碎片化的——本篇按「问题 → 答案」直给。没找到答案可去 [GitHub Issues](https://github.com/fxri-net/swagger2api/issues) 或 [Gitee Issues](https://gitee.com/fxri/swagger2api/issues) 提问。
 
 ## 安装与环境
 
@@ -21,7 +21,7 @@ Node.js >= 20.19.0。工具依赖的运行时特性以 node@20.19 为下限，�
 
 ### 全局装还是项目里装？
 
-个人多项目使用推荐全局装；团队项目推荐项目依赖，版本随仓库锁定，成员与 CI 环境自动一致。对比见[新手指南 · 安装](./getting-started#安装)。
+个人多项目使用推荐全局装；团队项目推荐项目依赖，版本随仓库锁定，成员与 CI 环境自动一致。对比见[快速开始 · 安装](./getting-started#安装)。
 
 ## 配置与生成
 

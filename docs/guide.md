@@ -79,7 +79,7 @@ client.instance.interceptors.response.use(
 
 - 默认配置文件为 `saconfig.json`，由工具在脚本执行目录生成
 - 生成代码结束后，如果参数有改动，配置文件会同步更新
-- 配置项与 CLI 参数一一对应，完整字段见 [CLI 参考 · 配置选项](./cli#配置选项)
+- 配置项与 CLI 参数一一对应，完整字段见 [配置参考](./config)
 
 ## swagger-typescript-api 扩展
 
