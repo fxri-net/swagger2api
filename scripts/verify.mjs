@@ -138,7 +138,7 @@ function checkDocsTheme() {
     console.log("跳过文档站主题检查（未检测到 toolkit docs theme）")
     return 0
   }
-  const result = spawnSync("toolkit", ["docs", "theme", "--check"], { stdio: "inherit", shell: isWindows })
+  const result = spawnSync("toolkit", ["docs", "theme", "check"], { stdio: "inherit", shell: isWindows })
   return result.status ?? 1
 }
 
