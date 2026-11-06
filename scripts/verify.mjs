@@ -272,6 +272,8 @@ const steps = [
   { label: "静态检查（冷缓存）", command: "pnpm", args: ["lint"] },
   { label: "构建", command: "pnpm", args: ["build"] },
   { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
+  // 产物断言依赖上一步的 dist，跳过构建时一并跳过
+  { label: "文档站产物（404 排除站点地图与搜索索引）", args: ["scripts/check-docs-dist.mjs"], skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "更新日志同步核验", run: checkChangelogSync },
   { label: "文档站主题一致性", run: checkDocsTheme },
