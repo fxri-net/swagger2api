@@ -143,6 +143,32 @@ function checkDocsTheme() {
 }
 
 /**
+ * 文档站导航规范：全局 toolkit 可用时执行 docs nav check，未安装时打印跳过（远程 CI 不依赖该工具）。
+ * @return {number} 退出码
+ */
+function checkDocsNav() {
+  const probe = spawnSync("toolkit", ["docs", "nav", "--help"], { encoding: "utf8", shell: isWindows })
+  if (probe.status !== 0) {
+    console.log("跳过文档站导航检查（未检测到 toolkit docs nav）")
+    return 0
+  }
+  return spawnSync("toolkit", ["docs", "nav", "check"], { stdio: "inherit", shell: isWindows }).status ?? 1
+}
+
+/**
+ * 文档站产物：全局 toolkit 可用时执行 docs dist check，未安装时打印跳过（远程 CI 不依赖该工具）。
+ * @return {number} 退出码
+ */
+function checkDocsDist() {
+  const probe = spawnSync("toolkit", ["docs", "dist", "--help"], { encoding: "utf8", shell: isWindows })
+  if (probe.status !== 0) {
+    console.log("跳过文档站产物检查（未检测到 toolkit docs dist）")
+    return 0
+  }
+  return spawnSync("toolkit", ["docs", "dist", "check"], { stdio: "inherit", shell: isWindows }).status ?? 1
+}
+
+/**
  * 变更集一致性：触及 src/ 或手写 docs 的改动须新增变更集；docs/changelog.md 为生成物，不触发。
  * @return {number} 退出码
  */
@@ -273,11 +299,11 @@ const steps = [
   { label: "构建", command: "pnpm", args: ["build"] },
   { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   // 产物断言依赖上一步的 dist，跳过构建时一并跳过
-  { label: "文档站产物（404 排除站点地图与搜索索引）", args: ["scripts/check-docs-dist.mjs"], skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
+  { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "更新日志同步核验", run: checkChangelogSync },
   { label: "文档站主题一致性", run: checkDocsTheme },
-  { label: "文档站导航规范（分类 / 命名 / 顶栏）", args: ["scripts/check-docs-nav.mjs"] },
+  { label: "文档站导航规范（分类 / 命名 / 顶栏）", run: checkDocsNav },
   { label: "文档链接可达性", run: checkDocLinks },
   { label: "变更集一致性", run: checkChangeset },
 ]

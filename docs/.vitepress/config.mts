@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import siteNav from '../site-nav.json'
 
 // 站点基础路径：默认按 GitHub Pages 子路径 /swagger2api/，其他部署场景经 VITEPRESS_BASE 环境变量覆盖
 const base = process.env.VITEPRESS_BASE || '/swagger2api/'
@@ -42,54 +43,9 @@ export default defineConfig({
   themeConfig: {
     // 导航栏 logo（字符串路径由 VitePress 自动拼接 base 前缀）
     logo: '/logo.png',
-    nav: [
-      { text: '快速开始', link: '/getting-started' },
-      {
-        text: '指南',
-        items: [{ text: '完整攻略', link: '/guide' }],
-      },
-      {
-        text: '参考',
-        items: [
-          { text: 'CLI 参考', link: '/cli' },
-          { text: '配置参考', link: '/config' },
-        ],
-      },
-      {
-        text: '帮助',
-        items: [
-          { text: '常见问题', link: '/faq' },
-          { text: '更新日志', link: '/changelog' },
-        ],
-      },
-    ],
-    sidebar: [
-      {
-        text: '开始',
-        items: [
-          { text: '首页', link: '/' },
-          { text: '快速开始', link: '/getting-started' },
-        ],
-      },
-      {
-        text: '指南',
-        items: [{ text: '完整攻略', link: '/guide' }],
-      },
-      {
-        text: '参考',
-        items: [
-          { text: 'CLI 参考', link: '/cli' },
-          { text: '配置参考', link: '/config' },
-        ],
-      },
-      {
-        text: '帮助',
-        items: [
-          { text: '常见问题', link: '/faq' },
-          { text: '更新日志', link: '/changelog' },
-        ],
-      },
-    ],
+    // 导航与侧栏的唯一真源：docs/site-nav.json（toolkit docs nav check 按同一份数据校验）
+    nav: siteNav.nav,
+    sidebar: siteNav.sidebar,
     // 本地搜索 + 中文界面文案
     search: {
       provider: 'local',
