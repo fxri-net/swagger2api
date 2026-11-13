@@ -48,13 +48,7 @@ pages:
   artifacts:
     paths:
       - public
+  # 默认分支每次推送都重建：站点输入不止 docs/（根 CHANGELOG.md 由脚本同步进 docs/、依赖清单决定
+  # 构建工具版本、站点配置与导航产物同属输入），枚举路径必然漏项，故不设 changes 约束
   rules:
-    # CHANGELOG.md 会改变更新日志页内容，必须一并纳入触发路径
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      changes:
-        - docs/**/*
-        - scripts/check-changelog-doc.mjs
-        - CHANGELOG.md
-        - .gitlab-ci.yml
-        - package.json
-        - pnpm-lock.yaml
