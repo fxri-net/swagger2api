@@ -282,7 +282,7 @@ function collectFiles(dir) {
 
 /**
  * 夹具产物一致性：用夹具生成一次 API，与 fixtures/expected 逐文件比对。
- * 覆盖「真实文档生成 + 模板渲染 + 格式化」整条运行时链路，node20 与 node18 两个 job 都会跑。
+ * 覆盖「真实文档生成 + 模板渲染 + 格式化」整条运行时链路，各运行时作业都会跑。
  * @return {number} 退出码
  */
 function checkGeneratedOutput() {
