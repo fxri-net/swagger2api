@@ -100,7 +100,8 @@
       "bundle-require>esbuild": "^0.28.2",
       "tsup>esbuild": "^0.28.2",
       "vite>esbuild": "^0.25.0",
-      "source-map-js": "^1.2.2"
+      "source-map-js": "^1.2.2",
+      "@typescript-eslint/typescript-estree>minimatch": "^11.0.5"
     }
   }
 }
