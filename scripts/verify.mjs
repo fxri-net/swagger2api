@@ -553,7 +553,8 @@ const docsNeeded = needDocsBuild()
 const steps = [
   { label: "安装依赖（frozen 锁文件）", command: "pnpm", args: ["install", "--frozen-lockfile"], fatal: true, skip: installNeeded ? "" : "lockfile 未变化" },
   { label: "类型检查", command: "pnpm", args: ["typecheck"] },
-  { label: "单元测试", command: "pnpm", args: ["test"] },
+  // vitest 4 依赖 node20 才有的 node:fs API，node18 运行时回归只跳过测试，其余生成链路步骤照跑
+  { label: "单元测试", command: "pnpm", args: ["test"], skip: runtimeOnly ? "运行时回归模式（vitest 4 依赖 node20 API）" : "" },
   // 走 lint 脚本而非直接调 eslint：检查范围（显式 glob）与冷缓存开关都收在 package.json 一处，避免两处漂移
   { label: "静态检查（冷缓存）", command: "pnpm", args: ["lint"], skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "构建", command: "pnpm", args: ["build"], skip: runtimeOnly ? "运行时回归模式" : "" },
