@@ -18,6 +18,7 @@
 
 - 跑 `pnpm verify`——聚合门禁，步骤定义在 `scripts/verify.mjs`，本地与 CI 共用同一份清单，禁止在本文或 CI 配置里另写步骤枚举；任一步失败即不得交付。
 - `toolkit tasks check` 的 error 与 warn 均为 0。
+- 开发与 CI 工具链为 node 24（`.node-version` / `.ci/toolchain.json`，供构建工具满足引擎声明）；发布产物的运行时下限仍为 node 18.12，由 `engines`、构建 target 与 node18 运行时作业保证，升级开发版本不改变发布产物的运行要求。
 - 复核发现遗漏必须当场回补，不允许「下次再说」。
 
 ## 协作流程约束
