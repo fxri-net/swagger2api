@@ -1,9 +1,15 @@
 <%
-const { apiConfig, routes, utils, config } = it;
+const { apiConfig, routes, utils, config, route } = it;
 const { info, servers, externalDocs } = apiConfig;
-const { _, require, formatDescription } = utils;
+const { _, require, formatDescription, pascalCase } = utils;
 
 const server = (servers && servers[0]) || { url: "" };
+const isModular = Boolean(config.modular && route);
+const moduleName = isModular ? route.moduleName : "";
+const moduleRoutes = isModular ? (route.routes || []) : [];
+const dataContractsFile = config.fileNames?.dataContracts ?? "data-contracts";
+const httpClientFile = config.fileNames?.httpClient ?? "http-client";
+const dataContracts = isModular ? _.map(it.modelTypes, "name") : [];
 
 const descriptionLines = _.compact([
   `@title ${info.title || "No title"}`,
@@ -25,6 +31,25 @@ const descriptionLines = _.compact([
 ]);
 
 %>
+
+<% if (isModular) { %>
+
+<% if (config.httpClientType === config.constants.HTTP_CLIENT.AXIOS && !config.param?.extractResponseRaw) { %> import type { AxiosRequestConfig, AxiosResponse } from "axios"; <% } %>
+
+import { HttpClient, RequestParams, ContentType } from "./<%~ httpClientFile %>";
+<% if (dataContracts.length) { %>
+import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
+<% } %>
+
+/** <%~ moduleName %> 模块 */
+export class <%~ pascalCase(moduleName) %><SecurityDataType = unknown> extends HttpClient<SecurityDataType> {
+<% for (const item of moduleRoutes) { %>
+
+  <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined } }) %>
+<% } %>
+}
+
+<% } else { %>
 
 <% if (config.httpClientType === config.constants.HTTP_CLIENT.AXIOS && !config.param?.extractResponseRaw) { %> import type { AxiosRequestConfig, AxiosResponse } from "axios"; <% } %>
 
@@ -67,3 +92,4 @@ export class <%~ config.apiClassName %><SecurityDataType extends unknown><% if (
   <% } %>
 <% } %>
 }
+<% } %>

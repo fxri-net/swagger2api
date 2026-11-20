@@ -8,6 +8,8 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers } from "./utils/config"
+import { writeAggregateEntry } from "./utils/modular"
+import { applyGrouping, type GroupingConfig } from "./utils/grouping"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -233,6 +235,14 @@ async function onGenerateApi(data: Defines["data"]) {
     failures += 1
     return
   }
+  // 模块化 + 分组配置：重写 tags 交给模块化模板，支持规则 / tag / 路径段三种策略
+  const groupingConfig = (datas.config as Record<string, any>).grouping as GroupingConfig | undefined
+  if (datas.config.modular && groupingConfig && (groupingConfig.strategy?.length || groupingConfig.rules?.length)) {
+    const counts = applyGrouping(data, groupingConfig)
+    ;(datas.config as Record<string, any>).moduleNameFirstTag = true
+    console.log("分组：", ...Object.entries(counts).map(([group, count]) => `${group}-${count}`))
+    if (process.argv.includes("--dry-run")) return
+  }
   // 处理路径
   Object.entries(data.paths).forEach((item) => {
     Object.keys(item[1]).forEach((item2) => {
@@ -290,6 +300,14 @@ async function onGenerateApi(data: Defines["data"]) {
     ...{ param: datas.param }
   })
   console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
+  // 模块化输出：补写聚合入口，各模块共享同一个请求实例
+  if (datas.config.modular) {
+    writeAggregateEntry(
+      path.resolve(confs.param.output),
+      String((datas.config as Record<string, any>).apiClassName ?? "Api"),
+      Boolean(datas.config.toJS)
+    )
+  }
   if (datas.config.toJS) {
     console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
   }

@@ -29,6 +29,7 @@ swagger2api config status
 
 - `--config <path>`：显式指定项目层配置文件（只替换项目层，全局层与本地层照常叠加）
 - `--profile <name>`：选用配置文件内的命名预设
+- `--modular`：按组拆分为多文件并生成聚合入口；`--dry-run` 配合分组配置只输出分组报表
 
 ## 配置选项
 

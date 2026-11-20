@@ -22,6 +22,7 @@
   "language": { "target": "ts" },
   "types": { "responses": true, "unwrapData": false, "extractParams": false, "extractQuery": "arg0" },
   "naming": { "pathPrefixIndex": 0, "convertGetToQuery": true, "dropPathParams": true, "tagRewrite": ["[a-z_]+(.+)", ""] },
+  "grouping": { "strategy": ["rules", "tag", "path"], "pathDepth": 0, "rules": [], "minRoutes": 0, "maxRoutes": 0, "fallback": "misc" },
   "profiles": { "admin": { "output": { "dir": "./src/api/admin" } } }
 }
 ```

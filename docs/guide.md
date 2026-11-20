@@ -75,6 +75,28 @@ client.instance.interceptors.response.use(
 
 适用场景：后端把分页、筛选等公共参数包在 query 的一个对象里，提取后调用方直接传根部字段，不必层层嵌套。
 
+## 分组输出
+
+接口规模大时，可把生成结果按组拆成多个文件，并保留单一出口：
+
+- 开启方式：配置 `output.mode = "grouped"`，或命令行加 `--modular`
+- 分组策略：`grouping.strategy` 支持 `rules`（显式规则）、`tag`（首个标签）、`path`（路径段 + `pathDepth`），按数组顺序生效，未命中落到 `grouping.fallback`
+- 阈值：`minRoutes` 低于阈值并入兜底组；`maxRoutes` 超过阈值按下一段路径再拆一层
+- 预览：加 `--dry-run` 只输出分组报表（组名与路由数），不生成文件
+- 产物：`index.ts` 聚合入口 + `data-contracts.ts` + `http-client.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
+
+```json
+{
+  "output": { "dir": "./src/api", "mode": "grouped" },
+  "grouping": {
+    "strategy": ["rules", "tag", "path"],
+    "pathDepth": 0,
+    "rules": [{ "match": { "prefix": "/admin" }, "group": "admin" }],
+    "fallback": "misc"
+  }
+}
+```
+
 ## 配置文件
 
 - 默认配置文件为 `saconfig.json`，由工具在脚本执行目录生成

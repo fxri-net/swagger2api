@@ -1,12 +1,24 @@
 <%
-const { utils, config, routes, modelTypes } = it;
+const { utils, config, routes, modelTypes, route } = it;
 const { _, pascalCase } = utils;
 const dataContracts = config.modular ? _.map(modelTypes, "name") : [];
+const dataContractsFile = config.fileNames?.dataContracts ?? "data-contracts";
+const isModular = Boolean(config.modular && route);
 %>
-
 <% if (dataContracts.length) { %>
-import { <%~ dataContracts.join(", ") %> } from "./<%~ config.fileNames.dataContracts %>"
+import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
 <% } %>
+
+<% if (isModular) { %>
+
+export namespace <%~ pascalCase(route.moduleName) %> {
+<% for (const item of route.routes || []) { %>
+
+  <%~ includeFile('./route-type.ejs', { ...it, route: item }) %>
+<% } %>
+}
+
+<% } else { %>
 
 <%
 /* TODO: outOfModule, combined should be attributes of route, which will allow to avoid duplication of code */
@@ -29,4 +41,5 @@ import { <%~ dataContracts.join(", ") %> } from "./<%~ config.fileNames.dataCont
    }
 
  <% } %>
+<% } %>
 <% } %>
