@@ -60,8 +60,14 @@ yarn global add @fxri/swagger2api
 :::
 
 ```sh
-# 交互式生成接口代码（npx/dlx 均需带作用域全名，裸写会拉取同名其他包）
+# 首次：交互式写入配置（.swagger2apirc.json，可随仓库提交）
+npx @fxri/swagger2api init
+
+# 之后一行生成（读配置，无参即可）
 npx @fxri/swagger2api
+
+# 接口多、单文件大：先选分组方式再生成
+npx @fxri/swagger2api grouping
 ```
 
 详细步骤见[快速开始](./getting-started)。
@@ -74,6 +80,7 @@ npx @fxri/swagger2api
 | 多个项目的接口配置散落，更新要挨个跑 | 自动扫描全部 saconfig*.json，多选或一键全量更新 |
 | 重名接口被加 _n 后缀，调用方看着懵 | 地址 + 请求方法拼接唯一 operationId，从源头避免重名 |
 | 每次生成都要重新确认一遍参数 | 快速模式直接复用配置文件参数，一行命令静默更新 |
+| 接口太多、单文件太大、IDE 卡顿 | 分组输出按标签 / 路径段 / 规则拆成多文件，聚合入口与调用形态不变 |
 
 ## 文档索引
 

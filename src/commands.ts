@@ -226,15 +226,41 @@ export async function runGrouping() {
     { name: "maxRoutes", type: "number", message: "多于多少接口再拆一层（0 表示不拆）:", initial: 0 },
     { name: "fallback", type: "text", message: "兜底组名:", initial: "misc" }
   ])
+  const rules: Array<Record<string, any>> = []
+  if (answers.strategy === "rules") {
+    // 规则编辑：循环录入「匹配方式 + 匹配值 + 组名」，可直接回车结束
+    let more = true
+    while (more) {
+      const rule = await prompts([
+        {
+          name: "kind",
+          type: "select",
+          message: "规则匹配方式：",
+          choices: [
+            { title: "路径前缀", value: "prefix" },
+            { title: "标签", value: "tag" }
+          ],
+          initial: 0
+        },
+        { name: "value", type: "text", message: "匹配值（留空结束）：" },
+        { name: "group", type: "text", message: "归入组名：" }
+      ])
+      if (!rule.value || !rule.group) break
+      rules.push({ match: { [rule.kind]: rule.value }, group: rule.group })
+      const next = await prompts({ name: "again", type: "confirm", message: "继续添加规则？", initial: false })
+      more = Boolean(next.again)
+    }
+  }
   const grouping = {
     strategy: [answers.strategy],
     pathDepth: Number(answers.pathDepth ?? 0),
-    rules: [],
+    rules,
     minRoutes: Number(answers.minRoutes ?? 0),
     maxRoutes: Number(answers.maxRoutes ?? 0),
     fallback: answers.fallback || "misc",
     preserveTags: true
   }
+  console.log("将写入：", JSON.stringify(grouping))
   const target = configFile ? path.resolve(configFile) : path.join(process.cwd(), CONFIG_PROJECT_FILE)
   writeConfig(target, { grouping })
   console.log(`已写入分组配置：${target}`)

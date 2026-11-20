@@ -29,6 +29,31 @@ test:
     - toolchain:ensure
   script:
     - pnpm verify
+  # 构建产物供 node18 运行时作业复用
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 day
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# 运行时下限回归：镜像基于 .ci/toolchain.json（node20），作业内下载便携版 node18 执行运行时步骤
+runtime18:
+  image:
+    name: $CI_IMAGE
+    pull_policy: if-not-present
+  stage: test
+  needs:
+    - toolchain:spec
+    - toolchain:ensure
+    - job: test
+      artifacts: true
+  script:
+    - curl -fsSL https://nodejs.org/dist/v18.12.0/node-v18.12.0-linux-x64.tar.xz -o /tmp/node18.tar.xz
+    - tar -xJf /tmp/node18.tar.xz -C /opt
+    - export PATH=/opt/node-v18.12.0-linux-x64/bin:$PATH
+    - node -v
+    - EXPECTED_NODE=18.12.0 node scripts/verify.mjs --runtime-only
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 

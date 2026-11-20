@@ -55,6 +55,28 @@ jobs:
         env:
           EXPECTED_NODE: 18.12.0
 
+  # Windows × node18 组合：平台差异与运行时下限交叉覆盖
+  windows-runtime18:
+    runs-on: windows-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 18.12.0
+          cache: pnpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-node20
+          path: dist
+      - name: 运行时回归（Windows × node18）
+        run: pnpm verify --runtime-only
+        env:
+          EXPECTED_NODE: 18.12.0
+
   # Windows 回归：类型检查 / 静态检查 / 构建与主平台并行，避免跨平台路径与换行问题漏网
   windows:
     runs-on: windows-latest

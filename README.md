@@ -23,12 +23,14 @@
 ## 🚀 30 秒上手
 
 ```bash
-# 1. 项目目录下临时执行（免安装；已安装则直接 swagger2api）
-pnpm dlx @fxri/swagger2api
+# 1. 首次：交互式写入 .swagger2apirc.json（团队共享，可提交）
+pnpm dlx @fxri/swagger2api init
 
-# 2. 按提示填写 Swagger 文档地址、输出目录、文件名
-#    自动生成接口代码与 saconfig.json 配置文件
+# 2. 之后一行生成：读取配置，无参即可；换人 clone 仓库后同样两条命令
+pnpm dlx @fxri/swagger2api
 ```
+
+接口规模大时，先 `swagger2api grouping` 选择分组方式，再生成即可输出多文件 + 单一出口，详见[完整攻略 · 分组输出](./docs/guide.md#分组输出)。
 
 ```typescript
 import { Api } from "./src/api/index"

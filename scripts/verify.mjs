@@ -379,6 +379,55 @@ async function checkSecurityFixtures() {
 }
 
 /**
+ * 分组产物一致性：axios 与 fetch 各生成一次分组产物，断言聚合入口存在、模块不串组、产物可解析。
+ * @return {number} 退出码
+ */
+async function checkGroupedOutput() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 分组产物：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const ts = await import("typescript")
+  const clients = [
+    { name: "axios", args: ["--axios"] },
+    { name: "fetch", args: [] }
+  ]
+  for (const client of clients) {
+    const out = mkdtempSync(join(tmpdir(), "s2a-grouped-"))
+    try {
+      const config = join(out, "saconfig.json")
+      writeFileSync(config, JSON.stringify({ url: join(root, "fixtures", "swagger.json"), output: out, name: "index" }, null, 2))
+      const result = spawnSync(process.execPath, [cli, "-c", config, "-q", ...client.args, "--modular", "--module-name-index", "0"], { cwd: root, encoding: "utf8" })
+      if (result.status !== 0) {
+        console.error(`✖ 分组产物（${client.name}）：生成失败`)
+        console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+        return 1
+      }
+      if (!existsSync(join(out, "index.ts"))) {
+        console.error(`✖ 分组产物（${client.name}）：缺少聚合入口 index.ts`)
+        return 1
+      }
+      const appModule = readFileSync(join(out, "App.ts"), "utf8")
+      if (!appModule.includes("appItemsGet") || appModule.includes("homeDetailPost")) {
+        console.error(`✖ 分组产物（${client.name}）：模块文件串组或缺少本组接口`)
+        return 1
+      }
+      for (const file of readdirSync(out).filter((name) => name.endsWith(".ts"))) {
+        const source = ts.createSourceFile(file, readFileSync(join(out, file), "utf8"), ts.ScriptTarget.Latest, true)
+        if (source.parseDiagnostics.length > 0) {
+          console.error(`✖ 分组产物（${client.name}）：${file} 无法解析`)
+          return 1
+        }
+      }
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  }
+  return 0
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -434,6 +483,7 @@ const steps = [
   { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: runtimeOnly ? "运行时回归模式" : skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
+  { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },
