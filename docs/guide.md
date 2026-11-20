@@ -85,6 +85,7 @@ client.instance.interceptors.response.use(
 - 预览：加 `--dry-run` 只输出分组报表（命名映射、未命中规则与预计新增文件），不生成文件；`swagger2api grouping` 展示标签与路径分布并写入分组配置
 - 文档标签：`grouping.preserveTags`（默认 `true`）在 JSDoc 中保留原始标签，分组名只用于文件与类名
 - 产物：`index.ts` 聚合入口 + `data-contracts.ts` + `http-client.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
+- 对外面：聚合入口与单文件产物导出面一致（`Api`、`HttpClient`、`ContentType`、`AxiosResponse`、`FullRequestParams`、`RequestParams` 与全部数据契约）；模块通过聚合实例注入共享请求器，替换 `api.instance` 或调用 `setSecurityData` 会对所有组同时生效
 - 模块命名：组名经统一规则转为合法标识符——路径字符与标点只作分隔，数字开头补前缀，超长截断加短哈希，Windows 设备名与 `index` 等保留名追加序号；重名（含全半角、大小写折叠后同名）各自独立并追加序号，不做业务组合并
 - 命名预览：`--dry-run` 打印「原始组名 → 文件 / 类 / 属性」映射与重命名原因，`--dry-run --json` 输出结构化结果；`grouping.names` 可对个别组指定可读名，只改名不改归属
 - 生成校验：分组生成后会按命名表核对实际文件名、类名与聚合挂载，不一致直接报错；输出目录中的表外文件会提示，建议开启 `output.clean`

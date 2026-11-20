@@ -58,7 +58,7 @@ export function toModuleEntries(entries: GroupNameInfo[]) {
 }
 
 /**
- * 生成聚合入口内容：各模块实例共享同一个 axios 实例，保持单文件模式的调用形态。
+ * 生成聚合入口内容：模块注入同一个门面实例，实例替换与安全数据对所有组同时生效。
  * @param modules 模块列表
  * @param apiClassName 聚合类名
  * @param modulesDir 模块所在目录（相对导入用）
@@ -67,17 +67,20 @@ export function toModuleEntries(entries: GroupNameInfo[]) {
  */
 export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string, modulesDir: string, toJS: boolean) {
   const className = apiClassName || "Api"
+  const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
   const importLines = modules.map((item) => {
-    const alias = item.className === className ? `${item.className}Module` : item.className
     const target = `${modulesDir ? `${modulesDir.replace(/\\/g, "/")}/` : ""}${item.base}`
+    const alias = aliasOf(item)
     return `import { ${item.className}${alias === item.className ? "" : ` as ${alias}`} } from "./${target}"`
   })
-  const props = modules.map((item) => `${item.property} = new ${item.className === className ? `${item.className}Module` : item.className}()`)
-  const setters = modules.map((item) => `    this.${item.property}.instance = this.instance`)
+  const props = modules.map((item) => `${item.property} = new ${aliasOf(item)}(this)`)
   const lines = [
+    "/* eslint-disable */",
+    "/* tslint:disable */",
     `import { HttpClient } from "./http-client"`,
     ...importLines,
     `export * from "./data-contracts"`,
+    `export * from "./http-client"`,
     "",
     "/** 聚合入口：各模块共享同一个请求实例 */",
     `export class ${className}<SecurityDataType = unknown> extends HttpClient<SecurityDataType> {`,
@@ -85,7 +88,6 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
     "",
     "  constructor(config?: any) {",
     "    super(config)",
-    ...setters,
     "  }",
     "}",
     ""
@@ -148,7 +150,7 @@ export function verifyGroupedOutput(dir: string, entries: GroupNameInfo[], toJS:
     } else {
       const content = fs.readFileSync(aggregate, "utf8")
       for (const entry of entries) {
-        if (!content.includes(`this.${entry.property}.instance = this.instance`)) errors.push(`聚合入口缺少模块挂载：${entry.property}`)
+        if (!content.includes(`${entry.property} = new `)) errors.push(`聚合入口缺少模块挂载：${entry.property}`)
       }
     }
   }
@@ -164,18 +166,19 @@ export function verifyGroupedOutput(dir: string, entries: GroupNameInfo[], toJS:
  */
 export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName: string) {
   const className = apiClassName || "Api"
+  const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
   const imports = modules.map((item) => {
-    const alias = item.className === className ? `${item.className}Module` : item.className
+    const alias = aliasOf(item)
     return `import { ${item.className}${alias === item.className ? "" : ` as ${alias}`} } from "./${item.base}"`
   })
-  const props = modules.map((item) => {
-    const type = item.className === className ? `${item.className}Module` : item.className
-    return `  ${item.property}: ${type}`
-  })
+  const props = modules.map((item) => `  ${item.property}: ${aliasOf(item)}`)
   return [
+    "/* eslint-disable */",
+    "/* tslint:disable */",
     `import { HttpClient } from "./http-client"`,
     ...imports,
     `export * from "./data-contracts"`,
+    `export * from "./http-client"`,
     "",
     `export declare class ${className}<SecurityDataType = unknown> extends HttpClient<SecurityDataType> {`,
     ...props,

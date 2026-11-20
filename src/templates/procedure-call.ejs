@@ -1,5 +1,5 @@
 <%
-const { utils, route, config } = it;
+const { utils, route, config, moduleClient } = it;
 const { requestBodyInfo, responseBodyInfo, specificArgNameResolver } = route;
 const { _, getInlineParseContent, getParseContent, parseSchema, getComponentByRef, require } = utils;
 const { parameters, path, method, payload, query, formData, security, requestParams } = route.request;
@@ -72,12 +72,20 @@ const bodyContentKindTmpl = requestContentKind[requestBodyInfo.contentKind] || n
 const responseFormatTmpl = responseContentKind[responseBodyInfo.success && responseBodyInfo.success.schema && responseBodyInfo.success.schema.contentKind] || null;
 const securityTmpl = security ? 'true' : null;
 
+// 响应类型：分组模式的声明由 tsc 生成，用内联导入避免模块声明丢失类型导入
+const httpClientFile = config.fileNames?.httpClient ?? "http-client";
+const responseTypeRef = () => {
+    if (!moduleClient) return "AxiosResponse";
+    const target = config.param?.extractResponseRaw ? `./${httpClientFile}` : "axios";
+    return `import("${target}").AxiosResponse`;
+};
+
 const describeReturnType = () => {
     if (!config.toJS) return "";
 
     switch(config.httpClientType) {
         case HTTP_CLIENT.AXIOS: {
-          return `Promise<AxiosResponse<${type}>>`
+          return `Promise<${responseTypeRef()}<${type}>>`
         }
         default: {
           return `Promise<HttpResponse<${type}, ${errorType}>`
@@ -97,7 +105,7 @@ const isValidIdentifier = (name) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
 
  */
 <% if (isValidIdentifier(route.routeName.usage)) { %><%~ route.routeName.usage %><%~ route.namespace ? ': ' : ' = ' %><% } else { %>"<%~ route.routeName.usage %>"<%~ route.namespace ? ': ' : ' = ' %><% } %>(<%~ wrapperArgs %>)<%~ config.toJS ? `: ${describeReturnType()}` : "" %> =>
-    <%~ config.singleHttpClient ? 'this.http.request' : 'this.request' %><<%~ type %>, <%~ errorType %>>({
+    <%~ config.singleHttpClient || moduleClient ? 'this.http.request' : 'this.request' %><<%~ type %>, <%~ errorType %>>({
         path: `<%~ path %>`,
         method: '<%~ _.upperCase(method) %>',
         <%~ queryTmpl ? `query: ${queryTmpl},` : '' %>

@@ -44,10 +44,21 @@ import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
 <% } %>
 
 /** <%~ moduleName %> 模块 */
-export class <%~ moduleClassName %><SecurityDataType = unknown> extends HttpClient<SecurityDataType> {
+export class <%~ moduleClassName %><SecurityDataType = unknown> {
+  /** 共享请求器：由聚合入口注入，实例替换与安全数据对所有模块同时生效 */
+  private http: HttpClient<SecurityDataType>
+
+  constructor(http: HttpClient<SecurityDataType>) {
+    this.http = http
+  }
+
+  /** 底层请求实例：与聚合入口保持同一个 */
+  get instance(): HttpClient<SecurityDataType>["instance"] {
+    return this.http.instance
+  }
 <% for (const item of moduleRoutes) { %>
 
-  <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined } }) %>
+  <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined }, moduleClient: true }) %>
 <% } %>
 }
 

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -488,7 +488,7 @@ async function checkGroupedNaming() {
     }
     const aggregate = readFileSync(join(out, "index.ts"), "utf8")
     for (const property of ["symbolGroup", "g20孵化器", "con2", "index2"]) {
-      if (!aggregate.includes(`this.${property}.instance = this.instance`)) {
+      if (!aggregate.includes(`${property} = new `)) {
         console.error(`✖ 分组命名边界：聚合入口缺少 ${property}`)
         return 1
       }
@@ -501,6 +501,122 @@ async function checkGroupedNaming() {
       }
     }
     return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
+ * 分组产物对外面：聚合入口导出面、模块声明类型链、共享客户端与类型推导。
+ * 以「仓内桶文件 + declare.ts 增强」的真实形态断言 AxiosParse 推导不退化为 unknown。
+ * @return {number} 退出码
+ */
+async function checkGroupedContract() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 分组产物对外面：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  // 放在 node_modules/.cache 下，便于 tsc 向上解析本仓的 axios 类型
+  const cacheRoot = join(root, "node_modules", ".cache")
+  mkdirSync(cacheRoot, { recursive: true })
+  const out = mkdtempSync(join(cacheRoot, "s2a-contract-"))
+  try {
+    const base = join(out, "base")
+    const config = join(out, "swagger2api.json")
+    writeFileSync(
+      config,
+      JSON.stringify(
+        {
+          input: { file: join(root, "fixtures", "swagger.json") },
+          output: { dir: base, name: "index", mode: "grouped" },
+          grouping: { strategy: ["path"], pathDepth: 0 }
+        },
+        null,
+        2,
+      ),
+    )
+    const generated = spawnSync(
+      process.execPath,
+      [cli, "-c", config, "--axios", "--responses", "--js", "-err", "-rpi", "0", "-erq", "arg0", "-cg"],
+      { cwd: out, encoding: "utf8" },
+    )
+    if (generated.status !== 0) {
+      console.error("✖ 分组产物对外面：生成失败")
+      console.error(`${generated.stdout ?? ""}${generated.stderr ?? ""}`)
+      return 1
+    }
+
+    const issues = []
+    const aggregate = readFileSync(join(base, "index.js"), "utf8")
+    if (!aggregate.includes('export * from "./http-client"')) issues.push("聚合入口未导出 http-client")
+    if (!aggregate.includes('export * from "./data-contracts"')) issues.push("聚合入口未导出 data-contracts")
+    // 模块通过聚合实例注入，替换 instance 才能传导到各组
+    if (!aggregate.includes("app = new App(this)")) issues.push("聚合入口未注入共享客户端")
+    const appDts = readFileSync(join(base, "App.d.ts"), "utf8")
+    if (!appDts.includes('from "./http-client"') || !appDts.includes("AxiosResponse")) issues.push("模块声明未引用 http-client 的 AxiosResponse")
+
+    // 复刻下游仓形态：桶文件再导出聚合入口，declare.ts 以相对聚合入口做模块增强
+    writeFileSync(join(out, "index.ts"), 'export * from "./base"\n')
+    writeFileSync(
+      join(out, "declare.ts"),
+      [
+        "export {}",
+        "interface AxiosResponseRaw<T = any> {",
+        "  success: boolean",
+        "  code: number",
+        "  message: string",
+        "  data: T",
+        "}",
+        'declare module "." {',
+        "  interface AxiosResponse<T> extends AxiosResponseRaw<T> {}",
+        "}",
+        ""
+      ].join("\n"),
+    )
+    writeFileSync(
+      join(out, "probe.ts"),
+      [
+        'import { Api } from "./index.js"',
+        "",
+        "const api = new Api()",
+        "type Settled = Awaited<ReturnType<typeof api.api.settingsQuery>>",
+        'type Data = Settled extends { data?: infer D } ? D : "NO_DATA"',
+        "// 期望推导为夹具 Setting 契约，而不是 unknown / never",
+        "const assertData: Data extends { key?: string } ? true : false = true",
+        "void assertData",
+        "void api.instance",
+        ""
+      ].join("\n"),
+    )
+    writeFileSync(
+      join(out, "tsconfig.json"),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2020",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            strict: true,
+            skipLibCheck: true,
+            noEmit: true
+          },
+          include: ["probe.ts", "declare.ts", "index.ts"]
+        },
+        null,
+        2,
+      ),
+    )
+    const probe = spawnSync(process.execPath, [join(root, "node_modules", "typescript", "bin", "tsc"), "-p", out], { cwd: out, encoding: "utf8" })
+    if (probe.status !== 0) {
+      issues.push("响应类型未恢复为具体契约")
+      console.error(`${probe.stdout ?? ""}${probe.stderr ?? ""}`)
+    }
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 分组产物对外面未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
   } finally {
     rmSync(out, { recursive: true, force: true })
   }
@@ -564,6 +680,7 @@ const steps = [
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
+  { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
