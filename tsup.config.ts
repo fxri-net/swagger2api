@@ -10,5 +10,9 @@ export default defineConfig({
   dts: true, // 是否生成.d.ts类型文件
   format: ["cjs", "esm"], // 输出CommonJS和ESM双格式
   minify: process.env.NODE_ENV === "production",
-  target: "node18" // Node.js版本目标
+  target: "node18", // Node.js版本目标
+  // 双格式构建的预期提示：CJS 产物没有 import.meta，运行时由 __filename 分支兜底，无需告警
+  esbuildOptions(options) {
+    options.logOverride = { ...options.logOverride, "empty-import-meta": "silent" }
+  }
 })
