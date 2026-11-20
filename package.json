@@ -79,7 +79,7 @@
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitepress": "^1.6.4",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.12"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
@@ -101,6 +101,7 @@
       "tsup>esbuild": "^0.28.2",
       "vite>esbuild": "^0.25.0",
       "source-map-js": "^1.2.2",
+      "vite": "^6.4.4",
       "@typescript-eslint/typescript-estree>minimatch": "^11.0.5"
     }
   }
