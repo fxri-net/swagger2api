@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
+import axios from "axios"
 import {
   CONFIG_ENV_OVERRIDES,
   CONFIG_PROJECT_FILE,
@@ -147,7 +148,101 @@ export function runConfigStatus() {
 }
 
 /**
- * CLI 入口分发：默认生成，识别 init / config status。
+ * 加载 swagger 文档（本地文件或 http(s) 地址）。
+ * @param input 地址或路径
+ * @return 文档对象
+ */
+async function loadSpec(input: string) {
+  if (/^https?:\/\//i.test(input)) return (await axios.get(input)).data
+  return JSON.parse(fs.readFileSync(path.resolve(input), "utf8"))
+}
+
+/**
+ * 统计标签与路径首段的分布，供分组向导展示。
+ * @param spec 文档对象
+ * @return 统计结果
+ */
+function collectStats(spec: Record<string, any>) {
+  const tags: Record<string, number> = {}
+  const prefixes: Record<string, number> = {}
+  let total = 0
+  for (const [routePath, item] of Object.entries(spec.paths ?? {})) {
+    const first = routePath.split("/").filter(Boolean)[0] ?? "(root)"
+    prefixes[first] = (prefixes[first] ?? 0) + 1
+    for (const method of ["get", "post", "put", "delete", "patch", "head", "options"]) {
+      const operation = (item as Record<string, any>)[method]
+      if (!operation || typeof operation !== "object") continue
+      total += 1
+      const tag = (operation.tags ?? [])[0] ?? "(无标签)"
+      tags[tag] = (tags[tag] ?? 0) + 1
+    }
+  }
+  return { tags, prefixes, total }
+}
+
+/**
+ * 执行 grouping：展示分布并（交互式）写入分组配置。
+ * @return 退出码
+ */
+export async function runGrouping() {
+  const { configFile, profile } = getConfigFlags()
+  const layers = loadConfigLayers(process.cwd(), { projectFile: configFile })
+  const rc = applyEnvOverrides(applyProfile(layers.merged, profile))
+  const input = rc.input?.url ?? rc.input?.file
+  if (!input) {
+    console.error("未找到 input 配置，请先执行 swagger2api init")
+    return 1
+  }
+  let spec: Record<string, any>
+  try {
+    spec = await loadSpec(input)
+  } catch (error) {
+    console.error(`读取文档失败：${(error as Error).message}`)
+    return 1
+  }
+  const stats = collectStats(spec)
+  console.log(`共 ${stats.total} 个接口`)
+  console.log("按标签分布：", ...Object.entries(stats.tags).map(([tag, count]) => `${tag}-${count}`))
+  console.log("按路径首段分布：", ...Object.entries(stats.prefixes).map(([prefix, count]) => `${prefix}-${count}`))
+
+  if (!process.stdout.isTTY) {
+    console.log("非交互终端：仅输出报表，分组规则请直接写入配置文件的 grouping 段")
+    return 0
+  }
+  const answers = await prompts([
+    {
+      name: "strategy",
+      type: "select",
+      message: "分组依据：",
+      choices: [
+        { title: "按标签（tag）", value: "tag" },
+        { title: "按路径段", value: "path" },
+        { title: "按显式规则（稍后在配置里补）", value: "rules" }
+      ],
+      initial: 0
+    },
+    { name: "pathDepth", type: "number", message: "路径段深度（按路径分组时生效）:", initial: 0 },
+    { name: "minRoutes", type: "number", message: "少于多少接口并入兜底组:", initial: 0 },
+    { name: "maxRoutes", type: "number", message: "多于多少接口再拆一层（0 表示不拆）:", initial: 0 },
+    { name: "fallback", type: "text", message: "兜底组名:", initial: "misc" }
+  ])
+  const grouping = {
+    strategy: [answers.strategy],
+    pathDepth: Number(answers.pathDepth ?? 0),
+    rules: [],
+    minRoutes: Number(answers.minRoutes ?? 0),
+    maxRoutes: Number(answers.maxRoutes ?? 0),
+    fallback: answers.fallback || "misc",
+    preserveTags: true
+  }
+  const target = configFile ? path.resolve(configFile) : path.join(process.cwd(), CONFIG_PROJECT_FILE)
+  writeConfig(target, { grouping })
+  console.log(`已写入分组配置：${target}`)
+  return 0
+}
+
+/**
+ * CLI 入口分发：默认生成，识别 init / config status / grouping。
  * @param runGenerate 默认生成逻辑
  * @return 无
  */
@@ -156,6 +251,10 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   const [command, subcommand] = argv.filter((item) => !item.startsWith("-"))
   if (command === "init") {
     process.exitCode = await runInit()
+    return
+  }
+  if (command === "grouping") {
+    process.exitCode = await runGrouping()
     return
   }
   if (command === "config" && subcommand === "status") {

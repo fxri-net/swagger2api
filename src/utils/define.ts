@@ -46,6 +46,8 @@ export type Defines = {
       extractResponseRaw: boolean
       /** 模板路径 */
       template: string
+      /** 分组前原始标签映射（键为「方法:路径」），用于 JSDoc 展示 */
+      groupOriginalTags?: Record<string, string>
     }
     /** 枚举 */
     enum: { [key: string]: number }

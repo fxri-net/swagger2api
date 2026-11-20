@@ -238,8 +238,10 @@ async function onGenerateApi(data: Defines["data"]) {
   // 模块化 + 分组配置：重写 tags 交给模块化模板，支持规则 / tag / 路径段三种策略
   const groupingConfig = (datas.config as Record<string, any>).grouping as GroupingConfig | undefined
   if (datas.config.modular && groupingConfig && (groupingConfig.strategy?.length || groupingConfig.rules?.length)) {
-    const counts = applyGrouping(data, groupingConfig)
+    const { counts, originalTags } = applyGrouping(data, groupingConfig)
     ;(datas.config as Record<string, any>).moduleNameFirstTag = true
+    // 默认在 JSDoc 中保留原始标签，避免分组名污染业务文档
+    if (groupingConfig.preserveTags !== false) datas.param.groupOriginalTags = originalTags
     console.log("分组：", ...Object.entries(counts).map(([group, count]) => `${group}-${count}`))
     if (process.argv.includes("--dry-run")) return
   }

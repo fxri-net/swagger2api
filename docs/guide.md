@@ -82,7 +82,8 @@ client.instance.interceptors.response.use(
 - 开启方式：配置 `output.mode = "grouped"`，或命令行加 `--modular`
 - 分组策略：`grouping.strategy` 支持 `rules`（显式规则）、`tag`（首个标签）、`path`（路径段 + `pathDepth`），按数组顺序生效，未命中落到 `grouping.fallback`
 - 阈值：`minRoutes` 低于阈值并入兜底组；`maxRoutes` 超过阈值按下一段路径再拆一层
-- 预览：加 `--dry-run` 只输出分组报表（组名与路由数），不生成文件
+- 预览：加 `--dry-run` 只输出分组报表（组名与路由数），不生成文件；`swagger2api grouping` 展示标签与路径分布并写入分组配置
+- 文档标签：`grouping.preserveTags`（默认 `true`）在 JSDoc 中保留原始标签，分组名只用于文件与类名
 - 产物：`index.ts` 聚合入口 + `data-contracts.ts` + `http-client.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
 
 ```json

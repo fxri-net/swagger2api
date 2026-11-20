@@ -42,9 +42,11 @@ describe("分组应用", () => {
       { path: "/app/b", tag: "应用" },
       { path: "/home/c", tag: "首页" }
     ])
-    const counts = applyGrouping(spec, { strategy: ["tag"] })
+    const { counts, originalTags } = applyGrouping(spec, { strategy: ["tag"] })
     expect(counts).toEqual({ 应用: 2, 首页: 1 })
     expect(spec.paths["/app/a"].get.tags).toEqual(["应用"])
+    // 原始标签按「方法:路径」保留，供 JSDoc 展示
+    expect(originalTags["GET:/app/a"]).toBe("应用")
   })
 
   it("低于 minRoutes 的组并入兜底组", () => {
@@ -53,7 +55,7 @@ describe("分组应用", () => {
       { path: "/app/b", tag: "应用" },
       { path: "/home/c", tag: "首页" }
     ])
-    const counts = applyGrouping(spec, { strategy: ["tag"], minRoutes: 2, fallback: "misc" })
+    const { counts } = applyGrouping(spec, { strategy: ["tag"], minRoutes: 2, fallback: "misc" })
     expect(counts).toEqual({ 应用: 2, misc: 1 })
     expect(spec.paths["/home/c"].get.tags).toEqual(["misc"])
   })
@@ -63,7 +65,7 @@ describe("分组应用", () => {
       { path: "/order/a/x", tag: "订单" },
       { path: "/order/b/y", tag: "订单" }
     ])
-    const counts = applyGrouping(spec, { strategy: ["path"], pathDepth: 0, maxRoutes: 1 })
+    const { counts } = applyGrouping(spec, { strategy: ["path"], pathDepth: 0, maxRoutes: 1 })
     expect(Object.keys(counts).sort()).toEqual(["order_a", "order_b"])
   })
 })

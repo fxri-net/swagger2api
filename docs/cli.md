@@ -25,6 +25,9 @@ swagger2api init --from-script package.json
 
 # 查看配置分层与生效结果（--json 输出结构化内容）
 swagger2api config status
+
+# 查看分组分布并写入分组配置（交互式；非交互终端只输出报表）
+swagger2api grouping
 ```
 
 - `--config <path>`：显式指定项目层配置文件（只替换项目层，全局层与本地层照常叠加）

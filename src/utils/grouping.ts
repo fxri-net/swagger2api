@@ -21,6 +21,8 @@ export interface GroupingConfig {
   maxRoutes?: number
   /** 兜底组名 */
   fallback?: string
+  /** 是否在 JSDoc 的 @tags 中保留原始标签（默认 true） */
+  preserveTags?: boolean
 }
 /** HTTP 方法集合 */
 const METHODS = ["get", "post", "put", "delete", "patch", "head", "options"]
@@ -63,12 +65,12 @@ export function matchGroup(path: string, operation: Record<string, any>, groupin
  * @return 组名到路由数的映射
  */
 export function applyGrouping(data: Record<string, any>, grouping: GroupingConfig) {
-  const assignments: Array<{ path: string; operation: Record<string, any>; group: string }> = []
+  const assignments: Array<{ path: string; method: string; operation: Record<string, any>; group: string }> = []
   for (const [path, item] of Object.entries(data.paths ?? {})) {
     for (const method of METHODS) {
       const operation = (item as Record<string, any>)[method]
       if (!operation || typeof operation !== "object") continue
-      assignments.push({ path, operation, group: matchGroup(path, operation, grouping) })
+      assignments.push({ path, method, operation, group: matchGroup(path, operation, grouping) })
     }
   }
   const counts = new Map<string, number>()
@@ -76,7 +78,11 @@ export function applyGrouping(data: Record<string, any>, grouping: GroupingConfi
 
   const fallback = grouping.fallback ?? "misc"
   const finalGroups: string[] = []
+  /** 原始标签映射：键为「方法:路径」，供模板保留 @tags 展示 */
+  const originalTags: Record<string, string> = {}
   for (const item of assignments) {
+    const rawTags = Array.isArray(item.operation.tags) ? item.operation.tags.join(", ") : ""
+    if (rawTags) originalTags[`${item.method.toUpperCase()}:${item.path}`] = rawTags
     let group = item.group
     const count = counts.get(group) ?? 0
     if (grouping.minRoutes && count < grouping.minRoutes && group !== fallback) {
@@ -94,5 +100,5 @@ export function applyGrouping(data: Record<string, any>, grouping: GroupingConfi
   finalGroups.forEach((group) => {
     result[group] = (result[group] ?? 0) + 1
   })
-  return result
+  return { counts: result, originalTags }
 }

@@ -6,8 +6,11 @@ const { raw, request, routeName } = route;
 const jsDocDescription = raw.description ?
     ` * @description ${formatDescription(raw.description, true)}` :
     fmtToJSDocLine('No description', { eol: false });
+// 分组改写 tags 后，JSDoc 仍展示原始标签（由 config.param.groupOriginalTags 提供）
+const originalTags = config.param?.groupOriginalTags?.[`${_.upperCase(request.method)}:${raw.route}`];
+const displayTags = originalTags ? _.split(originalTags, ", ") : raw.tags;
 const jsDocLines = _.compact([
-    _.size(raw.tags) && ` * @tags ${raw.tags.join(", ")}`,
+    _.size(displayTags) && ` * @tags ${displayTags.join(", ")}`,
     ` * @name ${pascalCase(routeName.usage)}`,
     raw.summary && ` * @summary ${raw.summary}`,
     ` * @request ${_.upperCase(request.method)}:${raw.route}`,
