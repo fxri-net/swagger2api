@@ -437,7 +437,8 @@ async function onGenerateApi(data: Defines["data"]) {
       failures += 1
       return
     }
-    checkDir = fs.mkdtempSync(path.join(os.tmpdir(), "swagger2api-check-"))
+    // 临时目录贴近真实产物，保证 Prettier 解析到同一份项目配置
+    checkDir = fs.mkdtempSync(path.join(path.dirname(targetDir), ".swagger2api-check-"))
     confs.param.output = checkDir
     process.once("exit", () => fs.rmSync(checkDir as string, { recursive: true, force: true }))
   }

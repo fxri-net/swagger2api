@@ -36,8 +36,45 @@ export interface GroupNamingResult {
 
 /** 产物保留文件名：与生成器固定产物冲突 */
 const RESERVED_FILES = new Set(["index", "datacontracts", "httpclient"])
-/** 模块文件内的固定导入标识符：类名撞名会产生重复声明 */
-const RESERVED_IDENTIFIERS = new Set(["HttpClient", "RequestParams", "ContentType", "AxiosRequestConfig", "AxiosResponse"])
+/**
+ * 模块文件内的固定导入标识符与全局类型名：类名撞名会重复声明，
+ * 或在同文件内遮蔽 `File` 等全局类型，改变路由参数的真实类型。
+ */
+const RESERVED_IDENTIFIERS = new Set([
+  "HttpClient",
+  "RequestParams",
+  "ContentType",
+  "AxiosRequestConfig",
+  "AxiosResponse",
+  // 浏览器 / ECMAScript 常用全局类型，避免分组后的命名空间类遮蔽路由签名中的类型
+  "Array",
+  "ArrayBuffer",
+  "Blob",
+  "Boolean",
+  "Date",
+  "Document",
+  "Element",
+  "Error",
+  "Event",
+  "File",
+  "FileList",
+  "FormData",
+  "Headers",
+  "Image",
+  "Map",
+  "Node",
+  "Number",
+  "Object",
+  "Promise",
+  "ReadableStream",
+  "RegExp",
+  "Request",
+  "Response",
+  "Set",
+  "String",
+  "URL",
+  "Window"
+])
 /** 聚合类成员名：组名撞上会覆盖运行期能力 */
 const RESERVED_PROPERTIES = new Set([
   "instance",
@@ -186,6 +223,7 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
     manualByKey.set(foldGroupKey(key), value)
   }
   const occupied = new Set<string>()
+  const usedProperties = new Set<string>()
   const entries: GroupNameInfo[] = []
 
   /**
@@ -205,6 +243,22 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
     return name
   }
 
+  /**
+   * 占用一个聚合属性名：属性与文件名分开判重，保留名追加序号。
+   * @param candidate 候选属性名
+   * @return 最终属性名
+   */
+  const takeProperty = (candidate: string) => {
+    let name = candidate
+    let index = 2
+    while (usedProperties.has(name) || RESERVED_PROPERTIES.has(name.toLowerCase())) {
+      name = `${candidate}${index}`
+      index += 1
+    }
+    usedProperties.add(name)
+    return name
+  }
+
   // 第一轮：手工名优先占用，冲突只报错不静默改名
   const manualSlugs = new Map<string, string>()
   for (const raw of raws) {
@@ -221,6 +275,8 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
     if (previous) errors.push(`手工名冲突：${previous} 与 ${raw} 都指向 ${slug}`)
     else manualSlugs.set(slug.toLowerCase(), raw)
     const candidate = take(slug)
+    // 手工名按用户指定使用，只登记属性占用，不再二次改名
+    usedProperties.add(candidate)
     const fileName = toClassName(candidate)
     entries.push({
       raw,
@@ -248,19 +304,30 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
     const fileReserved = RESERVED_FILES.has(base.toLowerCase()) || WINDOWS_DEVICES.has(base.toLowerCase())
     const identifierReserved = RESERVED_IDENTIFIERS.has(toClassName(base))
     const propertyReserved = RESERVED_PROPERTIES.has(base.toLowerCase())
-    const reserved = fileReserved || identifierReserved || propertyReserved
-    const candidate = reserved ? take(`${base}2`, 3) : take(base)
-    const fileName = toClassName(candidate)
     const reasons = [reason]
-    if (propertyReserved && !fileReserved && !identifierReserved) reasons.push("与聚合成员同名")
-    else if (reserved) reasons.push("与保留名冲突")
-    else if (candidate !== base) reasons.push("与已有组重名")
+    let candidate: string
+    let property: string
+    if (propertyReserved || fileReserved) {
+      candidate = take(`${base}2`, 3)
+      property = takeProperty(candidate)
+      reasons.push(propertyReserved ? "与聚合成员同名" : "与保留名冲突")
+    } else if (identifierReserved) {
+      // 只改类名与文件名，聚合属性保持原 slug，避免破坏 request.<组>
+      candidate = take(`${base}2`, 3)
+      property = takeProperty(base)
+      reasons.push("与全局类型同名")
+    } else {
+      candidate = take(base)
+      property = takeProperty(candidate)
+      if (candidate !== base) reasons.push("与已有组重名")
+    }
+    const fileName = toClassName(candidate)
     entries.push({
       raw,
       key: foldGroupKey(raw),
       fileName,
       className: fileName,
-      property: candidate,
+      property,
       reason: reasons.filter(Boolean).join("、"),
       source: fallback ? "fallback" : "auto"
     })

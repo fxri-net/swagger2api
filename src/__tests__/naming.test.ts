@@ -27,6 +27,13 @@ describe("名称派生", () => {
     expect(entries.every((entry) => entry.source === "fallback")).toBe(true)
   })
 
+  it("与全局类型同名的组只改类名，聚合属性保持原样", () => {
+    const { entries } = buildGroupNaming(["file", "date"])
+    // 类名追加序号避免在同文件内遮蔽全局 File / Date，属性名仍供 request.file 使用
+    expect(entries.map((entry) => entry.fileName)).toEqual(["Date2", "File2"])
+    expect(entries.map((entry) => entry.property)).toEqual(["date", "file"])
+  })
+
   it("超长截断带稳定哈希，重复调用一致", () => {
     const raw = "组".repeat(80)
     const first = slugifyGroupName(raw)
