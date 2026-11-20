@@ -49,8 +49,9 @@ runtime18:
     - job: test
       artifacts: true
   script:
-    - curl -fsSL https://nodejs.org/dist/v18.12.0/node-v18.12.0-linux-x64.tar.xz -o /tmp/node18.tar.xz
-    - tar -xJf /tmp/node18.tar.xz -C /opt
+    # 镜像为 Alpine（busybox tar + gzip），使用官方 tar.gz 包，避免依赖未预装的 xz
+    - curl -fsSL https://nodejs.org/dist/v18.12.0/node-v18.12.0-linux-x64.tar.gz -o /tmp/node18.tar.gz
+    - tar -xzf /tmp/node18.tar.gz -C /opt
     - export PATH=/opt/node-v18.12.0-linux-x64/bin:$PATH
     - node -v
     - EXPECTED_NODE=18.12.0 node scripts/verify.mjs --runtime-only
