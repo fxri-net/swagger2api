@@ -50,7 +50,8 @@ module.exports = {
   // add your custom rules here
   rules: {
     "prefer-promise-reject-errors": "off",
-    quotes: ["warn", "double", { avoidEscape: true }],
+    // 允许无插值的模板字符串作字符串字面量：生成代码片段与样例含双引号，改写会引入转义噪音
+    quotes: ["warn", "double", { avoidEscape: true, allowTemplateLiterals: true }],
     // this rule, if on, would require explicit return type on the `render` function
     "@typescript-eslint/explicit-function-return-type": "off",
     // in plain CommonJS modules, you can't use `import foo = require('foo')` to pass this rule, so it has to be disabled

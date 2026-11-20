@@ -227,8 +227,8 @@ async function onLoadDoc(index = 0) {
   if (confs.files[index + 1]) {
     await onLoadDoc(index + 1)
   } else if (failures > 0) {
-    // 批量场景下跳过不合规文档，但整体以非 0 退出，避免静默降级
-    onExit(`结束：${failures} 个文档因安全问题未生成`, 1)
+    // 批量场景下跳过失败文档，但整体以非 0 退出，避免静默降级
+    onExit(`结束：${failures} 个文档未生成，失败原因见上方输出`, 1)
   }
 }
 /**
