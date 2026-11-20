@@ -1,5 +1,5 @@
 {
   "node": "20.20.2",
   "pnpm": "10.34.4",
-  "system": ["bash", "git", "curl"]
+  "system": ["bash", "git", "curl", "xz"]
 }
