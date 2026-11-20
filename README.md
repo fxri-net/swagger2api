@@ -96,7 +96,7 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 ## 🛠️ 开发约定
 
-构建、调试与验收命令见[完整攻略](https://fxri-net.github.io/swagger2api/guide.html)。
+验收统一执行 `pnpm verify`：步骤清单的唯一真源在 `scripts/verify.mjs`，本地与 CI 共用同一份；构建、调试与提交规则见 [AGENTS.md](./AGENTS.md)。
 
 ## 📄 版权信息
 
