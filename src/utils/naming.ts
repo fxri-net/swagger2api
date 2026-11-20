@@ -34,8 +34,16 @@ export interface GroupNamingResult {
   warnings: string[]
 }
 
-/** 产物保留文件名：与生成器固定产物冲突 */
-const RESERVED_FILES = new Set(["index", "datacontracts", "httpclient"])
+/** 底座客户端文件名（不含扩展名） */
+export const CLIENT_BASE = "client"
+/** 契约目录名 */
+export const TYPES_DIR = "types"
+/** 共享契约文件名（不含扩展名） */
+export const SHARED_BASE = "shared"
+/** 旧版固定产物名：升级后按名清理残留，并继续排除在表外产物之外 */
+export const LEGACY_OUTPUT_BASES = ["data-contracts", "http-client"]
+/** 业务命名空间保留名（折叠键）：与固定产物或共享契约争用同名文件 / 目录 */
+export const RESERVED_MODULE_NAMES = new Set(["index", CLIENT_BASE, TYPES_DIR, SHARED_BASE])
 /**
  * 模块文件内的固定导入标识符与全局类型名：类名撞名会重复声明，
  * 或在同文件内遮蔽 `File` 等全局类型，改变路由参数的真实类型。
@@ -301,7 +309,7 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
       base = `group${fallbackSeq}`
       fallbackSeq += 1
     }
-    const fileReserved = RESERVED_FILES.has(base.toLowerCase()) || WINDOWS_DEVICES.has(base.toLowerCase())
+    const fileReserved = RESERVED_MODULE_NAMES.has(base.toLowerCase()) || WINDOWS_DEVICES.has(base.toLowerCase())
     const identifierReserved = RESERVED_IDENTIFIERS.has(toClassName(base))
     const propertyReserved = RESERVED_PROPERTIES.has(base.toLowerCase())
     const reasons = [reason]
@@ -369,6 +377,14 @@ export function findOrphanModules(files: string[], entries: GroupNameInfo[], ext
     ...entries.flatMap((entry) => [`${entry.fileName}${ext}`, `${entry.importFrom ?? entry.fileName}${ext}`]),
     ...extraFiles.map((name) => `${name}${ext}`)
   ])
-  const reserved = new Set([`index${ext}`, "index.d.ts", `data-contracts${ext}`, `http-client${ext}`, `route-types${ext}`])
+  // 固定产物与旧版残留都不算表外：旧版文件由升级清理负责退场
+  const reserved = new Set([
+    `index${ext}`,
+    "index.d.ts",
+    `${CLIENT_BASE}${ext}`,
+    `route-types${ext}`,
+    `${TYPES_DIR}/index${ext}`,
+    ...LEGACY_OUTPUT_BASES.flatMap((base) => [`${base}${ext}`, `${base}.d.ts`])
+  ])
   return files.filter((file) => file.endsWith(ext) && !file.endsWith(`.d${ext}`) && !known.has(file) && !reserved.has(file) && !file.endsWith(`_Route${ext}`))
 }

@@ -8,9 +8,9 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
-import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
-import { findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
+import { CLIENT_BASE, TYPES_DIR, findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -527,6 +527,12 @@ async function onGenerateApi(data: Defines["data"]) {
   console.log("就绪：", ...Object.entries(datas.enum).map((item) => item.join("-")))
   // 保存文档
   saveFile(datas.docFile, JSON.stringify(data))
+  // 固定布局：客户端底座为 client，契约出口为 types/index；先建目录，生成器按嵌套路径直接落盘
+  if (datas.config.modular) {
+    const modularConfig = datas.config as Record<string, any>
+    modularConfig.fileNames = { ...(modularConfig.fileNames ?? {}), dataContracts: `${TYPES_DIR}/index`, httpClient: CLIENT_BASE }
+    fs.mkdirSync(path.join(path.resolve(confs.param.output), TYPES_DIR), { recursive: true })
+  }
   // 生成接口
   console.log("执行：", confs.file)
   await generateApi({
@@ -565,6 +571,8 @@ async function onGenerateApi(data: Defines["data"]) {
     } else {
       writeAggregateEntry(dir, apiClassName, toJS)
     }
+    // 升级退场：旧版固定产物已不再生成，成功落盘后删除残留（校验模式不动真实目录）
+    if (!checkMode()) removeLegacyOutput(dir, toJS).forEach((file) => console.log("清理：", path.resolve(dir, file)))
     // 分组模式：按清单清理已消失的模块，并写入本轮清单供下一轮比对
     if (namingEntries.length) {
       const files = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, plannedFileNames(namingEntries, splitPlan))

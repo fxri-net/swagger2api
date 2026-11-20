@@ -83,10 +83,12 @@ client.instance.interceptors.response.use(
 - 分组策略：默认按路径首段分组；需要自定义时用 `grouping.strategy` 的 `rules`（显式规则）、`tag`（首个标签）、`path`（路径段 + `pathDepth`），按数组顺序生效，未命中落到 `grouping.fallback`
 - 自适应分桶：默认自动启用。总量低于阈值只出一个模块文件，否则按命名空间顺序装箱；单个超大命名空间再按子分类分片，分片由门面类做实例合并与类型合并，调用形态仍是 `api.<命名空间>.<方法>`
 - 阈值不由业务配置：分桶与分片的阈值属于工具默认；`grouping.split: false` 仅作为回滚逃生口，关闭后回到一命名空间一文件
-- 桶命名：未配置分类且只有一个桶时固定为 `Modules.ts`；配置 `categories` 时按分类名拆分，未命中分类的命名空间归入 `fallback`
+- 桶命名：未配置分类且只有一个桶时固定为 `Modules.ts`；配置 `categories` 时按分类名拆分，未命中分类的命名空间归入 `fallback`；契约统一落在 `types/` 目录，客户端底座固定为 `client.ts`
 - 预览：加 `--dry-run` 只输出分组报表（命名映射、桶/分片规划、未命中规则与预计新增文件），不生成文件；`swagger2api grouping` 展示标签与路径分布并写入分组配置
 - 文档标签：`grouping.preserveTags`（默认 `true`）在 JSDoc 中保留原始标签，分组名只用于文件与类名
-- 产物：`index.ts` 聚合入口 + `data-contracts.ts` + `http-client.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
+- 产物：`index.ts` 聚合入口 + `client.ts` + `types/index.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
+- 契约目录：契约出口固定为 `types/index.ts`，聚合入口写 `export * from "./types"`；单文件模式不生成该目录
+- 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留
 - 对外面：聚合入口与单文件产物导出面一致（`Api`、`HttpClient`、`ContentType`、`AxiosResponse`、`FullRequestParams`、`RequestParams` 与全部数据契约）；模块通过聚合实例注入共享请求器，替换 `api.instance` 或调用 `setSecurityData` 会对所有组同时生效；模块类额外暴露 `http` 字段（内部注入，勿直接调用）
 - 模块命名：组名经统一规则转为合法标识符——路径字符与标点只作分隔，数字开头补前缀，超长截断加短哈希，Windows 设备名与 `index` 等保留名追加序号；重名（含全半角、大小写折叠后同名）各自独立并追加序号，不做业务组合并
 - 命名兼容：`grouping.collapse` 为 `true` 时合并折叠键相同的组（如 `opt` 与 `opt_`），复现单文件产物的合并语义；`instance`、`request` 等聚合成员名同样列入保留名，命中后追加序号

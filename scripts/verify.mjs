@@ -630,7 +630,7 @@ async function checkGroupedPrune() {
     if (!existsSync(manifestFile)) return fail("首次生成未写入产物清单")
     if (existsSync(join(base, ".swagger2api.manifest.json"))) issues.push("清单仍写入产物目录")
     const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
-    for (const file of ["index.ts", "App.ts", "Home.ts", "Api.ts", "data-contracts.ts", "http-client.ts"]) {
+    for (const file of ["index.ts", "App.ts", "Home.ts", "Api.ts", "client.ts", "types/index.ts"]) {
       if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
     }
 
@@ -651,10 +651,10 @@ async function checkGroupedPrune() {
       issues.push("手写文件被清理或改写")
     }
 
-    // 可复现：同一配置连续生成，产物集合与内容完全一致
+    // 可复现：同一配置连续生成，产物集合与内容完全一致（含 types/ 子目录）
     const snapshot = () =>
       Object.fromEntries(
-        readdirSync(base)
+        collectFiles(base)
           .sort()
           .map((name) => [name, readFileSync(join(base, name), "utf8")]),
       )
@@ -740,12 +740,16 @@ async function checkGroupedContract() {
 
     const issues = []
     const aggregate = readFileSync(join(base, "index.js"), "utf8")
-    if (!aggregate.includes('export * from "./http-client"')) issues.push("聚合入口未导出 http-client")
-    if (!aggregate.includes('export * from "./data-contracts"')) issues.push("聚合入口未导出 data-contracts")
+    if (!aggregate.includes('export * from "./client"')) issues.push("聚合入口未导出 client")
+    if (!aggregate.includes('export * from "./types"')) issues.push("聚合入口未导出 types")
     // 模块通过聚合实例注入，替换 instance 才能传导到各组
     if (!aggregate.includes("app = new App(this)")) issues.push("聚合入口未注入共享客户端")
     const appDts = readFileSync(join(base, "App.d.ts"), "utf8")
-    if (!appDts.includes('from "./http-client"') || !appDts.includes("AxiosResponse")) issues.push("模块声明未引用 http-client 的 AxiosResponse")
+    if (!appDts.includes('from "./client"') || !appDts.includes("AxiosResponse")) issues.push("模块声明未引用 client 的 AxiosResponse")
+    // 契约出口与新底座在 JS 模式下同样落地
+    for (const file of ["client.js", "client.d.ts", "types/index.js", "types/index.d.ts"]) {
+      if (!existsSync(join(base, file))) issues.push(`固定产物缺失：${file}`)
+    }
 
     // 复刻下游仓形态：桶文件再导出聚合入口，declare.ts 以相对聚合入口做模块增强
     writeFileSync(join(out, "index.ts"), 'export * from "./base"\n')
@@ -867,6 +871,10 @@ async function checkGroupedSplit() {
     for (const file of ["index.ts", "Modules.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
       if (!files.includes(file)) issues.push(`缺少预期产物：${file}`)
     }
+    // 固定布局：客户端底座在根，契约出口在 types/ 子目录
+    for (const file of ["client.ts", "types/index.ts"]) {
+      if (!existsSync(join(base, file))) issues.push(`缺少固定产物：${file}`)
+    }
     if (files.some((name) => /^DgAdminV\d/i.test(name))) issues.push("版本段被当作子分类生成了文件")
     if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
 
@@ -897,14 +905,14 @@ async function checkGroupedSplit() {
     if (!existsSync(manifestFile)) issues.push("清单未写入依赖缓存")
     else {
       const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
-      for (const file of ["Modules.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
+      for (const file of ["Modules.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts", "client.ts", "types/index.ts"]) {
         if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
       }
       if ("version" in manifest) issues.push("清单包含工具版本")
     }
 
-    // 可复现：同一配置再生成一次，产物集合与内容完全一致
-    const snapshot = () => Object.fromEntries(readdirSync(base).sort().map((name) => [name, readFileSync(join(base, name), "utf8")]))
+    // 可复现：同一配置再生成一次，产物集合与内容完全一致（含 types/ 子目录）
+    const snapshot = () => Object.fromEntries(collectFiles(base).sort().map((name) => [name, readFileSync(join(base, name), "utf8")]))
     const before = snapshot()
     const second = run(writeConfig("base.json", base, splitGrouping))
     if (second.status !== 0) {
@@ -966,11 +974,14 @@ async function checkGroupedSplit() {
       issues.push("JS 模式生成失败")
     } else {
       const jsFiles = readdirSync(jsDir)
-      for (const file of ["DgAdmin.js", "DgAdmin.d.ts"]) if (!jsFiles.includes(file)) issues.push(`JS 模式缺少 ${file}`)
+      for (const file of ["DgAdmin.js", "DgAdmin.d.ts", "client.js", "client.d.ts"]) if (!jsFiles.includes(file)) issues.push(`JS 模式缺少 ${file}`)
+      for (const file of ["types/index.js", "types/index.d.ts"]) {
+        if (!existsSync(join(jsDir, file))) issues.push(`JS 模式缺少 ${file}`)
+      }
       if (!existsSync(join(jsDir, "DgAdmin.js")) || !readFileSync(join(jsDir, "DgAdmin.js"), "utf8").includes("Object.assign(this")) {
         issues.push("JS 模式门面未合并分片实例")
       }
-      for (const file of jsFiles.filter((name) => name.endsWith(".d.ts"))) {
+      for (const file of [...jsFiles.filter((name) => name.endsWith(".d.ts")), "types/index.d.ts"]) {
         const source = ts.createSourceFile(file, readFileSync(join(jsDir, file), "utf8"), ts.ScriptTarget.Latest, true)
         if (source.parseDiagnostics.length > 0) issues.push(`JS 声明无法解析：${file}`)
       }
@@ -1026,8 +1037,12 @@ async function checkFlatConfig() {
     }
 
     const files = readdirSync(api)
-    for (const file of ["index.ts", "Modules.ts", "data-contracts.ts", "http-client.ts"]) {
+    for (const file of ["index.ts", "Modules.ts"]) {
       if (!files.includes(file)) issues.push(`缺少预期产物：${file}`)
+    }
+    // 固定布局：客户端底座在根，契约出口在 types/ 子目录
+    for (const file of ["client.ts", "types/index.ts"]) {
+      if (!existsSync(join(api, file))) issues.push(`缺少固定产物：${file}`)
     }
     if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
     const bucket = readFileSync(join(api, "Modules.ts"), "utf8")
@@ -1036,7 +1051,9 @@ async function checkFlatConfig() {
     }
     const aggregate = readFileSync(join(api, "index.ts"), "utf8")
     if (!aggregate.includes('import { App, DgAdmin, Misc } from "./Modules"')) issues.push("聚合入口未合并单桶导入")
-    if (!readFileSync(join(api, "http-client.ts"), "utf8").includes("axios")) issues.push("扁平配置的 client 未生效")
+    if (!aggregate.includes('export * from "./types"')) issues.push("聚合入口未导出 types")
+    if (!aggregate.includes('export * from "./client"')) issues.push("聚合入口未导出 client")
+    if (!readFileSync(join(api, "client.ts"), "utf8").includes("axios")) issues.push("扁平配置的 client 未生效")
 
     const manifestFile = manifestPath(api)
     if (!existsSync(manifestFile)) {
@@ -1045,6 +1062,18 @@ async function checkFlatConfig() {
       const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
       if ("version" in manifest) issues.push("清单包含工具版本")
       if (!manifest.files.includes("Modules.ts")) issues.push("清单缺少 Modules.ts")
+      if (!manifest.files.includes("types/index.ts")) issues.push("清单缺少 types/index.ts")
+    }
+
+    // 升级退场：旧版固定产物在成功生成后自动删除
+    writeFileSync(join(api, "data-contracts.ts"), "// 旧产物\n")
+    writeFileSync(join(api, "http-client.ts"), "// 旧产物\n")
+    const migrated = run()
+    if (migrated.status !== 0) issues.push("旧产物退场：重新生成失败")
+    else {
+      for (const file of ["data-contracts.ts", "http-client.ts"]) {
+        if (existsSync(join(api, file))) issues.push(`旧产物未清理：${file}`)
+      }
     }
 
     // 一致时通过，且不写真实目录

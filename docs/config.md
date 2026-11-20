@@ -21,6 +21,8 @@
 - 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
 - 只写项目自己的口径；分桶阈值、分片规则、清单、清理与产物校验由工具默认，不需要配置
 - `mode: "grouped"` 自动按路径首段分组，并按体量分桶、对超大命名空间分片；对外仍是 `api.<命名空间>.<方法>`
+- 产物布局：`mode: "grouped"` 固定为 `index`（聚合入口）+ 业务模块文件 + `client`（客户端底座）+ `types/`（契约目录），契约统一从 `types/index` 导出
+- 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留，无需手动清理
 - 相对路径按配置文件所在目录解析，从任意目录执行都能落对位置
 - 分组模式的生成清单存放在系统临时目录缓存，不进入仓库与产物目录；`--check` 只校验产物是否与当前配置一致
 - `swagger2api init` 可交互生成这份配置；`swagger2api` 无参即按最近的配置生成
@@ -55,7 +57,7 @@
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
 - 合并同名组：`grouping.collapse` 为 `true` 时，折叠键相同的组（如 `opt` 与 `opt_`）合并为同一组，复现单文件产物「同名属性即同组」的语义；默认 `false` 时各自独立并追加序号
 - 自适应分桶：`mode: "grouped"` 时自动启用。总量低于阈值只出一个模块文件，否则按命名空间顺序装箱；单个超大命名空间再按子分类分片，分片由门面类合并实例与类型。分桶阈值与分片规则属于工具默认，不需要配置；`grouping.split: false` 仅作为回滚逃生口
-- 保留名：`index`、`data-contracts`、`http-client` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
+- 保留名：`index`、`types`、`client`、`shared` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
 - 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按上一轮生成清单清理，不触碰手写适配文件与清单外产物。清单存放在系统临时目录缓存，不进入仓库
 - 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示

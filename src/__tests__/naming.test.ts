@@ -58,8 +58,8 @@ describe("命名表", () => {
   })
 
   it("产物保留名与 Windows 设备名追加后缀", () => {
-    const { entries } = buildGroupNaming(["index", "con", "HttpClient"])
-    expect(entries.map((entry) => entry.fileName)).toEqual(["HttpClient2", "Con2", "Index2"])
+    const { entries } = buildGroupNaming(["index", "con", "HttpClient", "client", "types"])
+    expect(entries.map((entry) => entry.fileName)).toEqual(["HttpClient2", "Client2", "Con2", "Index2", "Types2"])
   })
 
   it("聚合成员保留名追加后缀并说明原因", () => {
@@ -90,7 +90,7 @@ describe("命名表", () => {
 describe("表外产物", () => {
   it("排除固定产物与命名表内模块，只返回残留文件", () => {
     const { entries } = buildGroupNaming(["用户管理"])
-    const files = ["index.ts", "index.d.ts", "data-contracts.ts", "http-client.ts", "route-types.ts", "用户管理.ts", "user_Route.ts", "旧模块.ts"]
+    const files = ["index.ts", "index.d.ts", "client.ts", "data-contracts.ts", "http-client.ts", "route-types.ts", "用户管理.ts", "user_Route.ts", "旧模块.ts"]
     expect(findOrphanModules(files, entries, ".ts")).toEqual(["旧模块.ts"])
   })
 })

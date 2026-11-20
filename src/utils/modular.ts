@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import type { SplitNamespacePlan } from "./grouping"
-import { findOrphanModules, type GroupNameInfo } from "./naming"
+import { CLIENT_BASE, LEGACY_OUTPUT_BASES, TYPES_DIR, findOrphanModules, type GroupNameInfo } from "./naming"
 
 /** 模块入口信息 */
 export interface ModuleEntry {
@@ -17,8 +17,8 @@ export interface ModuleEntry {
   importFrom?: string
 }
 
-/** 不参与聚合的文件名 */
-const RESERVED = new Set(["index", "data-contracts", "http-client"])
+/** 不参与聚合的文件名（折叠键比较，兼容大小写不敏感的文件系统） */
+const RESERVED = new Set(["index", "shared", "types", CLIENT_BASE, ...LEGACY_OUTPUT_BASES])
 
 /** 生成清单：只记录文件名，不含工具版本，避免业务仓产物携带易腐信息 */
 export interface OutputManifest {
@@ -62,7 +62,7 @@ export function collectModules(dir: string, ext: string) {
   for (const file of fs.readdirSync(dir)) {
     if (!file.endsWith(ext) || file.endsWith(`.d${ext}`)) continue
     const base = file.slice(0, -ext.length)
-    if (RESERVED.has(base) || base.endsWith("Route")) continue
+    if (RESERVED.has(base.toLowerCase()) || base.endsWith("Route")) continue
     const className = pascalCase(base)
     modules.push({ base, className, property: className.charAt(0).toLowerCase() + className.slice(1) })
   }
@@ -103,9 +103,36 @@ export function readOutputManifest(file: string): OutputManifest | null {
  */
 export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJS: boolean, extraFiles: string[] = []) {
   const ext = toJS ? ".js" : ".ts"
-  const names = ["index", "data-contracts", "http-client", "route-types", ...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]), ...extraFiles]
+  const names = [
+    "index",
+    `${TYPES_DIR}/index`,
+    CLIENT_BASE,
+    "route-types",
+    ...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]),
+    ...extraFiles
+  ]
   const candidates = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
   return [...new Set(candidates)].filter((file) => fs.existsSync(path.join(dir, file))).sort()
+}
+
+/**
+ * 清理旧版固定产物：改名后不再生成 data-contracts / http-client，升级时删除残留。
+ * @param dir 输出目录
+ * @param toJS 是否为 JS 输出
+ * @return 已删除的相对路径
+ */
+export function removeLegacyOutput(dir: string, toJS: boolean) {
+  const suffixes = toJS ? [".js", ".d.ts"] : [".ts"]
+  const removed: string[] = []
+  for (const base of LEGACY_OUTPUT_BASES) {
+    for (const suffix of suffixes) {
+      const file = `${base}${suffix}`
+      if (!fs.existsSync(path.join(dir, file))) continue
+      fs.rmSync(path.join(dir, file))
+      removed.push(file)
+    }
+  }
+  return removed
 }
 
 /**
@@ -152,7 +179,8 @@ export function pruneOutput(dir: string, manifest: OutputManifest | null, keep: 
 export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], toJS: boolean, manifest: OutputManifest | null, extraFiles: string[] = []) {
   const ext = toJS ? ".js" : ".ts"
   const known = new Set(manifest?.files ?? [])
-  const bases = new Set([...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]), ...extraFiles])
+  // 固定产物（客户端底座与契约出口）同样纳入护栏，避免首轮生成覆盖手写文件
+  const bases = new Set([CLIENT_BASE, `${TYPES_DIR}/index`, ...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]), ...extraFiles])
   return [...bases]
     .flatMap((base) => (toJS ? [`${base}${ext}`, `${base}.d.ts`] : [`${base}${ext}`]))
     .filter((file) => fs.existsSync(path.join(dir, file)) && !known.has(file))
@@ -189,10 +217,10 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
   const lines = [
     "/* eslint-disable */",
     "/* tslint:disable */",
-    `import { HttpClient } from "./http-client"`,
+    `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...importLines,
-    `export * from "./data-contracts"`,
-    `export * from "./http-client"`,
+    `export * from "./${TYPES_DIR}"`,
+    `export * from "./${CLIENT_BASE}"`,
     "",
     "/** 聚合入口：各模块共享同一个请求实例 */",
     `export class ${className}<SecurityDataType = unknown> extends HttpClient<SecurityDataType> {`,
@@ -268,6 +296,11 @@ export function verifyGroupedOutput(
       if (!content.includes(`class ${entry.className}`)) errors.push(`类名与命名表不一致：${source}${ext} 期望 ${entry.className}`)
     }
   }
+  // 固定产物必须落位：改名后模板与生成器不同步会静默产出缺底座的产物
+  const fixed = [`${CLIENT_BASE}${ext}`, `${TYPES_DIR}/index${ext}`, ...(toJS ? [`${CLIENT_BASE}.d.ts`, `${TYPES_DIR}/index.d.ts`] : [])]
+  for (const file of fixed) {
+    if (!fs.existsSync(path.join(dir, file))) errors.push(`缺少固定产物：${file}`)
+  }
   if (options.aggregate !== false) {
     const aggregate = path.join(dir, `index${ext}`)
     if (!fs.existsSync(aggregate)) {
@@ -311,10 +344,10 @@ export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName:
   return [
     "/* eslint-disable */",
     "/* tslint:disable */",
-    `import { HttpClient } from "./http-client"`,
+    `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
-    `export * from "./data-contracts"`,
-    `export * from "./http-client"`,
+    `export * from "./${TYPES_DIR}"`,
+    `export * from "./${CLIENT_BASE}"`,
     "",
     `export declare class ${className}<SecurityDataType = unknown> extends HttpClient<SecurityDataType> {`,
     ...props,
@@ -364,7 +397,7 @@ export function buildSplitFacade(facade: SplitFacade) {
   return [
     "/* eslint-disable */",
     "/* tslint:disable */",
-    `import { HttpClient } from "./http-client"`,
+    `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     "",
     `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
@@ -428,7 +461,7 @@ export function buildSplitFacadeDeclarations(facade: SplitFacade) {
   return [
     "/* eslint-disable */",
     "/* tslint:disable */",
-    `import { HttpClient } from "./http-client"`,
+    `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     "",
     `export interface ${facade.className}<SecurityDataType = unknown> extends ${extendsList} {}`,
