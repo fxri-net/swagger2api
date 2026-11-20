@@ -50,6 +50,8 @@ export type Defines = {
       groupOriginalTags?: Record<string, string>
       /** 分组模式模块类名映射（键为模块名），供模板与聚合入口同源取名 */
       moduleClassNames?: Record<string, string>
+      /** 分桶文件布局（键为桶模块名），供模板在同一个文件里渲染多个命名空间类 */
+      splitBuckets?: Record<string, Array<{ tag: string; className: string; title: string; routes: number }>>
     }
     /** 枚举 */
     enum: { [key: string]: number }

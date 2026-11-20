@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import type { SplitNamespacePlan } from "./grouping"
 import { findOrphanModules, type GroupNameInfo } from "./naming"
 
 /** 模块入口信息 */
@@ -10,6 +11,8 @@ export interface ModuleEntry {
   className: string
   /** 聚合入口上的属性名 */
   property: string
+  /** 聚合入口的导入来源（分桶/分片时与文件名不同；缺省即 base） */
+  importFrom?: string
 }
 
 /** 不参与聚合的文件名 */
@@ -66,7 +69,7 @@ export function collectModules(dir: string, ext: string) {
  * @return 模块列表
  */
 export function toModuleEntries(entries: GroupNameInfo[]) {
-  return entries.map((entry) => ({ base: entry.fileName, className: entry.className, property: entry.property }))
+  return entries.map((entry) => ({ base: entry.fileName, className: entry.className, property: entry.property, importFrom: entry.importFrom }))
 }
 
 /**
@@ -94,11 +97,12 @@ export function readOutputManifest(dir: string): OutputManifest | null {
  * @param dir 输出目录
  * @param entries 命名表
  * @param toJS 是否为 JS 输出
+ * @param extraFiles 额外产物文件名（桶、分片、门面，不含扩展名）
  * @return 已存在的产物文件名（排序）
  */
-export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJS: boolean) {
+export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJS: boolean, extraFiles: string[] = []) {
   const ext = toJS ? ".js" : ".ts"
-  const names = ["index", "data-contracts", "http-client", "route-types", ...entries.map((entry) => entry.fileName)]
+  const names = ["index", "data-contracts", "http-client", "route-types", ...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]), ...extraFiles]
   const candidates = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
   return [...new Set(candidates)].filter((file) => fs.existsSync(path.join(dir, file))).sort()
 }
@@ -141,13 +145,15 @@ export function pruneOutput(dir: string, manifest: OutputManifest | null, keep: 
  * @param entries 命名表
  * @param toJS 是否为 JS 输出
  * @param manifest 上一轮清单（首轮为 null）
+ * @param extraFiles 额外产物文件名（桶、分片、门面，不含扩展名）
  * @return 冲突文件名
  */
-export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], toJS: boolean, manifest: OutputManifest | null) {
+export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], toJS: boolean, manifest: OutputManifest | null, extraFiles: string[] = []) {
   const ext = toJS ? ".js" : ".ts"
   const known = new Set(manifest?.files ?? [])
-  return entries
-    .flatMap((entry) => (toJS ? [`${entry.fileName}${ext}`, `${entry.fileName}.d.ts`] : [`${entry.fileName}${ext}`]))
+  const bases = new Set([...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]), ...extraFiles])
+  return [...bases]
+    .flatMap((base) => (toJS ? [`${base}${ext}`, `${base}.d.ts`] : [`${base}${ext}`]))
     .filter((file) => fs.existsSync(path.join(dir, file)) && !known.has(file))
 }
 
@@ -162,10 +168,21 @@ export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], 
 export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string, modulesDir: string, toJS: boolean) {
   const className = apiClassName || "Api"
   const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
-  const importLines = modules.map((item) => {
-    const target = `${modulesDir ? `${modulesDir.replace(/\\/g, "/")}/` : ""}${item.base}`
-    const alias = aliasOf(item)
-    return `import { ${item.className}${alias === item.className ? "" : ` as ${alias}`} } from "./${target}"`
+  // 同源模块（分桶文件）合并为一条 import，避免多命名空间拆成多个文件时重复导入
+  const bySource = new Map<string, ModuleEntry[]>()
+  for (const item of modules) {
+    const source = item.importFrom ?? item.base
+    const list = bySource.get(source)
+    if (list) list.push(item)
+    else bySource.set(source, [item])
+  }
+  const importLines = [...bySource.entries()].map(([source, items]) => {
+    const target = `${modulesDir ? `${modulesDir.replace(/\\/g, "/")}/` : ""}${source}`
+    const specifiers = items.map((item) => {
+      const alias = aliasOf(item)
+      return alias === item.className ? item.className : `${item.className} as ${alias}`
+    })
+    return `import { ${specifiers.join(", ")} } from "./${target}"`
   })
   const props = modules.map((item) => `${item.property} = new ${aliasOf(item)}(this)`)
   const lines = [
@@ -223,18 +240,31 @@ export function writeAggregateEntry(dir: string, apiClassName: string, toJS: boo
  * @param options 是否校验聚合入口（聚合入口由本工具后写，需分两阶段校验）
  * @return 错误清单与表外文件
  */
-export function verifyGroupedOutput(dir: string, entries: GroupNameInfo[], toJS: boolean, options: { aggregate?: boolean } = {}) {
+export function verifyGroupedOutput(
+  dir: string,
+  entries: GroupNameInfo[],
+  toJS: boolean,
+  options: { aggregate?: boolean; extraFiles?: string[] } = {}
+) {
   const ext = toJS ? ".js" : ".ts"
   const errors: string[] = []
+  // 同一来源文件可能承载多个命名空间（桶文件）或一个门面类，按来源去重判定文件存在性
+  const bySource = new Map<string, GroupNameInfo[]>()
   for (const entry of entries) {
-    const file = path.join(dir, `${entry.fileName}${ext}`)
+    const source = entry.importFrom ?? entry.fileName
+    const list = bySource.get(source)
+    if (list) list.push(entry)
+    else bySource.set(source, [entry])
+  }
+  for (const [source, items] of bySource) {
+    const file = path.join(dir, `${source}${ext}`)
     if (!fs.existsSync(file)) {
-      errors.push(`缺少模块文件：期望 ${entry.fileName}${ext}（原始组名 ${entry.raw}）`)
+      items.forEach((entry) => errors.push(`缺少模块文件：期望 ${source}${ext}（原始组名 ${entry.raw}）`))
       continue
     }
     const content = fs.readFileSync(file, "utf8")
-    if (!content.includes(`class ${entry.className}`)) {
-      errors.push(`类名与命名表不一致：${entry.fileName}${ext} 期望 ${entry.className}`)
+    for (const entry of items) {
+      if (!content.includes(`class ${entry.className}`)) errors.push(`类名与命名表不一致：${source}${ext} 期望 ${entry.className}`)
     }
   }
   if (options.aggregate !== false) {
@@ -248,7 +278,7 @@ export function verifyGroupedOutput(dir: string, entries: GroupNameInfo[], toJS:
       }
     }
   }
-  const orphans = fs.existsSync(dir) ? findOrphanModules(fs.readdirSync(dir), entries, ext) : []
+  const orphans = fs.existsSync(dir) ? findOrphanModules(fs.readdirSync(dir), entries, ext, options.extraFiles ?? []) : []
   return { errors, orphans }
 }
 
@@ -261,9 +291,20 @@ export function verifyGroupedOutput(dir: string, entries: GroupNameInfo[], toJS:
 export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName: string) {
   const className = apiClassName || "Api"
   const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
-  const imports = modules.map((item) => {
-    const alias = aliasOf(item)
-    return `import { ${item.className}${alias === item.className ? "" : ` as ${alias}`} } from "./${item.base}"`
+  // 声明文件与实现同源：桶文件内的多个类合并到一条 import
+  const bySource = new Map<string, ModuleEntry[]>()
+  for (const item of modules) {
+    const source = item.importFrom ?? item.base
+    const list = bySource.get(source)
+    if (list) list.push(item)
+    else bySource.set(source, [item])
+  }
+  const imports = [...bySource.entries()].map(([source, items]) => {
+    const specifiers = items.map((item) => {
+      const alias = aliasOf(item)
+      return alias === item.className ? item.className : `${item.className} as ${alias}`
+    })
+    return `import { ${specifiers.join(", ")} } from "./${source}"`
   })
   const props = modules.map((item) => `  ${item.property}: ${aliasOf(item)}`)
   return [
@@ -280,4 +321,145 @@ export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName:
     "}",
     ""
   ].join("\n")
+}
+
+/** 分片门面 */
+export interface SplitFacade {
+  /** 门面文件名（不含扩展名） */
+  fileName: string
+  /** 门面类名 */
+  className: string
+  /** 原始命名空间名（JSDoc 展示） */
+  title: string
+  /** 分片类 */
+  chunks: Array<{ fileName: string; className: string }>
+}
+
+/**
+ * 从规划结果提取需要写门面的命名空间（仅分片）。
+ * @param namespaces 命名空间规划
+ * @return 门面列表
+ */
+export function toSplitFacades(namespaces: SplitNamespacePlan[]): SplitFacade[] {
+  return namespaces
+    .filter((plan) => plan.chunks.length > 0)
+    .map((plan) => ({
+      fileName: plan.fileName,
+      className: plan.className,
+      title: plan.raw,
+      chunks: plan.chunks.map((chunk) => ({ fileName: chunk.fileName, className: chunk.className }))
+    }))
+}
+
+/**
+ * 生成分片门面的 TypeScript 内容：实例合并 + 类型合并，对外与单文件产物一致。
+ * @param facade 门面
+ * @return 文件内容
+ */
+export function buildSplitFacade(facade: SplitFacade) {
+  const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
+  const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
+  const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
+  return [
+    "/* eslint-disable */",
+    "/* tslint:disable */",
+    `import { HttpClient } from "./http-client"`,
+    ...imports,
+    "",
+    `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
+    `export class ${facade.className}<SecurityDataType = unknown> {`,
+    "  /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */",
+    "  http: HttpClient<SecurityDataType>",
+    "",
+    "  constructor(http: HttpClient<SecurityDataType>) {",
+    "    this.http = http",
+    `    Object.assign(this, ${sources})`,
+    "  }",
+    "",
+    "  /** 底层请求实例：与聚合入口保持同一个 */",
+    `  get instance(): HttpClient<SecurityDataType>["instance"] {`,
+    "    return this.http.instance",
+    "  }",
+    "}",
+    "",
+    "/** 类型合并：分片成员与单文件产物保持同一命名空间 */",
+    `export interface ${facade.className}<SecurityDataType = unknown> extends ${extendsList} {}`,
+    ""
+  ].join("\n")
+}
+
+/**
+ * 生成分片门面的 JavaScript 内容。
+ * @param facade 门面
+ * @return 文件内容
+ */
+export function buildSplitFacadeJs(facade: SplitFacade) {
+  const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
+  const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
+  return [
+    "/* eslint-disable */",
+    "/* tslint:disable */",
+    ...imports,
+    "",
+    `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
+    `export class ${facade.className} {`,
+    "  constructor(http) {",
+    "    this.http = http",
+    `    Object.assign(this, ${sources})`,
+    "  }",
+    "",
+    "  get instance() {",
+    "    return this.http.instance",
+    "  }",
+    "}",
+    ""
+  ].join("\n")
+}
+
+/**
+ * 生成分片门面的声明内容。
+ * @param facade 门面
+ * @return 声明内容
+ */
+export function buildSplitFacadeDeclarations(facade: SplitFacade) {
+  const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
+  const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
+  return [
+    "/* eslint-disable */",
+    "/* tslint:disable */",
+    `import { HttpClient } from "./http-client"`,
+    ...imports,
+    "",
+    `export interface ${facade.className}<SecurityDataType = unknown> extends ${extendsList} {}`,
+    `export declare class ${facade.className}<SecurityDataType = unknown> {`,
+    "  constructor(http: HttpClient<SecurityDataType>)",
+    "}",
+    ""
+  ].join("\n")
+}
+
+/**
+ * 写入分片门面：TS 模式写一个文件，JS 模式同时写实现与声明。
+ * @param dir 输出目录
+ * @param namespaces 命名空间规划
+ * @param toJS 是否为 JS 输出
+ * @return 写入的文件名
+ */
+export function writeSplitFacades(dir: string, namespaces: SplitNamespacePlan[], toJS: boolean) {
+  const files: string[] = []
+  for (const facade of toSplitFacades(namespaces)) {
+    if (toJS) {
+      const js = `${facade.fileName}.js`
+      fs.writeFileSync(path.join(dir, js), buildSplitFacadeJs(facade))
+      files.push(js)
+      const dts = `${facade.fileName}.d.ts`
+      fs.writeFileSync(path.join(dir, dts), buildSplitFacadeDeclarations(facade))
+      files.push(dts)
+    } else {
+      const ts = `${facade.fileName}.ts`
+      fs.writeFileSync(path.join(dir, ts), buildSplitFacade(facade))
+      files.push(ts)
+    }
+  }
+  return files
 }

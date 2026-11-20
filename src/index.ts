@@ -8,8 +8,8 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers } from "./utils/config"
-import { collectGeneratedFiles, findHandwrittenConflicts, pruneOutput, readOutputManifest, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, type OutputManifest } from "./utils/modular"
-import { applyGrouping, type GroupingConfig } from "./utils/grouping"
+import { collectGeneratedFiles, findHandwrittenConflicts, pruneOutput, readOutputManifest, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
@@ -29,6 +29,8 @@ const datas = {
 let failures = 0
 /** 本次分组的命名表（非分组模式为空） */
 let namingEntries: GroupNameInfo[] = []
+/** 本次分桶与分片规划（未启用 split 为空） */
+let splitPlan: SplitPlan | null = null
 /** 是否只输出分组报表 */
 const dryRun = () => process.argv.includes("--dry-run")
 /** 是否输出结构化报表 */
@@ -277,24 +279,60 @@ function onReplaceTags(data: Defines["data"]) {
 }
 
 /**
+ * 规划产出的文件名（不含扩展名）：启用 split 时含桶、分片与门面。
+ * @param entries 命名表
+ * @param plan 分片规划
+ * @return 去重后的文件名
+ */
+function plannedFileNames(entries: GroupNameInfo[], plan: SplitPlan | null) {
+  const names = plan
+    ? [
+        ...plan.buckets.map((bucket) => bucket.fileName),
+        ...plan.namespaces.flatMap((item) => item.chunks.map((chunk) => chunk.fileName)),
+        ...plan.namespaces.filter((item) => item.chunks.length > 0).map((item) => item.fileName)
+      ]
+    : entries.map((entry) => entry.fileName)
+  return [...new Set(names)]
+}
+
+/**
  * 分组报表：输出命名映射、未命中规则与产物增删；dry-run 与生成前预览共用。
  * @param entries 命名表
  * @param unmatchedRules 未命中的规则下标
+ * @param plan 分桶与分片规划
  */
-function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[]) {
-  const ext = datas.config.toJS ? ".js" : ".ts"
+function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[], plan: SplitPlan | null) {
+  const toJS = Boolean(datas.config.toJS)
+  const ext = toJS ? ".js" : ".ts"
   const dir = path.resolve(confs.param.output ?? "./src/api")
   const files = fs.existsSync(dir) ? fs.readdirSync(dir) : []
-  const add = entries.map((entry) => `${entry.fileName}${ext}`).filter((file) => !files.includes(file))
-  const orphans = findOrphanModules(files, entries, ext)
+  const names = plannedFileNames(entries, plan)
+  const expected = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
+  const add = expected.filter((file) => !files.includes(file))
+  const orphans = findOrphanModules(files, entries, ext, names)
   if (jsonOutput()) {
     console.log(
       JSON.stringify(
         {
-          groups: entries.map(({ raw, fileName, className, property, reason, source }) => ({ raw, fileName, className, property, reason, source })),
+          groups: entries.map(({ raw, fileName, className, property, importFrom, reason, source }) => ({ raw, fileName, className, property, importFrom, reason, source })),
           unmatchedRules,
           add,
-          orphans
+          orphans,
+          split: plan
+            ? {
+                total: plan.total,
+                buckets: plan.buckets.map(({ fileName, category, routes, namespaces }) => ({ fileName, category, routes, namespaces })),
+                shards: plan.namespaces
+                  .filter((item) => item.chunks.length > 0)
+                  .map(({ raw, fileName, className, routes, chunks }) => ({
+                    raw,
+                    fileName,
+                    className,
+                    routes,
+                    chunks: chunks.map(({ fileName: chunkFile, routes: chunkRoutes, categories }) => ({ fileName: chunkFile, routes: chunkRoutes, categories }))
+                  }))
+              }
+            : undefined
         },
         null,
         2
@@ -303,6 +341,12 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[]) {
     return
   }
   entries.forEach((entry) => console.log(`命名：${entry.raw} → ${entry.fileName}（类 ${entry.className}${entry.reason ? `，${entry.reason}` : ""}）`))
+  plan?.buckets.forEach((bucket) =>
+    console.log(`桶：${bucket.fileName}（${bucket.namespaces.length} 个命名空间 / ${bucket.routes} 条${bucket.category ? `，分类 ${bucket.category}` : ""}）`)
+  )
+  plan?.namespaces
+    .filter((item) => item.chunks.length > 0)
+    .forEach((item) => console.log(`分片：${item.raw} → ${item.chunks.map((chunk) => `${chunk.fileName}（${chunk.routes} 条）`).join("、")}`))
   if (unmatchedRules.length) console.error(`⚠️ 未命中规则：${unmatchedRules.map((index) => index + 1).join("、")}`)
   if (add.length) console.log(`预计新增：${add.join("、")}`)
   if (orphans.length) console.error(`⚠️ 表外产物（建议开启 output.prune）：${orphans.join("、")}`)
@@ -323,12 +367,14 @@ async function onGenerateApi(data: Defines["data"]) {
   }
   // 命名表按文档重置，避免批量场景沿用上一份文档的产物名
   namingEntries = []
+  splitPlan = null
   datas.param.moduleClassNames = undefined
+  datas.param.splitBuckets = undefined
   // 标签改写必须先于分组：分组会把模块名写进 tags，之后再改写会把模块名抹掉
   onReplaceTags(data)
   // 模块化 + 分组配置：把接口归入原始组名，再按命名表写入模块名
   const groupingConfig = (datas.config as Record<string, any>).grouping as GroupingConfig | undefined
-  if (datas.config.modular && groupingConfig && (groupingConfig.strategy?.length || groupingConfig.rules?.length)) {
+  if (datas.config.modular && groupingConfig && (groupingConfig.strategy?.length || groupingConfig.rules?.length || groupingConfig.split)) {
     const result = applyGrouping(data, groupingConfig)
     result.warnings.forEach((warning) => console.error("⚠️", warning))
     if (result.errors.length > 0) {
@@ -337,13 +383,15 @@ async function onGenerateApi(data: Defines["data"]) {
       return
     }
     namingEntries = result.entries
+    splitPlan = result.split ?? null
     ;(datas.config as Record<string, any>).moduleNameFirstTag = true
-    datas.param.moduleClassNames = toClassNames(result.entries)
+    datas.param.moduleClassNames = result.moduleClassNames ?? toClassNames(result.entries)
+    datas.param.splitBuckets = result.split?.bucketLayout
     // 默认在 JSDoc 中保留原始标签，避免分组名污染业务文档
     if (groupingConfig.preserveTags !== false) datas.param.groupOriginalTags = result.originalTags
     console.log("分组：", ...Object.entries(result.counts).map(([group, count]) => `${group}-${count}`))
     if (dryRun()) {
-      onGroupReport(result.entries, result.unmatchedRules)
+      onGroupReport(result.entries, result.unmatchedRules, splitPlan)
       return
     }
   }
@@ -351,7 +399,9 @@ async function onGenerateApi(data: Defines["data"]) {
   if (datas.config.modular && namingEntries.length) {
     const dir = path.resolve(confs.param.output)
     previousManifest = readOutputManifest(dir)
-    const conflicts = findHandwrittenConflicts(dir, namingEntries, Boolean(datas.config.toJS), previousManifest)
+    // split 模式的实际文件由桶/分片/门面给出，命名空间名不再落盘，避免误判或误收手写文件
+    const conflictEntries = splitPlan ? [] : namingEntries
+    const conflicts = findHandwrittenConflicts(dir, conflictEntries, Boolean(datas.config.toJS), previousManifest, plannedFileNames(namingEntries, splitPlan))
     if (conflicts.length > 0) {
       conflicts.forEach((file) =>
         console.error(`失败：输出目录存在同名手写文件：${file}（不属于上一轮生成清单），已终止生成；确认可覆盖后删除该文件或调整分组名`)
@@ -416,14 +466,17 @@ async function onGenerateApi(data: Defines["data"]) {
     const apiClassName = String((datas.config as Record<string, any>).apiClassName ?? "Api")
     const toJS = Boolean(datas.config.toJS)
     if (namingEntries.length) {
-      const modules = verifyGroupedOutput(dir, namingEntries, toJS, { aggregate: false })
+      const extraFiles = plannedFileNames(namingEntries, splitPlan)
+      // 分片门面由本工具补写，必须先于产物校验与聚合入口
+      if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS)
+      const modules = verifyGroupedOutput(dir, namingEntries, toJS, { aggregate: false, extraFiles })
       if (modules.errors.length > 0) {
         modules.errors.forEach((error) => console.error("失败：", error))
         failures += 1
         return
       }
       writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries))
-      const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS)
+      const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS, { extraFiles })
       if (errors.length > 0) {
         errors.forEach((error) => console.error("失败：", error))
         failures += 1
@@ -435,7 +488,7 @@ async function onGenerateApi(data: Defines["data"]) {
     }
     // 分组模式：按清单清理已消失的模块，并写入本轮清单供下一轮比对
     if (namingEntries.length) {
-      const files = collectGeneratedFiles(dir, namingEntries, toJS)
+      const files = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, plannedFileNames(namingEntries, splitPlan))
       const removed = datas.config.pruneOutput ? pruneOutput(dir, previousManifest, files) : []
       removed.forEach((file) => console.log("清理：", path.resolve(dir, file)))
       writeOutputManifest(dir, readToolVersion(), files)

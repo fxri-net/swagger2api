@@ -90,6 +90,10 @@ client.instance.interceptors.response.use(
 - 命名兼容：`grouping.collapse` 为 `true` 时合并折叠键相同的组（如 `opt` 与 `opt_`），复现单文件产物的合并语义；`instance`、`request` 等聚合成员名同样列入保留名，命中后追加序号
 - 命名预览：`--dry-run` 打印「原始组名 → 文件 / 类 / 属性」映射与重命名原因，`--dry-run --json` 输出结构化结果；`grouping.names` 可对个别组指定可读名，只改名不改归属
 - 生成校验：分组生成后会按命名表核对实际文件名、类名与聚合挂载，不一致直接报错；输出目录中的表外文件会提示，建议开启 `output.prune`（只清理清单内的旧产物，不碰手写文件）
+- 自适应分桶：`grouping.split` 按接口体量压文件数。总路由不超过 `minRoutes`（默认 150）时只出一个模块文件；否则按 `categories` 分类装箱（未命中入 `fallback`），或按命名空间名称码点顺序装箱，每桶不超过 `targetRoutes`（默认 300），尾桶低于 `minBucketRoutes`（默认 60）并入前一桶。未配置分类时桶名取桶内首个命名空间名并告警，仅作占位
+- 命名空间分片：单个命名空间超过 `maxRoutes`（默认 450）时，按「命名空间之后第一个非版本段」拆成 `<类名>Part1` 等分片文件，再补一个门面类做实例合并（`Object.assign`）与类型合并（`interface extends`）；调用形态仍是 `api.<命名空间>.<方法>`，分片文件名属于内部产物
+- 分片回滚：关闭 `grouping.split` 即回到一命名空间一文件；开启后旧的 `grouping.minRoutes` / `grouping.maxRoutes` 会被忽略并告警
+- 分桶预览：`--dry-run --json` 的 `split` 字段给出「桶 → 命名空间」与「命名空间 → 分片」，便于确认拆法是否符合预期
 
 ```json
 {
@@ -98,7 +102,15 @@ client.instance.interceptors.response.use(
     "strategy": ["rules", "tag", "path"],
     "pathDepth": 0,
     "rules": [{ "match": { "prefix": "/admin" }, "group": "admin" }],
-    "fallback": "misc"
+    "fallback": "misc",
+    "split": {
+      "minRoutes": 150,
+      "targetRoutes": 300,
+      "maxRoutes": 450,
+      "minBucketRoutes": 60,
+      "categories": [{ "name": "admin", "match": { "prefix": "dg_" } }],
+      "fallback": "misc"
+    }
   }
 }
 ```

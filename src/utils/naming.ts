@@ -16,6 +16,8 @@ export interface GroupNameInfo {
   className: string
   /** 聚合入口属性名 */
   property: string
+  /** 聚合入口的导入来源（分桶/分片时与文件名不同；缺省即 fileName） */
+  importFrom?: string
   /** 重命名原因，空串表示原样可用 */
   reason: string
   /** 命名来源 */
@@ -292,10 +294,14 @@ export function toClassNames(entries: GroupNameInfo[]) {
  * @param files 目录中的文件名（含扩展名）
  * @param entries 命名表
  * @param ext 产物扩展名（含点）
+ * @param extraFiles 额外产物文件名（桶、分片、门面，不含扩展名）
  * @return 表外文件名
  */
-export function findOrphanModules(files: string[], entries: GroupNameInfo[], ext: string) {
-  const known = new Set(entries.map((entry) => `${entry.fileName}${ext}`))
+export function findOrphanModules(files: string[], entries: GroupNameInfo[], ext: string, extraFiles: string[] = []) {
+  const known = new Set([
+    ...entries.flatMap((entry) => [`${entry.fileName}${ext}`, `${entry.importFrom ?? entry.fileName}${ext}`]),
+    ...extraFiles.map((name) => `${name}${ext}`)
+  ])
   const reserved = new Set([`index${ext}`, "index.d.ts", `data-contracts${ext}`, `http-client${ext}`, `route-types${ext}`])
   return files.filter((file) => file.endsWith(ext) && !file.endsWith(`.d${ext}`) && !known.has(file) && !reserved.has(file) && !file.endsWith(`_Route${ext}`))
 }

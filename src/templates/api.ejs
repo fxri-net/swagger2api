@@ -9,6 +9,8 @@ const moduleName = isModular ? route.moduleName : "";
 // 分组模式由命名表提供类名，与聚合入口同源；未分组时沿用依赖的 pascalCase
 const moduleClassName = isModular ? (config.param?.moduleClassNames?.[moduleName] ?? pascalCase(moduleName)) : "";
 const moduleRoutes = isModular ? (route.routes || []) : [];
+// 分桶文件：按命名空间渲染多个类；未配置时走单类分支
+const bucketNamespaces = isModular ? config.param?.splitBuckets?.[moduleName] : undefined;
 const dataContractsFile = config.fileNames?.dataContracts ?? "data-contracts";
 const httpClientFile = config.fileNames?.httpClient ?? "http-client";
 const dataContracts = isModular ? _.map(it.modelTypes, "name") : [];
@@ -43,6 +45,30 @@ import { HttpClient, RequestParams, ContentType } from "./<%~ httpClientFile %>"
 import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
 <% } %>
 
+<% if (bucketNamespaces) { %>
+<% for (const ns of bucketNamespaces) { %>
+<% const nsRoutes = moduleRoutes.filter((item) => item.raw?.tags?.[1] === ns.tag); %>
+/** <%~ ns.title %> 模块 */
+export class <%~ ns.className %><SecurityDataType = unknown> {
+  /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */
+  http: HttpClient<SecurityDataType>
+
+  constructor(http: HttpClient<SecurityDataType>) {
+    this.http = http
+  }
+
+  /** 底层请求实例：与聚合入口保持同一个 */
+  get instance(): HttpClient<SecurityDataType>["instance"] {
+    return this.http.instance
+  }
+<% for (const item of nsRoutes) { %>
+
+  <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined }, moduleClient: true }) %>
+<% } %>
+}
+
+<% } %>
+<% } else { %>
 /** <%~ moduleName %> 模块 */
 export class <%~ moduleClassName %><SecurityDataType = unknown> {
   /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */
@@ -61,6 +87,7 @@ export class <%~ moduleClassName %><SecurityDataType = unknown> {
   <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined }, moduleClient: true }) %>
 <% } %>
 }
+<% } %>
 
 <% } else { %>
 

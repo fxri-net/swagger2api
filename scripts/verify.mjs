@@ -806,6 +806,168 @@ async function checkGroupedContract() {
 }
 
 /**
+ * 自适应分桶与分片：桶内多类、分片门面、聚合导入、清单清理与关闭开关回滚。
+ * 生成后编译类型探针，断言分片合并后的调用形态与单文件产物一致。
+ * @return {number} 退出码
+ */
+async function checkGroupedSplit() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 自适应分桶与分片：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const ts = await import("typescript")
+  // 放在 node_modules/.cache 下，便于 tsc 向上解析本仓的 axios 类型
+  const cacheRoot = join(root, "node_modules", ".cache")
+  mkdirSync(cacheRoot, { recursive: true })
+  const out = mkdtempSync(join(cacheRoot, "s2a-split-"))
+  const base = join(out, "api")
+  const issues = []
+  try {
+    const writeConfig = (name, dir, grouping, extra = {}) => {
+      const config = join(out, name)
+      writeFileSync(
+        config,
+        JSON.stringify(
+          {
+            input: { file: join(root, "fixtures", "grouping-split.json") },
+            output: { dir, name: "index", mode: "grouped" },
+            client: { type: "axios" },
+            grouping,
+            ...extra
+          },
+          null,
+          2,
+        ),
+      )
+      return config
+    }
+    const splitGrouping = { strategy: ["path"], pathDepth: 0, split: { minRoutes: 1, targetRoutes: 2, maxRoutes: 3, minBucketRoutes: 2 } }
+    const run = (config) => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
+    const first = run(writeConfig("base.json", base, splitGrouping))
+    if (first.status !== 0) {
+      console.error("✖ 自适应分桶与分片：生成失败")
+      console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
+      return 1
+    }
+
+    const files = readdirSync(base)
+    for (const file of ["index.ts", "App.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
+      if (!files.includes(file)) issues.push(`缺少预期产物：${file}`)
+    }
+    if (files.some((name) => /^DgAdminV\d/i.test(name))) issues.push("版本段被当作子分类生成了文件")
+
+    // 桶文件：一个文件内渲染多个命名空间类，且不串入分片命名空间
+    const bucket = readFileSync(join(base, "App.ts"), "utf8")
+    if (!bucket.includes("class App") || !bucket.includes("class Misc")) issues.push("桶文件未在同一文件内渲染多个命名空间类")
+    if (!bucket.includes("/app/items") || !bucket.includes("/misc/ping")) issues.push("桶文件缺少本桶接口")
+    if (bucket.includes("/dg_admin/")) issues.push("桶文件串入分片命名空间")
+
+    // 分片：按子分类落文件，门面做实例与类型合并
+    const part1 = readFileSync(join(base, "DgAdminPart1.ts"), "utf8")
+    const part2 = readFileSync(join(base, "DgAdminPart2.ts"), "utf8")
+    if (!part1.includes("/dg_admin/v3/order/") || part2.includes("/dg_admin/v3/order/")) issues.push("分片未按子分类切分")
+    if (!part2.includes("/dg_admin/v3/user/")) issues.push("分片缺少子分类接口")
+    const facade = readFileSync(join(base, "DgAdmin.ts"), "utf8")
+    if (!facade.includes("Object.assign(this, new DgAdminPart1(http), new DgAdminPart2(http))")) issues.push("门面未合并分片实例")
+    if (!facade.includes("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")) {
+      issues.push("门面未合并分片类型")
+    }
+
+    // 聚合入口：同桶模块合并导入，按命名空间挂载
+    const aggregate = readFileSync(join(base, "index.ts"), "utf8")
+    if (!aggregate.includes('import { App, Misc } from "./App"')) issues.push("聚合入口未合并同桶导入")
+    if (!aggregate.includes("dgAdmin = new DgAdmin(this)")) issues.push("聚合入口未挂载分片命名空间")
+
+    // 清单：桶、分片与门面都纳入，供下一轮清理
+    const manifest = JSON.parse(readFileSync(join(base, ".swagger2api.manifest.json"), "utf8"))
+    for (const file of ["App.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
+      if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
+    }
+
+    // 可复现：同一配置再生成一次，产物集合与内容完全一致
+    const snapshot = () => Object.fromEntries(readdirSync(base).sort().map((name) => [name, readFileSync(join(base, name), "utf8")]))
+    const before = snapshot()
+    const second = run(writeConfig("base.json", base, splitGrouping))
+    if (second.status !== 0) {
+      console.error("✖ 自适应分桶与分片：第二次生成失败")
+      console.error(`${second.stdout ?? ""}${second.stderr ?? ""}`)
+      return 1
+    }
+    const after = snapshot()
+    if (Object.keys(before).join(",") !== Object.keys(after).join(",")) issues.push("连续两次生成的产物集合不一致")
+    else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
+
+    // 类型探针：分片合并后仍可按命名空间调用，且替换 instance 会传导到分片
+    writeFileSync(
+      join(out, "probe.ts"),
+      [
+        'import { Api } from "./api/index"',
+        "",
+        "const api = new Api()",
+        "api.app.appItemsGet()",
+        "api.misc.miscPingGet()",
+        "api.dgAdmin.dgAdminV3UserListGet()",
+        "api.dgAdmin.dgAdminV3OrderDetailGet()",
+        "void api.instance",
+        ""
+      ].join("\n"),
+    )
+    writeFileSync(
+      join(out, "tsconfig.json"),
+      JSON.stringify(
+        {
+          compilerOptions: { target: "ES2020", module: "ESNext", moduleResolution: "Bundler", strict: true, skipLibCheck: true, noEmit: true },
+          include: ["probe.ts", "api/index.ts"]
+        },
+        null,
+        2,
+      ),
+    )
+    const probe = spawnSync(process.execPath, [join(root, "node_modules", "typescript", "bin", "tsc"), "-p", out], { cwd: out, encoding: "utf8" })
+    if (probe.status !== 0) {
+      issues.push("分片合并后调用形态与单文件产物不一致")
+      console.error(`${probe.stdout ?? ""}${probe.stderr ?? ""}`)
+    }
+
+    // 关闭 split 回滚：恢复一命名空间一文件，不残留分片产物
+    const legacy = join(out, "legacy")
+    const rolled = run(writeConfig("legacy.json", legacy, { strategy: ["path"], pathDepth: 0 }))
+    if (rolled.status !== 0) {
+      issues.push("关闭 split 后生成失败")
+    } else {
+      const legacyFiles = readdirSync(legacy)
+      for (const file of ["App.ts", "DgAdmin.ts", "Misc.ts"]) if (!legacyFiles.includes(file)) issues.push(`回滚后缺少 ${file}`)
+      if (legacyFiles.some((name) => /Part\d+\.ts$/.test(name))) issues.push("关闭 split 后仍残留分片产物")
+    }
+
+    // JS 模式：门面实现与声明都要落地，且能被 TS 解析
+    const jsDir = join(out, "js")
+    const jsRun = run(writeConfig("js.json", jsDir, splitGrouping, { language: { target: "js" } }))
+    if (jsRun.status !== 0) {
+      issues.push("JS 模式生成失败")
+    } else {
+      const jsFiles = readdirSync(jsDir)
+      for (const file of ["DgAdmin.js", "DgAdmin.d.ts"]) if (!jsFiles.includes(file)) issues.push(`JS 模式缺少 ${file}`)
+      if (!existsSync(join(jsDir, "DgAdmin.js")) || !readFileSync(join(jsDir, "DgAdmin.js"), "utf8").includes("Object.assign(this")) {
+        issues.push("JS 模式门面未合并分片实例")
+      }
+      for (const file of jsFiles.filter((name) => name.endsWith(".d.ts"))) {
+        const source = ts.createSourceFile(file, readFileSync(join(jsDir, file), "utf8"), ts.ScriptTarget.Latest, true)
+        if (source.parseDiagnostics.length > 0) issues.push(`JS 声明无法解析：${file}`)
+      }
+    }
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 自适应分桶与分片未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -864,6 +1026,7 @@ const steps = [
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
+  { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "产物清理与可复现（清单清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
