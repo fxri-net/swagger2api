@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/fxri-net/swagger2api/actions/workflows/ci.yml/badge.svg)](https://github.com/fxri-net/swagger2api/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@fxri/swagger2api)](https://www.npmjs.com/package/@fxri/swagger2api)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520.19-brightgreen)](./docs/getting-started.md#安装)
+[![Node](https://img.shields.io/badge/node-%E2%89%A518.12-brightgreen)](./docs/getting-started.md#安装)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![文档站](https://img.shields.io/badge/docs-fxri--net.github.io%2Fswagger2api-blueviolet)](https://fxri-net.github.io/swagger2api/)
 
@@ -88,7 +88,7 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 ## ⚙️ 环境要求
 
-- Node.js >= 20.19.0
+- Node.js >= 18.12.0
 
 ## 🛠️ 开发约定
 

@@ -87,3 +87,30 @@ export function getFilename() {
 export function getDirname() {
   return typeof require !== "undefined" && typeof module !== "undefined" ? __dirname : path.dirname(getFilename())
 }
+/**
+ * 扫描配置文件（替代 glob 的 `./**\/saconfig*.json`）
+ * 语义对齐 glob 默认值：包含根目录、跳过 node_modules 与点开头目录、结果按字典序排序
+ * @param dir 扫描根目录，默认当前工作目录
+ * @return 相对扫描根目录的配置文件路径
+ */
+export function scanConfigFiles(dir = process.cwd()) {
+  const files: string[] = []
+  /** 递归遍历目录 */
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      // 跳过点开头目录与文件，对齐 glob 的 dot: false
+      if (entry.name.startsWith(".")) continue
+      const full = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        // 跳过依赖目录，对齐原 ignore 选项
+        if (entry.name === "node_modules") continue
+        walk(full)
+      } else if (entry.isFile() && entry.name.startsWith("saconfig") && entry.name.endsWith(".json")) {
+        files.push(path.relative(dir, full))
+      }
+    }
+  }
+  walk(dir)
+  // 排序保证交互式选择顺序与 glob 一致
+  return files.sort()
+}

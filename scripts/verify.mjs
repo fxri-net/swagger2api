@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -13,6 +14,8 @@ const flags = new Set(process.argv.slice(2))
 const skipDocs = flags.has("--skip-docs")
 const skipLinks = flags.has("--skip-links")
 const skipChangeset = flags.has("--skip-changeset")
+// 运行时回归模式：供 node18 job 使用，构建与文档类步骤由 node20 job 覆盖，这里只验运行时可达与产物一致
+const runtimeOnly = flags.has("--runtime-only")
 // --full 强制全量：忽略本地改动面与安装缓存判断，等价于 CI 口径
 const full = flags.has("--full")
 // CI 环境一律全量：本地裁剪只服务于开发效率，不能让 CI 漏检安装与死链
@@ -207,7 +210,8 @@ function checkChangeset() {
 // 工具链版本仅作对照提示、不拦截：跨环境误判的常见疑点之一就是本地与 CI 的 node / pnpm 版本不同，先让人看见
 function reportToolchain() {
   const { packageManager } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
-  const expectedNode = readTrimmed(join(root, ".node-version"))
+  // 期望版本可由环境变量声明：node18 回归 job 不读 .node-version，避免按开发口径误报
+  const expectedNode = process.env.EXPECTED_NODE || readTrimmed(join(root, ".node-version"))
   const expectedPnpm = String(packageManager).replace(/^pnpm@/, "")
   const actualNode = process.version.replace(/^v/, "")
   const actualPnpm = (spawnSync("pnpm", ["--version"], { encoding: "utf8", shell: isWindows }).stdout ?? "").trim()
@@ -244,6 +248,71 @@ function smokeExports() {
   `
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", code], { cwd: root, stdio: "inherit" })
   return result.status ?? 1
+}
+
+/**
+ * 递归收集目录下的文件，返回相对路径数组。
+ * @param {string} dir 目录
+ * @return {string[]} 相对路径（统一为 / 分隔）
+ */
+function collectFiles(dir) {
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...collectFiles(full))
+    else files.push(relative(dir, full).split(sep).join("/"))
+  }
+  return files
+}
+
+/**
+ * 夹具产物一致性：用夹具生成一次 API，与 fixtures/expected 逐文件比对。
+ * 覆盖「真实文档生成 + 模板渲染 + 格式化」整条运行时链路，node20 与 node18 两个 job 都会跑。
+ * @return {number} 退出码
+ */
+function checkGeneratedOutput() {
+  const fixtures = join(root, "fixtures")
+  const expected = join(fixtures, "expected")
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(expected)) {
+    console.log("跳过生成产物一致性（未提供 fixtures/expected）")
+    return 0
+  }
+  if (!existsSync(cli)) {
+    console.error("✖ 生成产物一致性：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-fixtures-"))
+  try {
+    const config = join(out, "saconfig.json")
+    writeFileSync(config, JSON.stringify({ url: join(fixtures, "swagger.json"), output: out, name: "index" }, null, 2))
+    // 与 pnpm api 一致的主力参数组合；配置写到临时目录，避免回写夹具
+    const result = spawnSync(process.execPath, [cli, "-c", config, "-q", "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, stdio: "inherit" })
+    if (result.status !== 0) return result.status ?? 1
+
+    const issues = []
+    const expectedFiles = collectFiles(expected).filter((file) => file !== "saconfig.json")
+    const actualFiles = collectFiles(out).filter((file) => file !== "saconfig.json")
+    for (const file of expectedFiles) {
+      if (!actualFiles.includes(file)) {
+        issues.push(`缺少产物：${file}`)
+        continue
+      }
+      // 行尾归一后再比对，避免 Windows 检出配置造成假差异
+      const want = readFileSync(join(expected, file), "utf8").replace(/\r\n/g, "\n")
+      const got = readFileSync(join(out, file), "utf8").replace(/\r\n/g, "\n")
+      if (want !== got) issues.push(`产物不一致：${file}`)
+    }
+    for (const file of actualFiles) {
+      if (!expectedFiles.includes(file)) issues.push(`多余产物：${file}`)
+    }
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 生成产物一致性未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
 }
 
 /**
@@ -295,17 +364,18 @@ const steps = [
   { label: "类型检查", command: "pnpm", args: ["typecheck"] },
   { label: "单元测试", command: "pnpm", args: ["test"] },
   // 走 lint 脚本而非直接调 eslint：检查范围（显式 glob）与冷缓存开关都收在 package.json 一处，避免两处漂移
-  { label: "静态检查（冷缓存）", command: "pnpm", args: ["lint"] },
-  { label: "构建", command: "pnpm", args: ["build"] },
-  { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
-  // 产物断言依赖上一步的 dist，跳过构建时一并跳过
-  { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
+  { label: "静态检查（冷缓存）", command: "pnpm", args: ["lint"], skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "构建", command: "pnpm", args: ["build"], skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "文档站构建（死链检查）", command: "pnpm", args: ["docs:build"], skip: runtimeOnly ? "运行时回归模式" : skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
+  // 产物断言依赖构建结果，运行时回归模式由 node20 job 的 dist 产物提供
+  { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: runtimeOnly ? "运行时回归模式" : skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
-  { label: "更新日志同步核验", run: checkChangelogSync },
-  { label: "文档站主题一致性", run: checkDocsTheme },
-  { label: "文档站导航规范（分类 / 命名 / 顶栏）", run: checkDocsNav },
-  { label: "文档链接可达性", run: checkDocLinks },
-  { label: "变更集一致性", run: checkChangeset },
+  { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
+  { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "文档站导航规范（分类 / 命名 / 顶栏）", run: checkDocsNav, skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "文档链接可达性", run: checkDocLinks, skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "变更集一致性", run: checkChangeset, skip: runtimeOnly ? "运行时回归模式" : "" },
 ]
 
 reportToolchain()

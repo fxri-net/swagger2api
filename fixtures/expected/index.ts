@@ -1,0 +1,239 @@
+/* eslint-disable */
+/* tslint:disable */
+// @ts-nocheck
+/*
+ * ---------------------------------------------------------------
+ * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
+ * ##                                                           ##
+ * ## AUTHOR: acacode                                           ##
+ * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
+ * ---------------------------------------------------------------
+ */
+
+export interface AppItem {
+  id?: number
+  name?: string
+  status?: SettingType
+}
+
+export interface HomeReq {
+  id?: string
+  withDetail?: boolean
+}
+
+export interface HomeResp {
+  title?: string
+  items?: AppItem[]
+}
+
+export enum SettingType {
+  Draft = "draft",
+  Online = "online"
+}
+
+export interface Setting {
+  key?: string
+  value?: string
+}
+
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse as AxiosResponseRaw, HeadersDefaults, ResponseType } from "axios"
+import axios from "axios"
+
+export type QueryParamsType = Record<string | number, any>
+
+/** 提取响应 */
+export interface AxiosResponse<T = any> {
+  /** 原始数据 */
+  raw: AxiosResponseRaw<T>
+}
+
+export interface FullRequestParams extends Omit<AxiosRequestConfig, "data" | "params" | "url" | "responseType"> {
+  /** set parameter to `true` for call `securityWorker` for this request */
+  secure?: boolean
+  /** request path */
+  path: string
+  /** content type of request body */
+  type?: ContentType
+  /** query params */
+  query?: QueryParamsType
+  /** format of response (i.e. response.json() -> format: "json") */
+  format?: ResponseType
+  /** request body */
+  body?: unknown
+}
+
+export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">
+
+export interface ApiConfig<SecurityDataType = unknown> extends Omit<AxiosRequestConfig, "data" | "cancelToken"> {
+  securityWorker?: (securityData: SecurityDataType | null) => Promise<AxiosRequestConfig | void> | AxiosRequestConfig | void
+  secure?: boolean
+  format?: ResponseType
+}
+
+export enum ContentType {
+  Json = "application/json",
+  JsonApi = "application/vnd.api+json",
+  FormData = "multipart/form-data",
+  UrlEncoded = "application/x-www-form-urlencoded",
+  Text = "text/plain"
+}
+
+export class HttpClient<SecurityDataType = unknown> {
+  public instance: AxiosInstance
+  private securityData: SecurityDataType | null = null
+  private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"]
+  private secure?: boolean
+  private format?: ResponseType
+
+  constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" })
+    this.secure = secure
+    this.format = format
+    this.securityWorker = securityWorker
+  }
+
+  public setSecurityData = (data: SecurityDataType | null) => {
+    this.securityData = data
+  }
+
+  protected mergeRequestParams(params1: AxiosRequestConfig, params2?: AxiosRequestConfig): AxiosRequestConfig {
+    const method = params1.method || (params2 && params2.method)
+
+    return {
+      ...this.instance.defaults,
+      ...params1,
+      ...(params2 || {}),
+      headers: {
+        ...((method && this.instance.defaults.headers[method.toLowerCase() as keyof HeadersDefaults]) || {}),
+        ...(params1.headers || {}),
+        ...((params2 && params2.headers) || {})
+      }
+    }
+  }
+
+  protected stringifyFormItem(formItem: unknown) {
+    if (typeof formItem === "object" && formItem !== null) {
+      return JSON.stringify(formItem)
+    } else {
+      return `${formItem}`
+    }
+  }
+
+  protected createFormData(input: Record<string, unknown>): FormData {
+    if (input instanceof FormData) {
+      return input
+    }
+    return Object.keys(input || {}).reduce((formData, key) => {
+      const property = input[key]
+      const propertyContent: any[] = property instanceof Array ? property : [property]
+
+      for (const formItem of propertyContent) {
+        const isFileType = formItem instanceof Blob || formItem instanceof File
+        formData.append(key, isFileType ? formItem : this.stringifyFormItem(formItem))
+      }
+
+      return formData
+    }, new FormData())
+  }
+
+  public request = async <T = any, _E = any>({ secure, path, type, query, format, body, ...params }: FullRequestParams): Promise<AxiosResponse<T>> => {
+    const secureParams = ((typeof secure === "boolean" ? secure : this.secure) && this.securityWorker && (await this.securityWorker(this.securityData))) || {}
+    const requestParams = this.mergeRequestParams(params, secureParams)
+    const responseFormat = format || this.format || undefined
+
+    if (type === ContentType.FormData && body && body !== null && typeof body === "object") {
+      body = this.createFormData(body as Record<string, unknown>)
+    }
+
+    if (type === ContentType.Text && body && body !== null && typeof body !== "string") {
+      body = JSON.stringify(body)
+    }
+
+    return this.instance.request({
+      ...requestParams,
+      headers: {
+        ...(requestParams.headers || {}),
+        ...(type ? { "Content-Type": type } : {})
+      },
+      params: query,
+      responseType: responseFormat,
+      data: body,
+      url: path
+    })
+  }
+}
+
+/**
+ * @title 运行时兼容夹具
+ * @version 1.0.0
+ */
+export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+  app = {
+    /**
+     * No description
+     *
+     * @tags app
+     * @name ItemsGet
+     * @summary 应用列表
+     * @request GET:/app/items
+     * @response `200` `(AppItem)[]` ok
+     */
+    itemsGet: (
+      query?: {
+        page?: number
+      },
+      params: RequestParams = {}
+    ) =>
+      this.request<AppItem[], any>({
+        path: `/app/items`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params
+      })
+  }
+  home = {
+    /**
+     * No description
+     *
+     * @tags home
+     * @name DetailPost
+     * @summary 首页详情
+     * @request POST:/home/detail
+     * @response `200` `HomeResp` ok
+     */
+    detailPost: (data: HomeReq, params: RequestParams = {}) =>
+      this.request<HomeResp, any>({
+        path: `/home/detail`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params
+      })
+  }
+  api = {
+    /**
+     * No description
+     *
+     * @tags api
+     * @name SettingsGet
+     * @summary 系统设置
+     * @request GET:/api/settings
+     * @response `200` `Setting` ok
+     */
+    settingsGet: (
+      query?: {
+        type?: SettingType
+      },
+      params: RequestParams = {}
+    ) =>
+      this.request<Setting, any>({
+        path: `/api/settings`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params
+      })
+  }
+}

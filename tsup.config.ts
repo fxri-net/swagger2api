@@ -10,5 +10,5 @@ export default defineConfig({
   dts: true, // 是否生成.d.ts类型文件
   format: ["cjs", "esm"], // 输出CommonJS和ESM双格式
   minify: process.env.NODE_ENV === "production",
-  target: "node20" // Node.js版本目标
+  target: "node18" // Node.js版本目标
 })

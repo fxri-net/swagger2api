@@ -5,8 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile } from "./utils"
-import { globSync } from "glob"
+import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -87,7 +86,7 @@ async function onLoadConfig() {
     confs.files = datas.param.config.split(",")
   } else if (datas.param.configScan) {
     // 扫描配置文件
-    confs.files = globSync(["./**/saconfig*.json"], { ignore: "node_modules/**" })
+    confs.files = scanConfigFiles()
   }
   // 默认文件
   if (confs.files.length == 0) confs.files = ["saconfig.json"]

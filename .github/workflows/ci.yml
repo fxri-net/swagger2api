@@ -25,6 +25,35 @@ jobs:
           cache: pnpm
       - name: 门禁校验（全量）
         run: pnpm verify
+      # 运行时回归 job 复用本 job 的构建产物，避免在 node18 上跑 tsup（其 engines 要求更高）
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-node20
+          path: dist
+          retention-days: 1
+
+  # 运行时下限回归：验证发布产物与 CLI 在 node18 上可用，步骤仍由 scripts/verify.mjs 定义
+  runtime-node18:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v5
+        with:
+          # 钉住声明下限，避免后续 .node-version 升级时该 job 静默漂移
+          node-version: 18.12.0
+          cache: pnpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-node20
+          path: dist
+      - name: 运行时回归（node18）
+        run: pnpm verify --runtime-only
+        env:
+          EXPECTED_NODE: 18.12.0
 
   # Windows 回归：类型检查 / 静态检查 / 构建与主平台并行，避免跨平台路径与换行问题漏网
   windows:

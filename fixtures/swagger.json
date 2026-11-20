@@ -1,0 +1,82 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "运行时兼容夹具", "version": "1.0.0" },
+  "paths": {
+    "/app/items": {
+      "get": {
+        "tags": ["app"],
+        "summary": "应用列表",
+        "parameters": [{ "name": "page", "in": "query", "schema": { "type": "integer" } }],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/AppItem" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/home/detail": {
+      "post": {
+        "tags": ["home"],
+        "summary": "首页详情",
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/HomeReq" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/HomeResp" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": ["api"],
+        "summary": "系统设置",
+        "parameters": [{ "name": "type", "in": "query", "schema": { "$ref": "#/components/schemas/SettingType" } }],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Setting" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AppItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/SettingType" }
+        }
+      },
+      "HomeReq": {
+        "type": "object",
+        "properties": { "id": { "type": "string" }, "withDetail": { "type": "boolean" } }
+      },
+      "HomeResp": {
+        "type": "object",
+        "properties": { "title": { "type": "string" }, "items": { "type": "array", "items": { "$ref": "#/components/schemas/AppItem" } } }
+      },
+      "SettingType": { "type": "string", "enum": ["draft", "online"] },
+      "Setting": {
+        "type": "object",
+        "properties": { "key": { "type": "string" }, "value": { "type": "string" } }
+      }
+    }
+  }
+}
