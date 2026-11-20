@@ -235,6 +235,74 @@ export function applyEnvOverrides(config: Record<string, any> | null, env: Recor
   return result
 }
 
+/** 扁平配置中直接写在根上的字段 */
+const FLAT_KEYS = [
+  "url",
+  "file",
+  "name",
+  "mode",
+  "responses",
+  "query",
+  "extractResponseRaw",
+  "pathPrefixIndex",
+  "convertGetToQuery",
+  "dropPathParams",
+  "tagRewrite"
+]
+
+/**
+ * 归一化配置：根上出现 url / file 时按扁平格式解读，转成内部嵌套结构；
+ * 原嵌套格式原样返回，保证旧配置继续可用。
+ * @param config 原始配置
+ * @return 归一化后的配置
+ */
+export function normalizeConfig(config: Record<string, any> | null): Record<string, any> {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return {}
+  if (typeof config.url !== "string" && typeof config.file !== "string") return config
+
+  const result: Record<string, any> = { ...config }
+  // 输入
+  result.input = {
+    ...(config.input && typeof config.input === "object" ? config.input : {}),
+    ...(typeof config.url === "string" ? { url: config.url } : {}),
+    ...(typeof config.file === "string" ? { file: config.file } : {})
+  }
+  // 输出：字符串即目录；分组模式默认开启清单清理
+  const output: Record<string, any> = {
+    ...(config.output && typeof config.output === "object" ? config.output : {}),
+    ...(typeof config.output === "string" ? { dir: config.output } : {})
+  }
+  output.name = config.name ?? output.name ?? "index"
+  output.mode = config.mode ?? output.mode ?? "single"
+  output.prune = output.prune ?? (output.mode === "grouped")
+  result.output = output
+  // 客户端与语言支持字符串简写
+  result.client = typeof config.client === "string" ? { type: config.client } : { ...(config.client ?? {}) }
+  result.language = typeof config.language === "string" ? { target: config.language } : { ...(config.language ?? {}) }
+  // 类型选项
+  result.types = { ...(config.types ?? {}) }
+  if (config.responses !== undefined) result.types.responses = config.responses
+  if (config.extractResponseRaw !== undefined) result.types.extractResponseRaw = config.extractResponseRaw
+  if (config.query !== undefined) result.types.extractQuery = Array.isArray(config.query) ? config.query.join(",") : config.query
+  // 命名选项
+  result.naming = { ...(config.naming ?? {}) }
+  for (const key of ["pathPrefixIndex", "convertGetToQuery", "dropPathParams", "tagRewrite"]) {
+    if (config[key] !== undefined) result.naming[key] = config[key]
+  }
+  // 分组模式：策略与分片阈值由工具默认，业务配置不需要写
+  if (output.mode === "grouped") {
+    const grouping = { ...(config.grouping ?? {}) }
+    grouping.strategy = grouping.strategy ?? ["path"]
+    grouping.pathDepth = grouping.pathDepth ?? result.naming.pathPrefixIndex ?? 0
+    grouping.split = grouping.split ?? true
+    result.grouping = grouping
+  }
+
+  // 扁平别名已并入对应段，去掉根上的副本，避免二次归一化覆盖段内配置
+  for (const key of FLAT_KEYS) delete result[key]
+  return result
+}
+
 /**
  * 应用命名预设：profiles[name] 按字段浅合并到顶层各段。
  * @param config 基础配置

@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { SplitNamespacePlan } from "./grouping"
 import { findOrphanModules, type GroupNameInfo } from "./naming"
@@ -17,17 +19,21 @@ export interface ModuleEntry {
 
 /** 不参与聚合的文件名 */
 const RESERVED = new Set(["index", "data-contracts", "http-client"])
-/** 生成清单文件名：记录本轮产物，供下一轮按清单清理与手写文件护栏比对 */
-export const MANIFEST_FILE = ".swagger2api.manifest.json"
 
-/** 生成清单 */
+/** 生成清单：只记录文件名，不含工具版本，避免业务仓产物携带易腐信息 */
 export interface OutputManifest {
-  /** 工具名 */
-  tool: string
-  /** 写入时的工具版本 */
-  version: string
   /** 本轮生成的文件名 */
   files: string[]
+}
+
+/**
+ * 清单缓存路径：按输出目录哈希落在系统临时目录，不进入业务仓与产物目录。
+ * @param outputDir 输出目录
+ * @return 清单文件路径
+ */
+export function manifestPathFor(outputDir: string) {
+  const key = createHash("sha1").update(path.resolve(outputDir)).digest("hex").slice(0, 12)
+  return path.join(os.tmpdir(), "swagger2api", `${key}.json`)
 }
 
 /**
@@ -74,19 +80,14 @@ export function toModuleEntries(entries: GroupNameInfo[]) {
 
 /**
  * 读取上一轮生成清单；缺失或损坏时返回 null。
- * @param dir 输出目录
+ * @param file 清单路径
  * @return 清单或 null
  */
-export function readOutputManifest(dir: string): OutputManifest | null {
-  const file = path.join(dir, MANIFEST_FILE)
+export function readOutputManifest(file: string): OutputManifest | null {
   if (!fs.existsSync(file)) return null
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
-    return {
-      tool: String(parsed.tool ?? ""),
-      version: String(parsed.version ?? ""),
-      files: Array.isArray(parsed.files) ? parsed.files.map(String) : []
-    }
+    return { files: Array.isArray(parsed.files) ? parsed.files.map(String) : [] }
   } catch {
     return null
   }
@@ -109,13 +110,13 @@ export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJ
 
 /**
  * 写生成清单。
- * @param dir 输出目录
- * @param version 工具版本
+ * @param file 清单路径
  * @param files 本轮产物
  * @return 无
  */
-export function writeOutputManifest(dir: string, version: string, files: string[]) {
-  fs.writeFileSync(path.join(dir, MANIFEST_FILE), `${JSON.stringify({ tool: "swagger2api", version, files }, null, 2)}\n`)
+export function writeOutputManifest(file: string, files: string[]) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${JSON.stringify({ files }, null, 2)}\n`)
 }
 
 /**

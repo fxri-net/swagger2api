@@ -7,8 +7,8 @@ import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
-import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers } from "./utils/config"
-import { collectGeneratedFiles, findHandwrittenConflicts, pruneOutput, readOutputManifest, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
+import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
@@ -35,6 +35,8 @@ let splitPlan: SplitPlan | null = null
 const dryRun = () => process.argv.includes("--dry-run")
 /** 是否输出结构化报表 */
 const jsonOutput = () => process.argv.includes("--json")
+/** 是否只校验产物是否与当前配置一致 */
+const checkMode = () => process.argv.includes("--check")
 
 /**
  * 临时文档路径：写到系统临时目录，避免被 output.clean 删除或进入产物目录。
@@ -44,18 +46,6 @@ function createDocFile() {
   return path.join(os.tmpdir(), `swagger2api-${process.pid}-${Date.now()}.json`)
 }
 
-/**
- * 读取工具版本：写入产物清单，便于排障与升级对齐。
- * @return 版本号，读取失败返回空串
- */
-function readToolVersion() {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.resolve(getDirname(), "../package.json"), "utf8"))
-    return String(pkg.version ?? "")
-  } catch {
-    return ""
-  }
-}
 /** 退出 */
 function onExit(message?: string, code = 0) {
   message && console.log(message)
@@ -134,7 +124,8 @@ function onApplyRc() {
   const flags = getConfigFlags()
   const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
   layers.warnings.forEach((warning) => console.error("⚠️", warning))
-  const rc = applyEnvOverrides(applyProfile(layers.merged, flags.profile))
+  // 先归一化扁平配置，再套预设、再做一次归一化，兼容预设内继续使用扁平字段
+  const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
   const input = rc.input ?? {}
   const output = rc.output ?? {}
   const types = rc.types ?? {}
@@ -142,10 +133,12 @@ function onApplyRc() {
   const grouping = rc.grouping ?? {}
   const rcUrl = input.url ?? input.file
   if (!rcUrl) return
+  // 相对路径按配置文件所在目录解析，命令行从任意目录执行都能落对位置
+  const configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
   // rc 提供输入地址即视为配置驱动：不扫描、不回写 saconfig
   datas.rcDriven = true
-  datas.rcUrl = rcUrl
-  datas.rcOutput = output.dir ?? "./src/api"
+  datas.rcUrl = isUrl(rcUrl) ? rcUrl : path.resolve(configDir, rcUrl)
+  datas.rcOutput = path.resolve(configDir, output.dir ?? "./src/api")
   datas.rcName = output.name ?? "index"
   const param = datas.param
   param.quick = true
@@ -153,6 +146,7 @@ function onApplyRc() {
   if (!hasFlag(["--convert-get", "-cg"]) && naming.convertGetToQuery !== undefined) param.convertGet = naming.convertGetToQuery
   if (!hasFlag(["--remove-param", "-rp"]) && naming.dropPathParams !== undefined) param.removeParam = naming.dropPathParams
   if (!hasFlag(["--extract-request-query", "-erq"]) && types.extractQuery !== undefined) param.extractRequestQuery = types.extractQuery
+  if (!hasFlag(["--extract-response-raw", "-err"]) && types.extractResponseRaw !== undefined) param.extractResponseRaw = Boolean(types.extractResponseRaw)
   if (!hasFlag(["--remove-dts", "-rd"]) && types.removeDts !== undefined) param.removeDts = types.removeDts
   if (!hasFlag(["--replace-tags", "-rt"]) && naming.tagRewrite) param.replaceTags = naming.tagRewrite
   const config = datas.config as Record<string, any>
@@ -162,8 +156,9 @@ function onApplyRc() {
   if (!hasFlag(["--unwrap-response-data"]) && types.unwrapData !== undefined) config.unwrapResponseData = Boolean(types.unwrapData)
   if (!hasFlag(["--extract-request-params"]) && types.extractParams !== undefined) config.extractRequestParams = Boolean(types.extractParams)
   if (!hasFlag(["--clean-output"]) && output.clean !== undefined) config.cleanOutput = Boolean(output.clean)
-  if (!hasFlag(["--prune-output"]) && output.prune !== undefined) config.pruneOutput = Boolean(output.prune)
   if (!hasFlag(["--modular"]) && output.mode === "grouped") config.modular = true
+  // 分组模式默认按清单清理旧产物，业务配置不需要再写 prune
+  if (!hasFlag(["--prune-output"])) config.pruneOutput = output.prune === undefined ? Boolean(config.modular) : Boolean(output.prune)
   if (!hasFlag(["--module-name-index"]) && grouping.pathDepth !== undefined) config.moduleNameIndex = Number(grouping.pathDepth)
   if (Object.keys(grouping).length) config.grouping = grouping
 }
@@ -296,6 +291,56 @@ function plannedFileNames(entries: GroupNameInfo[], plan: SplitPlan | null) {
 }
 
 /**
+ * 递归收集目录下的文件（相对路径，统一 / 分隔）。
+ * @param dir 目录
+ * @param base 基准目录
+ * @return 相对路径列表
+ */
+function collectRelativeFiles(dir: string, base = dir): string[] {
+  const files: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...collectRelativeFiles(full, base))
+    else files.push(path.relative(base, full).split(path.sep).join("/"))
+  }
+  return files.sort()
+}
+
+/**
+ * 产物校验：临时目录的生成结果与现有产物逐文件比对，并检查清单中已消失的文件。
+ * @param targetDir 现有产物目录
+ * @param generatedDir 临时生成目录
+ * @return 无；差异计入 failures
+ */
+function onCheckOutput(targetDir: string, generatedDir: string) {
+  const expected = collectRelativeFiles(generatedDir)
+  const issues: string[] = []
+  for (const file of expected) {
+    const target = path.join(targetDir, file)
+    if (!fs.existsSync(target)) {
+      issues.push(`缺少产物：${file}`)
+      continue
+    }
+    // 行尾归一后再比对，避免 Windows 检出配置造成假差异
+    const want = fs.readFileSync(path.join(generatedDir, file), "utf8").replace(/\r\n/g, "\n")
+    const got = fs.readFileSync(target, "utf8").replace(/\r\n/g, "\n")
+    if (want !== got) issues.push(`产物不一致：${file}`)
+  }
+  // 清单中记录、本次不再生成的文件即过期产物，提示重新生成
+  const previous = readOutputManifest(manifestPathFor(targetDir))
+  for (const file of previous?.files ?? []) {
+    if (!expected.includes(file)) issues.push(`产物已过期：${file}`)
+  }
+  if (issues.length > 0) {
+    failures += 1
+    console.error(`\n✖ 产物校验未通过：${issues.length} 项`)
+    issues.forEach((issue) => console.error(`  - ${issue}`))
+    return
+  }
+  console.log("校验：产物与当前配置一致")
+}
+
+/**
  * 分组报表：输出命名映射、未命中规则与产物增删；dry-run 与生成前预览共用。
  * @param entries 命名表
  * @param unmatchedRules 未命中的规则下标
@@ -352,6 +397,24 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[], plan:
   if (orphans.length) console.error(`⚠️ 表外产物（建议开启 output.prune）：${orphans.join("、")}`)
 }
 
+/**
+ * 分桶模式的路由命名：生成器按桶名判重，会把不同命名空间的重名方法误加序号；
+ * 这里改为按命名空间判重，复现单文件产物的方法名。
+ * @return 生成器 hooks
+ */
+function createSplitRouteNameHook() {
+  const counters = new Map<string, number>()
+  return {
+    onCreateRouteName(routeName: { usage: string; original: string; duplicate: boolean }, routeInfo: { tags?: string[] }) {
+      // 第二标签是命名空间，桶名在第一标签，不能作为判重键
+      const key = `${routeInfo?.tags?.[1] ?? ""}|${routeName.original}`
+      const count = (counters.get(key) ?? 0) + 1
+      counters.set(key, count)
+      return { ...routeName, usage: count > 1 ? `${routeName.original}${count}` : routeName.original, duplicate: count > 1 }
+    }
+  }
+}
+
 /** 生成接口 */
 async function onGenerateApi(data: Defines["data"]) {
   // 上一轮生成清单：用于手写文件护栏与按清单清理
@@ -364,6 +427,19 @@ async function onGenerateApi(data: Defines["data"]) {
     guard.errors.forEach((error) => console.error("失败：", error))
     failures += 1
     return
+  }
+  // --check：生成到临时目录后与现有产物比对，不改动真实目录
+  const targetDir = path.resolve(confs.param.output)
+  let checkDir: string | null = null
+  if (checkMode()) {
+    if (!fs.existsSync(targetDir)) {
+      console.error(`失败：--check 需要已有产物目录：${targetDir}`)
+      failures += 1
+      return
+    }
+    checkDir = fs.mkdtempSync(path.join(os.tmpdir(), "swagger2api-check-"))
+    confs.param.output = checkDir
+    process.once("exit", () => fs.rmSync(checkDir as string, { recursive: true, force: true }))
   }
   // 命名表按文档重置，避免批量场景沿用上一份文档的产物名
   namingEntries = []
@@ -398,7 +474,7 @@ async function onGenerateApi(data: Defines["data"]) {
   // 写盘前比对上一轮清单：目标模块名已被手写文件占用时终止，避免静默覆盖
   if (datas.config.modular && namingEntries.length) {
     const dir = path.resolve(confs.param.output)
-    previousManifest = readOutputManifest(dir)
+    previousManifest = readOutputManifest(manifestPathFor(dir))
     // split 模式的实际文件由桶/分片/门面给出，命名空间名不再落盘，避免误判或误收手写文件
     const conflictEntries = splitPlan ? [] : namingEntries
     const conflicts = findHandwrittenConflicts(dir, conflictEntries, Boolean(datas.config.toJS), previousManifest, plannedFileNames(namingEntries, splitPlan))
@@ -457,9 +533,11 @@ async function onGenerateApi(data: Defines["data"]) {
     output: path.resolve(confs.param.output), // TypeScript API 文件的输出路径（默认："./"）
     input: datas.docFile, // 路径/链接到Swagger方案
     ...datas.config,
+    // 分桶后模块名统一为桶名，需按命名空间恢复方法名判重
+    ...(splitPlan ? { hooks: createSplitRouteNameHook() } : {}),
     ...{ param: datas.param }
   })
-  console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
+  console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
   // 模块化输出：分组模式按命名表校验并挂载；未分组时沿用目录扫描
   if (datas.config.modular) {
     const dir = path.resolve(confs.param.output)
@@ -489,18 +567,20 @@ async function onGenerateApi(data: Defines["data"]) {
     // 分组模式：按清单清理已消失的模块，并写入本轮清单供下一轮比对
     if (namingEntries.length) {
       const files = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, plannedFileNames(namingEntries, splitPlan))
-      const removed = datas.config.pruneOutput ? pruneOutput(dir, previousManifest, files) : []
+      const removed = datas.config.pruneOutput && !checkMode() ? pruneOutput(dir, previousManifest, files) : []
       removed.forEach((file) => console.log("清理：", path.resolve(dir, file)))
-      writeOutputManifest(dir, readToolVersion(), files)
+      if (!checkMode()) writeOutputManifest(manifestPathFor(dir), files)
     }
   }
   if (datas.config.toJS) {
-    console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
+    console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))
   }
+  // 产物校验：临时目录与现有产物逐文件比对
+  if (checkDir) onCheckOutput(targetDir, checkDir)
   // 删除临时文档
   if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
-  // 移除使用--js参数时生成的d.ts文件
-  if (datas.param.removeDts) {
+  // 移除使用--js参数时生成的d.ts文件（校验模式不动真实目录）
+  if (datas.param.removeDts && !checkMode()) {
     console.log("清理：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
     execSync(`npx rimraf ${path.resolve(confs.param.output, `${confs.param.name}.d.ts`)}`, { cwd: datas.home }).toString()
   }

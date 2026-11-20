@@ -233,8 +233,6 @@ export async function runGrouping() {
       initial: 0
     },
     { name: "pathDepth", type: "number", message: "路径段深度（按路径分组时生效）:", initial: 0 },
-    { name: "minRoutes", type: "number", message: "少于多少接口并入兜底组:", initial: 0 },
-    { name: "maxRoutes", type: "number", message: "多于多少接口再拆一层（0 表示不拆）:", initial: 0 },
     { name: "fallback", type: "text", message: "兜底组名:", initial: "misc" }
   ])
   const rules: GroupingRule[] = []
@@ -266,10 +264,10 @@ export async function runGrouping() {
     strategy: [answers.strategy],
     pathDepth: Number(answers.pathDepth ?? 0),
     rules,
-    minRoutes: Number(answers.minRoutes ?? 0),
-    maxRoutes: Number(answers.maxRoutes ?? 0),
     fallback: answers.fallback || "misc",
-    preserveTags: true
+    preserveTags: true,
+    // 阈值由工具默认，预览直接按最终的分桶/分片结果展示
+    split: true
   }
   // 命名预览：在副本上跑一次分组，避免改动原始文档
   const existingNames = (rc.grouping?.names ?? {}) as Record<string, string>

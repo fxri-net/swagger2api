@@ -1,10 +1,33 @@
 # 配置参考
 
-> 配置项既可在配置文件（推荐 `swagger2api.json`，早期 `saconfig.json` 仍兼容）中设置，也可通过命令行参数传入；两者字段一一对应。
+> 推荐只维护一份 `swagger2api.json`：写项目自己的口径，其余由工具默认。早期 `saconfig.json` 与嵌套 rc 写法继续兼容。
 
-## 分层配置（rc 文件）
+## 项目配置（推荐）
 
-除 `saconfig.json` 外，还支持与同基地工具链一致的分层配置：
+把 `swagger2api.json` 放在产物所在包目录（或仓库根），运行 `swagger2api` 即自动命中：
+
+```json
+{
+  "url": "https://example.com/v3/api-docs",
+  "output": "./src/api",
+  "mode": "grouped",
+  "client": "axios",
+  "language": "ts",
+  "responses": true,
+  "query": "arg0"
+}
+```
+
+- 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
+- 只写项目自己的口径；分桶阈值、分片规则、清单、清理与产物校验由工具默认，不需要配置
+- `mode: "grouped"` 自动按路径首段分组，并按体量分桶、对超大命名空间分片；对外仍是 `api.<命名空间>.<方法>`
+- 相对路径按配置文件所在目录解析，从任意目录执行都能落对位置
+- 分组模式的生成清单存放在系统临时目录缓存，不进入仓库与产物目录；`--check` 只校验产物是否与当前配置一致
+- `swagger2api init` 可交互生成这份配置；`swagger2api` 无参即按最近的配置生成
+
+## 分层配置（rc 文件，旧写法兼容）
+
+团队需要本地层覆盖或多套预设时，继续使用嵌套写法：
 
 | 层 | 文件 | 用途 |
 | --- | --- | --- |
@@ -17,22 +40,11 @@
 ```json
 {
   "input": { "url": "https://example.com/v3/api-docs" },
-  "output": { "dir": "./src/api", "name": "index", "mode": "single", "clean": false, "prune": false },
+  "output": { "dir": "./src/api", "name": "index", "mode": "grouped" },
   "client": { "type": "axios" },
   "language": { "target": "ts" },
-  "types": { "responses": true, "unwrapData": false, "extractParams": false, "extractQuery": "arg0" },
-  "naming": { "pathPrefixIndex": 0, "convertGetToQuery": true, "dropPathParams": true, "tagRewrite": ["[a-z_]+(.+)", ""] },
-  "grouping": {
-    "strategy": ["rules", "tag", "path"],
-    "pathDepth": 0,
-    "rules": [],
-    "minRoutes": 0,
-    "maxRoutes": 0,
-    "fallback": "misc",
-    "collapse": false,
-    "names": {},
-    "split": { "minRoutes": 150, "targetRoutes": 300, "maxRoutes": 450, "minBucketRoutes": 60, "categories": [], "fallback": "misc" }
-  },
+  "types": { "responses": true, "extractQuery": "arg0" },
+  "naming": { "pathPrefixIndex": 0 },
   "profiles": { "admin": { "output": { "dir": "./src/api/admin" } } }
 }
 ```
@@ -42,10 +54,9 @@
 - 排障：`swagger2api config status` 展示各层命中文件、生效字段与环境变量覆盖，`--json` 输出结构化结果
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
 - 合并同名组：`grouping.collapse` 为 `true` 时，折叠键相同的组（如 `opt` 与 `opt_`）合并为同一组，复现单文件产物「同名属性即同组」的语义；默认 `false` 时各自独立并追加序号
-- 自适应分桶：`grouping.split` 为 `true` 时用默认阈值，或写成对象微调。总路由不超过 `minRoutes`（默认 150）只出一个模块文件；否则按 `categories` 装箱（`match.prefix` / `match.regex` 匹配命名空间名，未命中入 `fallback`），或按命名空间名称顺序装箱，每桶不超过 `targetRoutes`（默认 300），尾桶低于 `minBucketRoutes`（默认 60）并入前一桶；未配置分类时桶名取首个命名空间名并告警
-- 命名空间分片：单命名空间超过 `maxRoutes`（默认 450）时按「命名空间之后第一个非版本段」拆分成分片文件，并生成门面类合并实例与类型；分片文件名属于内部产物，聚合属性名与调用形态不变。开启 `split` 后旧的 `minRoutes` / `maxRoutes` 被忽略并告警，关闭 `split` 即回滚到一命名空间一文件
+- 自适应分桶：`mode: "grouped"` 时自动启用。总量低于阈值只出一个模块文件，否则按命名空间顺序装箱；单个超大命名空间再按子分类分片，分片由门面类合并实例与类型。分桶阈值与分片规则属于工具默认，不需要配置；`grouping.split: false` 仅作为回滚逃生口
 - 保留名：`index`、`data-contracts`、`http-client` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
-- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；`output.prune` 只删除上一轮 `.swagger2api.manifest.json` 清单内、本轮不再生成的文件，不触碰手写适配文件与清单外产物，分组模式生成后自动写入清单
+- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按上一轮生成清单清理，不触碰手写适配文件与清单外产物。清单存放在系统临时目录缓存，不进入仓库
 - 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
@@ -54,8 +65,9 @@
 | 选项 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `url` | string | - | Swagger JSON 文件路径或 URL，未配置时交互提示默认值 `https://example.com/v3/api-docs` |
-| `output` | string | `'./src/api'` | 生成代码的输出目录 |
+| `output` | string | `'./src/api'` | 生成代码的输出目录，相对配置文件所在目录解析 |
 | `name` | string | `'index'` | 接口文件名称，默认后缀为ts |
+| `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；有差异时非 0 退出 |
 | `--quick,-q` | boolean | `false` | 快速模式，直接使用配置文件参数，不再二次确认参数 |
 | `--config,-c` | string | `'saconfig.json'` | 填写配置文件路径，支持多选，用【,】分隔 |
 | `--config-all,-ca` | boolean | `false` | 加载全部配置文件，不进行选择 |
@@ -65,7 +77,7 @@
 | `--remove-param,-rp` | boolean | `false` | 移除{.+}参数 |
 | `--remove-prefix-index,-rpi` | number | 未设置 | 移除前缀索引；传 `-1` 或不传均表示不移除 |
 | `--remove-dts,-rd` | boolean | `false` | 移除使用--js参数时生成的d.ts文件 |
-| `--prune-output` | boolean | `false` | 分组模式下按上一轮生成清单清理已消失的模块文件，不触碰手写文件与清单外产物 |
+| `--prune-output` | boolean | 分组模式默认开启 | 按上一轮生成清单清理已消失的模块文件，不触碰手写文件与清单外产物 |
 | `--remove-empty-components,-rec` | boolean | `true` | 移除空组件定义 |
 | `--extract-request-query,-erq` | string | - | 提取参数，将query参数中的指定对象字段提取为根部字段，支持多选，用【,】分隔，每个接口只提取第一次命中的字段 |
 | `--extract-response-raw,-err` | boolean | `false` | 提取响应，将AxiosResponse返回值转移到raw字段，根部字段自行定义，使用该参数需在响应拦截中重新设计实际的返回值。仅 axios 客户端生效，需搭配 `--axios` 参数，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err) |

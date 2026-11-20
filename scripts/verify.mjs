@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
@@ -9,6 +10,16 @@ import { fileURLToPath } from "node:url"
 // 本文件不入 npm 包（files 白名单不含 scripts）
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const isWindows = process.platform === "win32"
+
+/**
+ * 生成清单缓存路径：与 CLI 的 manifestPathFor 保持同一算法。
+ * @param outputDir 产物目录
+ * @return 清单文件路径
+ */
+function manifestPath(outputDir) {
+  const key = createHash("sha1").update(resolve(outputDir)).digest("hex").slice(0, 12)
+  return join(tmpdir(), "swagger2api", `${key}.json`)
+}
 
 const flags = new Set(process.argv.slice(2))
 const skipDocs = flags.has("--skip-docs")
@@ -607,7 +618,7 @@ async function checkGroupedPrune() {
       ),
     )
     const generate = () => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
-    const manifestFile = join(base, ".swagger2api.manifest.json")
+    const manifestFile = manifestPath(base)
     const issues = []
 
     const first = generate()
@@ -617,6 +628,7 @@ async function checkGroupedPrune() {
       return 1
     }
     if (!existsSync(manifestFile)) return fail("首次生成未写入产物清单")
+    if (existsSync(join(base, ".swagger2api.manifest.json"))) issues.push("清单仍写入产物目录")
     const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
     for (const file of ["index.ts", "App.ts", "Home.ts", "Api.ts", "data-contracts.ts", "http-client.ts"]) {
       if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
@@ -852,13 +864,14 @@ async function checkGroupedSplit() {
     }
 
     const files = readdirSync(base)
-    for (const file of ["index.ts", "App.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
+    for (const file of ["index.ts", "Modules.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
       if (!files.includes(file)) issues.push(`缺少预期产物：${file}`)
     }
     if (files.some((name) => /^DgAdminV\d/i.test(name))) issues.push("版本段被当作子分类生成了文件")
+    if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
 
     // 桶文件：一个文件内渲染多个命名空间类，且不串入分片命名空间
-    const bucket = readFileSync(join(base, "App.ts"), "utf8")
+    const bucket = readFileSync(join(base, "Modules.ts"), "utf8")
     if (!bucket.includes("class App") || !bucket.includes("class Misc")) issues.push("桶文件未在同一文件内渲染多个命名空间类")
     if (!bucket.includes("/app/items") || !bucket.includes("/misc/ping")) issues.push("桶文件缺少本桶接口")
     if (bucket.includes("/dg_admin/")) issues.push("桶文件串入分片命名空间")
@@ -876,13 +889,18 @@ async function checkGroupedSplit() {
 
     // 聚合入口：同桶模块合并导入，按命名空间挂载
     const aggregate = readFileSync(join(base, "index.ts"), "utf8")
-    if (!aggregate.includes('import { App, Misc } from "./App"')) issues.push("聚合入口未合并同桶导入")
+    if (!aggregate.includes('import { App, Misc } from "./Modules"')) issues.push("聚合入口未合并同桶导入")
     if (!aggregate.includes("dgAdmin = new DgAdmin(this)")) issues.push("聚合入口未挂载分片命名空间")
 
-    // 清单：桶、分片与门面都纳入，供下一轮清理
-    const manifest = JSON.parse(readFileSync(join(base, ".swagger2api.manifest.json"), "utf8"))
-    for (const file of ["App.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
-      if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
+    // 清单：落在依赖缓存，桶、分片与门面都纳入，供下一轮清理
+    const manifestFile = manifestPath(base)
+    if (!existsSync(manifestFile)) issues.push("清单未写入依赖缓存")
+    else {
+      const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
+      for (const file of ["Modules.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts"]) {
+        if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
+      }
+      if ("version" in manifest) issues.push("清单包含工具版本")
     }
 
     // 可复现：同一配置再生成一次，产物集合与内容完全一致
@@ -968,6 +986,97 @@ async function checkGroupedSplit() {
 }
 
 /**
+ * 扁平配置与产物校验：一份 swagger2api.json 驱动分组生成，清单落缓存，--check 能发现篡改与缺失。
+ * @return {number} 退出码
+ */
+async function checkFlatConfig() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 扁平配置与产物校验：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-flat-"))
+  const api = join(out, "api")
+  const issues = []
+  try {
+    // 业务仓只写项目口径，分桶阈值、清单、清理由工具默认
+    writeFileSync(
+      join(out, "swagger2api.json"),
+      JSON.stringify(
+        {
+          file: join(root, "fixtures", "grouping-split.json"),
+          output: "./api",
+          mode: "grouped",
+          client: "axios",
+          responses: true,
+          query: ["param", "arg0"],
+          pathPrefixIndex: 0,
+          extractResponseRaw: true
+        },
+        null,
+        2,
+      ),
+    )
+    const run = (extra = []) => spawnSync(process.execPath, [cli, ...extra], { cwd: out, encoding: "utf8" })
+    const first = run()
+    if (first.status !== 0) {
+      console.error("✖ 扁平配置与产物校验：生成失败")
+      console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
+      return 1
+    }
+
+    const files = readdirSync(api)
+    for (const file of ["index.ts", "Modules.ts", "data-contracts.ts", "http-client.ts"]) {
+      if (!files.includes(file)) issues.push(`缺少预期产物：${file}`)
+    }
+    if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
+    const bucket = readFileSync(join(api, "Modules.ts"), "utf8")
+    for (const name of ["class App", "class DgAdmin", "class Misc"]) {
+      if (!bucket.includes(name)) issues.push(`单桶文件缺少 ${name}`)
+    }
+    const aggregate = readFileSync(join(api, "index.ts"), "utf8")
+    if (!aggregate.includes('import { App, DgAdmin, Misc } from "./Modules"')) issues.push("聚合入口未合并单桶导入")
+    if (!readFileSync(join(api, "http-client.ts"), "utf8").includes("axios")) issues.push("扁平配置的 client 未生效")
+
+    const manifestFile = manifestPath(api)
+    if (!existsSync(manifestFile)) {
+      issues.push("清单未写入依赖缓存")
+    } else {
+      const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
+      if ("version" in manifest) issues.push("清单包含工具版本")
+      if (!manifest.files.includes("Modules.ts")) issues.push("清单缺少 Modules.ts")
+    }
+
+    // 一致时通过，且不写真实目录
+    const ok = run(["--check"])
+    if (ok.status !== 0) {
+      issues.push("--check 对一致产物判失败")
+      console.error(`${ok.stdout ?? ""}${ok.stderr ?? ""}`)
+    }
+
+    // 篡改后必须失败，且真实产物保持篡改状态（校验不落地）
+    writeFileSync(join(api, "Modules.ts"), `${readFileSync(join(api, "Modules.ts"), "utf8")}\n// tampered\n`)
+    const tampered = run(["--check"])
+    if (tampered.status === 0) issues.push("--check 未发现产物篡改")
+    if (!`${tampered.stdout ?? ""}${tampered.stderr ?? ""}`.includes("产物不一致")) issues.push("--check 缺少差异提示")
+    if (!readFileSync(join(api, "Modules.ts"), "utf8").includes("// tampered")) issues.push("--check 改写了真实产物")
+
+    // 删除后必须报缺失
+    rmSync(join(api, "Modules.ts"))
+    const missing = run(["--check"])
+    if (missing.status === 0) issues.push("--check 未发现产物缺失")
+    if (!`${missing.stdout ?? ""}${missing.stderr ?? ""}`.includes("缺少产物")) issues.push("--check 缺少缺失提示")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 扁平配置与产物校验未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -1027,6 +1136,7 @@ const steps = [
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },
+  { label: "扁平配置与产物校验（缓存清单 / --check）", run: checkFlatConfig },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "产物清理与可复现（清单清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },

@@ -63,26 +63,33 @@ pnpm dlx @fxri/swagger2api          # pnpm
 在项目目录执行：
 
 ```bash
-swagger2api
+swagger2api init   # 首次接入：交互生成配置
+swagger2api        # 之后：读取最近的 swagger2api.json 直接生成
 ```
 
-首次运行会引导填写三个基础参数并生成配置文件 `saconfig.json`：
+首次运行会引导填写必要信息，并生成项目包目录下的 `swagger2api.json`：
 
 ```json
 {
   "url": "https://example.com/v3/api-docs",
   "output": "./src/api",
-  "name": "index"
+  "mode": "grouped",
+  "client": "axios",
+  "language": "ts",
+  "responses": true,
+  "query": "arg0"
 }
 ```
 
 | 字段 | 说明 |
 | --- | --- |
-| `url` | Swagger JSON 文件路径或 URL |
-| `output` | 生成代码的输出目录 |
-| `name` | 接口文件名称，默认后缀为 ts |
+| `url` / `file` | Swagger JSON 地址或本地文件 |
+| `output` | 生成代码的输出目录，相对配置文件所在目录解析 |
+| `mode` | `single` / `grouped`；分组模式自动分桶与分片 |
+| `client` / `language` | `axios` / `fetch`、`ts` / `js` |
+| `responses` / `query` 等 | 项目自己的口径，按需保留 |
 
-生成结束后自动保存配置文件。
+分桶阈值、清单、清理与产物校验由工具默认，不需要写进配置；生成清单存放在系统临时目录缓存，不进入仓库。`swagger2api --check` 可校验产物是否与当前配置一致。
 
 ## 调用接口
 
@@ -103,18 +110,12 @@ request.getUsers().then((res) => console.log(res))
 ```json
 {
   "scripts": {
-    "api": "swagger2api --axios --responses -q -rpi 0 -err"
+    "api": "swagger2api"
   }
 }
 ```
 
-```json
-{
-  "scripts": {
-    "api": "npx @fxri/swagger2api --axios --responses -q -rpi 0 -err"
-  }
-}
-```
+项目依赖方式用 `npx @fxri/swagger2api`：npx/dlx 必须带作用域全名，否则会拉到 npm 上同名的其他包。
 
 之后 `pnpm api` 一行命令即可按既有配置静默更新接口代码。
 

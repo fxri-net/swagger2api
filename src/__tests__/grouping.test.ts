@@ -77,7 +77,7 @@ describe("自适应分桶与分片", () => {
       split: { minRoutes: 1, targetRoutes: 2, maxRoutes: 3, minBucketRoutes: 2 }
     })
     expect(result.split?.buckets).toHaveLength(1)
-    expect(result.split?.buckets[0]).toMatchObject({ fileName: "App", routes: 3, namespaces: ["app", "misc"] })
+    expect(result.split?.buckets[0]).toMatchObject({ fileName: "Modules", routes: 3, namespaces: ["app", "misc"] })
   })
 
   it("超大命名空间按子分类分片并跳过版本段", () => {
@@ -94,7 +94,7 @@ describe("自适应分桶与分片", () => {
     ])
     // 第二个标签记录命名空间，桶文件据此渲染多个类
     expect(spec.paths["/dg_admin/v3/user/list"].get.tags).toEqual(["DgAdminPart2", "DgAdmin"])
-    expect(spec.paths["/app/items"].get.tags).toEqual(["App", "App"])
+    expect(spec.paths["/app/items"].get.tags).toEqual(["Modules", "App"])
     // 聚合入口按门面导入，分片类名同步进生成器命名映射
     expect(result.entries.find((entry) => entry.raw === "dg_admin")?.importFrom).toBe("DgAdmin")
     expect(result.moduleClassNames?.DgAdminPart1).toBe("DgAdminPart1")

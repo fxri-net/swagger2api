@@ -79,39 +79,28 @@ client.instance.interceptors.response.use(
 
 接口规模大时，可把生成结果按组拆成多个文件，并保留单一出口：
 
-- 开启方式：配置 `output.mode = "grouped"`，或命令行加 `--modular`
-- 分组策略：`grouping.strategy` 支持 `rules`（显式规则）、`tag`（首个标签）、`path`（路径段 + `pathDepth`），按数组顺序生效，未命中落到 `grouping.fallback`
-- 阈值：`minRoutes` 低于阈值并入兜底组；`maxRoutes` 超过阈值按下一段路径再拆一层
-- 预览：加 `--dry-run` 只输出分组报表（命名映射、未命中规则与预计新增文件），不生成文件；`swagger2api grouping` 展示标签与路径分布并写入分组配置
+- 开启方式：配置 `mode: "grouped"`，或命令行加 `--modular`；`swagger2api` 无参即按最近的 `swagger2api.json` 生成
+- 分组策略：默认按路径首段分组；需要自定义时用 `grouping.strategy` 的 `rules`（显式规则）、`tag`（首个标签）、`path`（路径段 + `pathDepth`），按数组顺序生效，未命中落到 `grouping.fallback`
+- 自适应分桶：默认自动启用。总量低于阈值只出一个模块文件，否则按命名空间顺序装箱；单个超大命名空间再按子分类分片，分片由门面类做实例合并与类型合并，调用形态仍是 `api.<命名空间>.<方法>`
+- 阈值不由业务配置：分桶与分片的阈值属于工具默认；`grouping.split: false` 仅作为回滚逃生口，关闭后回到一命名空间一文件
+- 桶命名：未配置分类且只有一个桶时固定为 `Modules.ts`；配置 `categories` 时按分类名拆分，未命中分类的命名空间归入 `fallback`
+- 预览：加 `--dry-run` 只输出分组报表（命名映射、桶/分片规划、未命中规则与预计新增文件），不生成文件；`swagger2api grouping` 展示标签与路径分布并写入分组配置
 - 文档标签：`grouping.preserveTags`（默认 `true`）在 JSDoc 中保留原始标签，分组名只用于文件与类名
 - 产物：`index.ts` 聚合入口 + `data-contracts.ts` + `http-client.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
 - 对外面：聚合入口与单文件产物导出面一致（`Api`、`HttpClient`、`ContentType`、`AxiosResponse`、`FullRequestParams`、`RequestParams` 与全部数据契约）；模块通过聚合实例注入共享请求器，替换 `api.instance` 或调用 `setSecurityData` 会对所有组同时生效；模块类额外暴露 `http` 字段（内部注入，勿直接调用）
 - 模块命名：组名经统一规则转为合法标识符——路径字符与标点只作分隔，数字开头补前缀，超长截断加短哈希，Windows 设备名与 `index` 等保留名追加序号；重名（含全半角、大小写折叠后同名）各自独立并追加序号，不做业务组合并
 - 命名兼容：`grouping.collapse` 为 `true` 时合并折叠键相同的组（如 `opt` 与 `opt_`），复现单文件产物的合并语义；`instance`、`request` 等聚合成员名同样列入保留名，命中后追加序号
 - 命名预览：`--dry-run` 打印「原始组名 → 文件 / 类 / 属性」映射与重命名原因，`--dry-run --json` 输出结构化结果；`grouping.names` 可对个别组指定可读名，只改名不改归属
-- 生成校验：分组生成后会按命名表核对实际文件名、类名与聚合挂载，不一致直接报错；输出目录中的表外文件会提示，建议开启 `output.prune`（只清理清单内的旧产物，不碰手写文件）
-- 自适应分桶：`grouping.split` 按接口体量压文件数。总路由不超过 `minRoutes`（默认 150）时只出一个模块文件；否则按 `categories` 分类装箱（未命中入 `fallback`），或按命名空间名称码点顺序装箱，每桶不超过 `targetRoutes`（默认 300），尾桶低于 `minBucketRoutes`（默认 60）并入前一桶。未配置分类时桶名取桶内首个命名空间名并告警，仅作占位
-- 命名空间分片：单个命名空间超过 `maxRoutes`（默认 450）时，按「命名空间之后第一个非版本段」拆成 `<类名>Part1` 等分片文件，再补一个门面类做实例合并（`Object.assign`）与类型合并（`interface extends`）；调用形态仍是 `api.<命名空间>.<方法>`，分片文件名属于内部产物
-- 分片回滚：关闭 `grouping.split` 即回到一命名空间一文件；开启后旧的 `grouping.minRoutes` / `grouping.maxRoutes` 会被忽略并告警
+- 生成校验：分组生成后会按命名表核对实际文件名、类名与聚合挂载，不一致直接报错；生成清单存放在系统临时目录缓存，不进入仓库；`--check` 可校验产物是否与当前配置一致
+- 分片与回滚：超大命名空间按「命名空间之后第一个非版本段」拆分片，由门面类合并实例与类型；`grouping.split: false` 仅作为回滚逃生口，关闭后回到一命名空间一文件
 - 分桶预览：`--dry-run --json` 的 `split` 字段给出「桶 → 命名空间」与「命名空间 → 分片」，便于确认拆法是否符合预期
 
 ```json
 {
-  "output": { "dir": "./src/api", "mode": "grouped" },
-  "grouping": {
-    "strategy": ["rules", "tag", "path"],
-    "pathDepth": 0,
-    "rules": [{ "match": { "prefix": "/admin" }, "group": "admin" }],
-    "fallback": "misc",
-    "split": {
-      "minRoutes": 150,
-      "targetRoutes": 300,
-      "maxRoutes": 450,
-      "minBucketRoutes": 60,
-      "categories": [{ "name": "admin", "match": { "prefix": "dg_" } }],
-      "fallback": "misc"
-    }
-  }
+  "url": "https://example.com/v3/api-docs",
+  "output": "./src/api",
+  "mode": "grouped",
+  "client": "axios"
 }
 ```
 

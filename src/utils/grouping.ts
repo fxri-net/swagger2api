@@ -598,7 +598,8 @@ function packCategory(plans: SplitNamespacePlan[], categoryName: string, config:
   }
 
   return groups.map((group) => {
-    const candidate = categoryName ? toClassName(slugifyGroupName(categoryName).slug || "bucket") : group.plans[0].fileName
+    // 未配置分类且只有一个桶时用固定名，避免以首个命名空间占位造成误解
+    const candidate = categoryName ? toClassName(slugifyGroupName(categoryName).slug || "bucket") : groups.length === 1 ? "Modules" : group.plans[0].fileName
     const fileName = reserveBucketName(candidate, occupied)
     return {
       fileName,
@@ -622,16 +623,12 @@ function packCategory(plans: SplitNamespacePlan[], categoryName: string, config:
 function packBuckets(plans: SplitNamespacePlan[], total: number, config: NormalizedSplitConfig, occupied: Set<string>, warnings: string[]) {
   if (plans.length === 0) return []
   if (total <= config.minRoutes) {
-    const fileName = reserveBucketName(plans[0].fileName, occupied)
+    const fileName = reserveBucketName("Modules", occupied)
     const routes = plans.reduce((sum, plan) => sum + plan.routes, 0)
     return [{ fileName, className: fileName, category: "", routes, namespaces: plans.map((plan) => plan.raw) }]
   }
 
-  if (config.categories.length === 0) {
-    const buckets = packCategory(plans, "", config, occupied)
-    if (plans.length > 1) warnings.push(`未配置 grouping.split.categories，桶名以首个命名空间占位：${buckets.map((bucket) => bucket.fileName).join("、")}`)
-    return buckets
-  }
+  if (config.categories.length === 0) return packCategory(plans, "", config, occupied)
 
   const buckets: SplitBucketPlan[] = []
   const remaining = new Set(plans.map((plan) => plan.raw))

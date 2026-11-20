@@ -11,6 +11,7 @@ import {
   loadConfigLayers,
   mergeSections,
   mergeShallow,
+  normalizeConfig,
   setByPath
 } from "../utils/config"
 import { argsToConfig, migrateFromPackage, tokenizeArgs } from "../utils/migrate"
@@ -164,7 +165,7 @@ describe("脚本迁移", () => {
       "--unknown-flag"
     ])
     expect(config.client.type).toBe("axios")
-    expect(config.types).toMatchObject({ responses: true, extractQuery: "arg0", unwrapData: true })
+    expect(config.types).toMatchObject({ responses: true, extractQuery: "arg0", extractResponseRaw: true })
     expect(config.naming).toMatchObject({ pathPrefixIndex: 0, convertGetToQuery: true, dropPathParams: true, tagRewrite: ["[a-z_]+(.+)", ""] })
     expect(config.language.target).toBe("js")
     expect(unknown).toEqual(["--unknown-flag"])
@@ -178,5 +179,47 @@ describe("脚本迁移", () => {
     expect(result.scriptName).toBe("api")
     expect(result.config.client.type).toBe("axios")
     expect(result.unknown).toEqual([])
+  })
+})
+
+describe("扁平配置归一化", () => {
+  it("扁平字段转内部结构并注入分组默认", () => {
+    const config = normalizeConfig({
+      url: "https://example.com/api-docs",
+      output: "./src/api/base",
+      mode: "grouped",
+      client: "axios",
+      language: "js",
+      responses: true,
+      query: ["param", "arg0"],
+      pathPrefixIndex: 0,
+      extractResponseRaw: true,
+      convertGetToQuery: true,
+      dropPathParams: true,
+      tagRewrite: ["[a-z_]+(.+)", ""]
+    })
+    expect(config.input.url).toBe("https://example.com/api-docs")
+    expect(config.output).toMatchObject({ dir: "./src/api/base", name: "index", mode: "grouped", prune: true })
+    expect(config.client).toEqual({ type: "axios" })
+    expect(config.language).toEqual({ target: "js" })
+    expect(config.types).toMatchObject({ responses: true, extractQuery: "param,arg0", extractResponseRaw: true })
+    expect(config.naming).toMatchObject({ pathPrefixIndex: 0, convertGetToQuery: true, dropPathParams: true, tagRewrite: ["[a-z_]+(.+)", ""] })
+    // 分组模式自动带上路径策略与分片，业务配置不写阈值
+    expect(config.grouping).toMatchObject({ strategy: ["path"], pathDepth: 0, split: true })
+    // 扁平别名不留在根上，避免二次归一化覆盖段内配置
+    expect(config.url).toBeUndefined()
+    expect(config.mode).toBeUndefined()
+  })
+
+  it("扁平 file 输入默认单文件且不清理", () => {
+    const config = normalizeConfig({ file: "./swagger.json", output: "./api" })
+    expect(config.input.file).toBe("./swagger.json")
+    expect(config.output).toMatchObject({ dir: "./api", name: "index", mode: "single", prune: false })
+    expect(config.grouping).toBeUndefined()
+  })
+
+  it("嵌套配置原样返回", () => {
+    const nested = { input: { url: "https://example.com" }, output: { dir: "./api", mode: "single" } }
+    expect(normalizeConfig(nested)).toEqual(nested)
   })
 })

@@ -28,6 +28,9 @@ pnpm dlx @fxri/swagger2api init
 
 # 2. 之后一行生成：读取配置，无参即可；换人 clone 仓库后同样两条命令
 pnpm dlx @fxri/swagger2api
+
+# 提交前可校验产物是否与当前配置一致
+pnpm dlx @fxri/swagger2api --check
 ```
 
 接口规模大时，先 `swagger2api grouping` 选择分组方式，再生成即可输出多文件 + 单一出口，详见[完整攻略 · 分组输出](./docs/guide.md#分组输出)。
