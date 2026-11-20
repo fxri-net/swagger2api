@@ -136,12 +136,12 @@ function checkDocLinks() {
  * @return {number} 退出码
  */
 function checkDocsTheme() {
-  const probe = spawnSync("toolkit", ["docs", "theme", "--help"], { encoding: "utf8", shell: isWindows })
+  const probe = spawnCli("toolkit", ["docs", "theme", "--help"], { encoding: "utf8" })
   if (probe.status !== 0) {
     console.log("跳过文档站主题检查（未检测到 toolkit docs theme）")
     return 0
   }
-  const result = spawnSync("toolkit", ["docs", "theme", "check"], { stdio: "inherit", shell: isWindows })
+  const result = spawnCli("toolkit", ["docs", "theme", "check"], { stdio: "inherit" })
   return result.status ?? 1
 }
 
@@ -150,12 +150,12 @@ function checkDocsTheme() {
  * @return {number} 退出码
  */
 function checkDocsNav() {
-  const probe = spawnSync("toolkit", ["docs", "nav", "--help"], { encoding: "utf8", shell: isWindows })
+  const probe = spawnCli("toolkit", ["docs", "nav", "--help"], { encoding: "utf8" })
   if (probe.status !== 0) {
     console.log("跳过文档站导航检查（未检测到 toolkit docs nav）")
     return 0
   }
-  return spawnSync("toolkit", ["docs", "nav", "check"], { stdio: "inherit", shell: isWindows }).status ?? 1
+  return spawnCli("toolkit", ["docs", "nav", "check"], { stdio: "inherit" }).status ?? 1
 }
 
 /**
@@ -163,12 +163,12 @@ function checkDocsNav() {
  * @return {number} 退出码
  */
 function checkDocsDist() {
-  const probe = spawnSync("toolkit", ["docs", "dist", "--help"], { encoding: "utf8", shell: isWindows })
+  const probe = spawnCli("toolkit", ["docs", "dist", "--help"], { encoding: "utf8" })
   if (probe.status !== 0) {
     console.log("跳过文档站产物检查（未检测到 toolkit docs dist）")
     return 0
   }
-  return spawnSync("toolkit", ["docs", "dist", "check"], { stdio: "inherit", shell: isWindows }).status ?? 1
+  return spawnCli("toolkit", ["docs", "dist", "check"], { stdio: "inherit" }).status ?? 1
 }
 
 /**
@@ -214,7 +214,7 @@ function reportToolchain() {
   const expectedNode = process.env.EXPECTED_NODE || readTrimmed(join(root, ".node-version"))
   const expectedPnpm = String(packageManager).replace(/^pnpm@/, "")
   const actualNode = process.version.replace(/^v/, "")
-  const actualPnpm = (spawnSync("pnpm", ["--version"], { encoding: "utf8", shell: isWindows }).stdout ?? "").trim()
+  const actualPnpm = (spawnCli("pnpm", ["--version"], { encoding: "utf8" }).stdout ?? "").trim()
 
   console.log(`门禁校验：node ${actualNode}（仓库期望 ${expectedNode}）/ pnpm ${actualPnpm}（仓库期望 ${expectedPnpm}）`)
   if (actualNode !== expectedNode) {
@@ -226,6 +226,20 @@ function reportToolchain() {
 }
 
 /**
+ * 运行外部命令：Windows 下 pnpm / toolkit 是 .cmd，必须经 shell 执行。
+ * node 24 起「shell + args 数组」会触发 DEP0190，故 Windows 改为单条命令字符串传入。
+ * ⚠️ 仅用于参数全为内部常量的调用；含用户输入的调用必须改用 cmd.exe 参数数组方式。
+ * @param {string} command 可执行文件名
+ * @param {string[]} args 参数
+ * @param {object} options spawnSync 选项（无需再传 shell）
+ * @return {object} 子进程结果
+ */
+function spawnCli(command, args, options = {}) {
+  if (isWindows) return spawnSync([command, ...args].join(" "), { ...options, shell: true })
+  return spawnSync(command, args, options)
+}
+
+/**
  * 执行单条命令型步骤。
  * @param {{ command?: string, args: string[] }} step 步骤定义
  * @return {number} 进程退出码
@@ -233,7 +247,8 @@ function reportToolchain() {
 function runCommand(step) {
   const command = step.command ?? process.execPath
   // pnpm 在 Windows 上是 .cmd，需经 shell 调用；node 用 process.execPath 直呼，避免路径含空格时被 shell 拆断
-  return spawnSync(command, step.args, { cwd: root, stdio: "inherit", shell: command === "pnpm" && isWindows }).status ?? 1
+  if (command === "pnpm") return spawnCli("pnpm", step.args, { cwd: root, stdio: "inherit" }).status ?? 1
+  return spawnSync(command, step.args, { cwd: root, stdio: "inherit" }).status ?? 1
 }
 
 // 冒烟断言产物可被消费方导入：本仓库 src/cli.ts 无参数解析，直接执行 dist/cli.js 会进交互式选配置并挂住，不可作为冒烟手段
