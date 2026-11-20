@@ -8,8 +8,9 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
-import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import { collectGeneratedFiles, collectModules, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
+import { splitContractOutput } from "./utils/contracts"
 import { CLIENT_BASE, TYPES_DIR, findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
@@ -554,6 +555,13 @@ async function onGenerateApi(data: Defines["data"]) {
       const extraFiles = plannedFileNames(namingEntries, splitPlan)
       // 分片门面由本工具补写，必须先于产物校验与聚合入口
       if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS)
+      // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
+      const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS, knownFiles: new Set(previousManifest?.files ?? []) })
+      if (contracts.errors.length > 0) {
+        contracts.errors.forEach((error) => console.error("失败：", error))
+        failures += 1
+        return
+      }
       const modules = verifyGroupedOutput(dir, namingEntries, toJS, { aggregate: false, extraFiles })
       if (modules.errors.length > 0) {
         modules.errors.forEach((error) => console.error("失败：", error))
@@ -569,6 +577,14 @@ async function onGenerateApi(data: Defines["data"]) {
       }
       orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.prune）：", file))
     } else {
+      // 未使用命名表的手动模块化：不维护清单，按目录扫描业务文件后同样拆分契约
+      const modules = collectModules(dir, toJS ? ".js" : ".ts").map((item) => item.base)
+      const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS, knownFiles: null })
+      if (contracts.errors.length > 0) {
+        contracts.errors.forEach((error) => console.error("失败：", error))
+        failures += 1
+        return
+      }
       writeAggregateEntry(dir, apiClassName, toJS)
     }
     // 升级退场：旧版固定产物已不再生成，成功落盘后删除残留（校验模式不动真实目录）

@@ -21,7 +21,7 @@
 - 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
 - 只写项目自己的口径；分桶阈值、分片规则、清单、清理与产物校验由工具默认，不需要配置
 - `mode: "grouped"` 自动按路径首段分组，并按体量分桶、对超大命名空间分片；对外仍是 `api.<命名空间>.<方法>`
-- 产物布局：`mode: "grouped"` 固定为 `index`（聚合入口）+ 业务模块文件 + `client`（客户端底座）+ `types/`（契约目录），契约统一从 `types/index` 导出
+- 产物布局：`mode: "grouped"` 固定为 `index`（聚合入口）+ 业务模块文件 + `client`（客户端底座）+ `types/`（契约目录），契约统一从 `types/index` 导出；契约再按业务文件拆分为 `types/<业务文件>.ts` 与 `types/shared.ts`
 - 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留，无需手动清理
 - 相对路径按配置文件所在目录解析，从任意目录执行都能落对位置
 - 分组模式的生成清单存放在系统临时目录缓存，不进入仓库与产物目录；`--check` 只校验产物是否与当前配置一致

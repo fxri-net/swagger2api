@@ -279,14 +279,15 @@ function smokeExports() {
 /**
  * 递归收集目录下的文件，返回相对路径数组。
  * @param {string} dir 目录
+ * @param {string} [base] 相对基准目录（递归时保持一致，避免子目录路径丢失前缀）
  * @return {string[]} 相对路径（统一为 / 分隔）
  */
-function collectFiles(dir) {
+function collectFiles(dir, base = dir) {
   const files = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name)
-    if (entry.isDirectory()) files.push(...collectFiles(full))
-    else files.push(relative(dir, full).split(sep).join("/"))
+    if (entry.isDirectory()) files.push(...collectFiles(full, base))
+    else files.push(relative(base, full).split(sep).join("/"))
   }
   return files
 }
@@ -439,7 +440,7 @@ async function checkGroupedOutput() {
         console.error(`✖ 分组产物（${client.name}）：模块文件串组或缺少本组接口`)
         return 1
       }
-      for (const file of readdirSync(out).filter((name) => name.endsWith(".ts"))) {
+      for (const file of collectFiles(out).filter((name) => name.endsWith(".ts"))) {
         const source = ts.createSourceFile(file, readFileSync(join(out, file), "utf8"), ts.ScriptTarget.Latest, true)
         if (source.parseDiagnostics.length > 0) {
           console.error(`✖ 分组产物（${client.name}）：${file} 无法解析`)
@@ -504,7 +505,7 @@ async function checkGroupedNaming() {
         return 1
       }
     }
-    for (const file of files.filter((name) => name.endsWith(".ts"))) {
+    for (const file of collectFiles(out).filter((name) => name.endsWith(".ts"))) {
       const source = ts.createSourceFile(file, readFileSync(join(out, file), "utf8"), ts.ScriptTarget.Latest, true)
       if (source.parseDiagnostics.length > 0) {
         console.error(`✖ 分组命名边界：${file} 无法解析`)
@@ -633,6 +634,7 @@ async function checkGroupedPrune() {
     for (const file of ["index.ts", "App.ts", "Home.ts", "Api.ts", "client.ts", "types/index.ts"]) {
       if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
     }
+    if (!manifest.files.some((file) => file.startsWith("types/") && file !== "types/index.ts")) issues.push("清单缺少拆分后的契约文件")
 
     // 模拟手写适配文件与上一轮遗留模块
     writeFileSync(join(base, "axios.ts"), "// 手写适配\n")
@@ -750,6 +752,14 @@ async function checkGroupedContract() {
     for (const file of ["client.js", "client.d.ts", "types/index.js", "types/index.d.ts"]) {
       if (!existsSync(join(base, file))) issues.push(`固定产物缺失：${file}`)
     }
+    // 运行时枚举落到所属契约文件，出口按公开面同步
+    const typesBarrel = readFileSync(join(base, "types/index.js"), "utf8")
+    if (!typesBarrel.includes('export { SettingType } from ".')) issues.push("JS 契约出口未导出运行时枚举")
+    if (!readFileSync(join(base, "types/index.d.ts"), "utf8").includes("export type {")) issues.push("JS 声明出口缺少类型导出")
+    const runtimeOwner = collectFiles(base).find(
+      (file) => file.startsWith("types/") && file.endsWith(".js") && file !== "types/index.js" && readFileSync(join(base, file), "utf8").includes("export var SettingType"),
+    )
+    if (!runtimeOwner) issues.push("运行时枚举未落到所属契约文件")
 
     // 复刻下游仓形态：桶文件再导出聚合入口，declare.ts 以相对聚合入口做模块增强
     writeFileSync(join(out, "index.ts"), 'export * from "./base"\n')
@@ -875,6 +885,13 @@ async function checkGroupedSplit() {
     for (const file of ["client.ts", "types/index.ts"]) {
       if (!existsSync(join(base, file))) issues.push(`缺少固定产物：${file}`)
     }
+    // 契约按业务文件拆分：单归属进同名文件，多归属与未使用进 shared
+    for (const file of ["types/DgAdminPart1.ts", "types/shared.ts"]) {
+      if (!existsSync(join(base, file))) issues.push(`缺少拆分契约：${file}`)
+    }
+    const splitBarrel = existsSync(join(base, "types/index.ts")) ? readFileSync(join(base, "types/index.ts"), "utf8") : ""
+    if (!splitBarrel.includes('export type { Order } from "./DgAdminPart1"')) issues.push("契约出口未导出单归属类型")
+    if (!splitBarrel.includes('export type { User } from "./shared"')) issues.push("契约出口未导出共享类型")
     if (files.some((name) => /^DgAdminV\d/i.test(name))) issues.push("版本段被当作子分类生成了文件")
     if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
 
@@ -981,7 +998,7 @@ async function checkGroupedSplit() {
       if (!existsSync(join(jsDir, "DgAdmin.js")) || !readFileSync(join(jsDir, "DgAdmin.js"), "utf8").includes("Object.assign(this")) {
         issues.push("JS 模式门面未合并分片实例")
       }
-      for (const file of [...jsFiles.filter((name) => name.endsWith(".d.ts")), "types/index.d.ts"]) {
+      for (const file of collectFiles(jsDir).filter((name) => name.endsWith(".d.ts"))) {
         const source = ts.createSourceFile(file, readFileSync(join(jsDir, file), "utf8"), ts.ScriptTarget.Latest, true)
         if (source.parseDiagnostics.length > 0) issues.push(`JS 声明无法解析：${file}`)
       }
@@ -1044,6 +1061,13 @@ async function checkFlatConfig() {
     for (const file of ["client.ts", "types/index.ts"]) {
       if (!existsSync(join(api, file))) issues.push(`缺少固定产物：${file}`)
     }
+    // 契约按业务文件拆分：出口只保留显式导出，声明落到 types/<业务文件>
+    const typesIndex = readFileSync(join(api, "types/index.ts"), "utf8")
+    if (typesIndex.includes("export interface ")) issues.push("契约声明仍堆在出口文件")
+    if (!typesIndex.includes("export type {")) issues.push("契约出口缺少显式导出")
+    const splitTypes = collectFiles(api).filter((file) => file.startsWith("types/") && file.endsWith(".ts") && file !== "types/index.ts")
+    if (!splitTypes.length) issues.push("契约未按业务文件拆分")
+    else if (!splitTypes.some((file) => readFileSync(join(api, file), "utf8").includes("export interface "))) issues.push("拆分后的契约文件缺少声明")
     if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
     const bucket = readFileSync(join(api, "Modules.ts"), "utf8")
     for (const name of ["class App", "class DgAdmin", "class Misc"]) {
@@ -1063,6 +1087,7 @@ async function checkFlatConfig() {
       if ("version" in manifest) issues.push("清单包含工具版本")
       if (!manifest.files.includes("Modules.ts")) issues.push("清单缺少 Modules.ts")
       if (!manifest.files.includes("types/index.ts")) issues.push("清单缺少 types/index.ts")
+      if (!manifest.files.some((file) => file.startsWith("types/") && file !== "types/index.ts")) issues.push("清单缺少拆分后的契约文件")
     }
 
     // 升级退场：旧版固定产物在成功生成后自动删除

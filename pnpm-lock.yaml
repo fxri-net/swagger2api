@@ -32,6 +32,9 @@ importers:
       swagger-typescript-api:
         specifier: 13.0.28
         version: 13.0.28
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
     devDependencies:
       '@types/node':
         specifier: ^18.19.0
@@ -60,9 +63,6 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.28)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
       vitepress:
         specifier: ^1.6.4
         version: 1.6.4(@algolia/client-search@5.57.0)(@types/node@18.19.130)(axios@1.21.0)(jiti@2.7.0)(postcss@8.5.28)(search-insights@2.17.3)(typescript@5.9.3)(yaml@2.9.0)

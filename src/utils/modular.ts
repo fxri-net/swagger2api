@@ -112,7 +112,15 @@ export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJ
     ...extraFiles
   ]
   const candidates = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
-  return [...new Set(candidates)].filter((file) => fs.existsSync(path.join(dir, file))).sort()
+  // 契约按业务文件拆分后数量不固定，types/ 子目录按实际落盘文件收集
+  const typesDir = path.join(dir, TYPES_DIR)
+  const nested = fs.existsSync(typesDir)
+    ? fs
+        .readdirSync(typesDir)
+        .filter((file) => file.endsWith(".ts") || file.endsWith(".js"))
+        .map((file) => `${TYPES_DIR}/${file}`)
+    : []
+  return [...new Set([...candidates, ...nested])].filter((file) => fs.existsSync(path.join(dir, file))).sort()
 }
 
 /**

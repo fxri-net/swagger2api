@@ -88,6 +88,7 @@ client.instance.interceptors.response.use(
 - 文档标签：`grouping.preserveTags`（默认 `true`）在 JSDoc 中保留原始标签，分组名只用于文件与类名
 - 产物：`index.ts` 聚合入口 + `client.ts` + `types/index.ts` + 每模块一个文件；聚合类按组名挂载模块实例并共享同一个请求实例，调用形态仍是 `api.<组>.<方法>`
 - 契约目录：契约出口固定为 `types/index.ts`，聚合入口写 `export * from "./types"`；单文件模式不生成该目录
+- 契约拆分：只被一个业务文件使用的类型进 `types/<业务文件>.ts`，被多个业务文件使用或未被使用进 `types/shared.ts`；互引的环整体留在同一文件，类型文件之间无环；公开面仍由 `types/index.ts` 显式导出，内部声明只在本文件导出、不进出口
 - 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留
 - 对外面：聚合入口与单文件产物导出面一致（`Api`、`HttpClient`、`ContentType`、`AxiosResponse`、`FullRequestParams`、`RequestParams` 与全部数据契约）；模块通过聚合实例注入共享请求器，替换 `api.instance` 或调用 `setSecurityData` 会对所有组同时生效；模块类额外暴露 `http` 字段（内部注入，勿直接调用）
 - 模块命名：组名经统一规则转为合法标识符——路径字符与标点只作分隔，数字开头补前缀，超长截断加短哈希，Windows 设备名与 `index` 等保留名追加序号；重名（含全半角、大小写折叠后同名）各自独立并追加序号，不做业务组合并
