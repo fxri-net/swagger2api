@@ -2,15 +2,22 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-// 配置分层：全局层 ~/.swagger2apirc.json（个人跨项目）、项目层 .swagger2apirc.json（团队共享，向上查找）、
-// 本地层 .swagger2apirc.local.json（个人按项目，默认不入库）。合并粒度：全局→项目按段整体覆盖，
-// 项目→本地按段内字段浅合并（数组整体替换），与同基地工具链的 rc 约定保持一致。
+// 配置分层：全局层 ~/.swagger2api.json（个人跨项目）、项目层 swagger2api.json（团队共享，向上查找）、
+// 本地层 swagger2api.local.json（个人按项目，默认不入库）。旧名 .swagger2apirc*.json 继续可用，
+// 同目录并存时新名优先并告警。合并粒度：全局→项目按段整体覆盖，项目→本地按段内字段浅合并（数组整体替换），
+// 与同基地工具链的 rc 约定保持一致。
 /** 项目层配置文件名 */
-export const CONFIG_PROJECT_FILE = ".swagger2apirc.json"
+export const CONFIG_PROJECT_FILE = "swagger2api.json"
+/** 项目层旧文件名（兼容） */
+export const CONFIG_PROJECT_FILE_LEGACY = ".swagger2apirc.json"
 /** 本地层配置文件名 */
-export const CONFIG_LOCAL_FILE = ".swagger2apirc.local.json"
-/** 全局层配置文件名 */
-export const CONFIG_GLOBAL_FILE = ".swagger2apirc.json"
+export const CONFIG_LOCAL_FILE = "swagger2api.local.json"
+/** 本地层旧文件名（兼容） */
+export const CONFIG_LOCAL_FILE_LEGACY = ".swagger2apirc.local.json"
+/** 全局层配置文件名（个人跨项目，隐藏文件） */
+export const CONFIG_GLOBAL_FILE = ".swagger2api.json"
+/** 全局层旧文件名（兼容） */
+export const CONFIG_GLOBAL_FILE_LEGACY = ".swagger2apirc.json"
 
 /** 层名 */
 export type ConfigLayerName = "全局层" | "项目层" | "本地层"
@@ -118,6 +125,29 @@ export function mergeShallow(base: Record<string, any> | null, overlay: Record<s
 }
 
 /**
+ * 按「同目录新名优先、最近目录优先」查找配置文件。
+ * @param names 文件名，按优先级排列（新名在前、旧名在后）
+ * @param startDir 起始目录
+ * @return 命中的文件与同目录被忽略的旧文件
+ */
+export function findLayerFile(names: string[], startDir: string) {
+  const [primary, ...legacy] = names
+  let current = path.resolve(startDir)
+  while (true) {
+    const primaryFile = path.join(current, primary)
+    if (fs.existsSync(primaryFile)) {
+      const ignored = legacy.map((name) => path.join(current, name)).find((file) => fs.existsSync(file)) ?? null
+      return { file: primaryFile, ignored }
+    }
+    const fallback = legacy.map((name) => path.join(current, name)).find((file) => fs.existsSync(file))
+    if (fallback) return { file: fallback, ignored: null }
+    const parent = path.dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+}
+
+/**
  * 加载三层配置。
  * @param cwd 起始目录，默认当前工作目录
  * @param options.projectFile 显式指定的项目层文件（--config）
@@ -126,10 +156,25 @@ export function mergeShallow(base: Record<string, any> | null, overlay: Record<s
  */
 export function loadConfigLayers(cwd = process.cwd(), options: { projectFile?: string; homeDir?: string } = {}): ConfigLayers {
   const warnings: string[] = []
-  const global = readLayer(path.join(options.homeDir ?? os.homedir(), CONFIG_GLOBAL_FILE), "全局层", warnings)
-  const projectFile = options.projectFile ? path.resolve(options.projectFile) : findUpward(CONFIG_PROJECT_FILE, cwd)
-  const project = readLayer(projectFile, "项目层", warnings)
-  const local = readLayer(findUpward(CONFIG_LOCAL_FILE, cwd), "本地层", warnings)
+  const home = options.homeDir ?? os.homedir()
+  const globalNew = path.join(home, CONFIG_GLOBAL_FILE)
+  const globalLegacy = path.join(home, CONFIG_GLOBAL_FILE_LEGACY)
+  const globalPick = fs.existsSync(globalNew)
+    ? { file: globalNew, ignored: fs.existsSync(globalLegacy) ? globalLegacy : null }
+    : fs.existsSync(globalLegacy)
+      ? { file: globalLegacy, ignored: null }
+      : null
+  const projectPick = options.projectFile
+    ? { file: path.resolve(options.projectFile), ignored: null }
+    : findLayerFile([CONFIG_PROJECT_FILE, CONFIG_PROJECT_FILE_LEGACY], cwd)
+  const localPick = findLayerFile([CONFIG_LOCAL_FILE, CONFIG_LOCAL_FILE_LEGACY], cwd)
+  // 同目录新旧并存：新名生效，旧文件提示清理，不静默
+  for (const pick of [globalPick, projectPick, localPick]) {
+    if (pick?.ignored) warnings.push(`${pick.file}：同时存在旧配置 ${pick.ignored}，已按新文件名生效，建议删除旧文件`)
+  }
+  const global = readLayer(globalPick?.file ?? null, "全局层", warnings)
+  const project = readLayer(projectPick?.file ?? null, "项目层", warnings)
+  const local = readLayer(localPick?.file ?? null, "本地层", warnings)
   const merged = mergeShallow(mergeSections(global.config, project.config), local.config)
   return { global, project, local, merged, warnings }
 }

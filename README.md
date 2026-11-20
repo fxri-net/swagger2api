@@ -23,7 +23,7 @@
 ## 🚀 30 秒上手
 
 ```bash
-# 1. 首次：交互式写入 .swagger2apirc.json（团队共享，可提交）
+# 1. 首次：交互式写入 swagger2api.json（团队共享，可提交）
 pnpm dlx @fxri/swagger2api init
 
 # 2. 之后一行生成：读取配置，无参即可；换人 clone 仓库后同样两条命令
@@ -49,7 +49,7 @@ request.getUsers().then((res) => console.log(res))
 | 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [快速开始](./docs/getting-started.md) |
 | 多文档配置 | 自动扫描 `./**/saconfig*.json`，多项目接口配置集中管理 | [完整攻略](./docs/guide.md#多文档配置) |
 | 快速模式 | 配置齐全时跳过二次确认，搭配脚本一行命令静默更新 | [完整攻略](./docs/guide.md#快速模式) |
-| 分层配置与向导 | `.swagger2apirc.json` 项目 / 个人 / 全局三层合并，`init` 向导建设配置，`config status` 排障 | [配置参考](./docs/config.md) |
+| 分层配置与向导 | `swagger2api.json` 项目 / 个人 / 全局三层合并（旧名 `.swagger2apirc.json` 兼容），`init` 向导建设配置，`config status` 排障 | [配置参考](./docs/config.md) |
 | 分组输出 | 大文档按规则 / tag / 路径段拆分为多文件，聚合入口保持单一出口 | [完整攻略](./docs/guide.md#分组输出) |
 | 唯一 operationId | 接口地址 + 请求方法拼接唯一 ID，可选 get 转 query 作区分 | [完整攻略](./docs/guide.md#唯一-operationid-拼接规则) |
 | 灵活裁剪 | 移除路径参数 / 前缀索引、替换标签、移除空组件定义 | [配置参考](./docs/config.md) |

@@ -1,6 +1,6 @@
 # 配置参考
 
-> 配置项既可在配置文件（默认 `saconfig.json`）中设置，也可通过命令行参数传入；两者字段一一对应。
+> 配置项既可在配置文件（推荐 `swagger2api.json`，早期 `saconfig.json` 仍兼容）中设置，也可通过命令行参数传入；两者字段一一对应。
 
 ## 分层配置（rc 文件）
 
@@ -8,11 +8,11 @@
 
 | 层 | 文件 | 用途 |
 | --- | --- | --- |
-| 项目层 | `.swagger2apirc.json` | 团队共享，随仓库提交 |
-| 本地层 | `.swagger2apirc.local.json` | 个人按项目覆盖，默认不入库 |
-| 全局层 | `~/.swagger2apirc.json` | 个人跨项目偏好 |
+| 项目层 | `swagger2api.json` | 团队共享，随仓库提交 |
+| 本地层 | `swagger2api.local.json` | 个人按项目覆盖，默认不入库 |
+| 全局层 | `~/.swagger2api.json` | 个人跨项目偏好 |
 
-查找方式为自工作目录向上找最近的 rc 文件；合并优先级为「命令行参数 > 环境变量 > 本地层 > 项目层 > 全局层 > 默认值」。
+查找方式为自工作目录向上找最近的配置文件；同目录新旧文件名并存时新名优先并告警。旧名 `.swagger2apirc.json`、`.swagger2apirc.local.json`、`~/.swagger2apirc.json` 继续可用，不做自动重命名。合并优先级为「命令行参数 > 环境变量 > 本地层 > 项目层 > 全局层 > 默认值」。
 
 ```json
 {
@@ -34,6 +34,7 @@
 - 合并同名组：`grouping.collapse` 为 `true` 时，折叠键相同的组（如 `opt` 与 `opt_`）合并为同一组，复现单文件产物「同名属性即同组」的语义；默认 `false` 时各自独立并追加序号
 - 保留名：`index`、`data-contracts`、`http-client` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
 - 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；`output.prune` 只删除上一轮 `.swagger2api.manifest.json` 清单内、本轮不再生成的文件，不触碰手写适配文件与清单外产物，分组模式生成后自动写入清单
+- 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
 ## 配置选项

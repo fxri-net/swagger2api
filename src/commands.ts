@@ -4,6 +4,7 @@ import prompts from "prompts"
 import axios from "axios"
 import {
   CONFIG_ENV_OVERRIDES,
+  CONFIG_LOCAL_FILE,
   CONFIG_PROJECT_FILE,
   applyEnvOverrides,
   applyProfile,
@@ -18,10 +19,10 @@ import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/g
 /** .gitignore 片段标识：认领本工具写入的注释行，重跑时据此改写 */
 const GITIGNORE_MARKER = "# @fxri/swagger2api"
 /** .gitignore 片段内容 */
-const GITIGNORE_ROWS = ["*.swagger2apirc.local.json"]
+const GITIGNORE_ROWS = [CONFIG_LOCAL_FILE, "*.swagger2apirc.local.json"]
 
 /**
- * 写入受管的 .gitignore 片段（幂等）。
+ * 写入受管的 .gitignore 片段（幂等）：已有片段时补齐新增忽略项。
  * @param dir 目录
  * @return 无
  */
@@ -29,9 +30,18 @@ function ensureGitignore(dir: string) {
   const file = path.join(dir, ".gitignore")
   const rows = [`${GITIGNORE_MARKER} 个人配置不入库`, ...GITIGNORE_ROWS]
   const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : ""
-  if (existing.includes(GITIGNORE_MARKER)) return
-  const content = existing && !existing.endsWith("\n") ? `${existing}\n` : existing
-  fs.writeFileSync(file, `${content}${rows.join("\n")}\n`)
+  if (!existing.includes(GITIGNORE_MARKER)) {
+    const content = existing && !existing.endsWith("\n") ? `${existing}\n` : existing
+    fs.writeFileSync(file, `${content}${rows.join("\n")}\n`)
+    return
+  }
+  const missing = GITIGNORE_ROWS.filter((row) => !existing.includes(row))
+  if (missing.length === 0) return
+  const eol = existing.includes("\r\n") ? "\r\n" : "\n"
+  const lines = existing.split(/\r?\n/)
+  const index = lines.findIndex((line) => line.includes(GITIGNORE_MARKER))
+  lines.splice(index + 1, 0, ...missing)
+  fs.writeFileSync(file, lines.join(eol))
 }
 
 /**

@@ -93,6 +93,41 @@ describe("三层加载", () => {
     expect(layers.warnings.length).toBe(1)
   })
 
+  it("同名新配置优先于旧配置并告警", () => {
+    const root = makeTree({
+      "swagger2api.json": JSON.stringify({ input: { url: "new" }, output: { dir: "./api" } }),
+      ".swagger2apirc.json": JSON.stringify({ input: { url: "old" } }),
+      "apps/a/.keep": ""
+    })
+    const layers = loadConfigLayers(path.join(root, "apps", "a"), { homeDir: path.join(root, "home") })
+    expect(layers.project.file).toBe(path.join(root, "swagger2api.json"))
+    expect(layers.merged?.input).toEqual({ url: "new" })
+    expect(layers.warnings.some((warning) => warning.includes("旧配置"))).toBe(true)
+  })
+
+  it("本地层新文件名同样生效", () => {
+    const root = makeTree({
+      "swagger2api.json": JSON.stringify({ input: { url: "project" }, output: { dir: "./api", name: "index" } }),
+      "swagger2api.local.json": JSON.stringify({ output: { dir: "./local" } }),
+      "apps/.keep": ""
+    })
+    const layers = loadConfigLayers(path.join(root, "apps"), { homeDir: path.join(root, "home") })
+    expect(layers.local.file).toBe(path.join(root, "swagger2api.local.json"))
+    expect(layers.merged?.output.dir).toBe("./local")
+  })
+
+  it("最近目录的新名优先于更远目录", () => {
+    const root = makeTree({
+      "swagger2api.json": JSON.stringify({ input: { url: "root" } }),
+      ".swagger2apirc.json": JSON.stringify({ input: { url: "root-old" } }),
+      "apps/swagger2api.json": JSON.stringify({ input: { url: "app" } }),
+      "apps/a/.keep": ""
+    })
+    const layers = loadConfigLayers(path.join(root, "apps", "a"), { homeDir: path.join(root, "home") })
+    expect(layers.project.file).toBe(path.join(root, "apps", "swagger2api.json"))
+    expect(layers.merged?.input).toEqual({ url: "app" })
+  })
+
   it("findUpward 从子目录命中父级文件", () => {
     const root = makeTree({ ".swagger2apirc.json": "{}", "a/b/c/.keep": "" })
     expect(findUpward(".swagger2apirc.json", path.join(root, "a", "b", "c"))).toBe(path.join(root, ".swagger2apirc.json"))

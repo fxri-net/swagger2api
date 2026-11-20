@@ -458,7 +458,7 @@ async function checkGroupedNaming() {
   try {
     // 生成器要求输出目录存在，rc 从工作目录向上查找
     writeFileSync(
-      join(out, ".swagger2apirc.json"),
+      join(out, "swagger2api.json"),
       JSON.stringify({
         input: { url: join(root, "fixtures", "grouping-edge.json") },
         output: { dir: out, mode: "grouped", name: "index" },

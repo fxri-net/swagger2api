@@ -15,7 +15,7 @@
 ## 推荐用法（先配置，后一行生成）
 
 ```bash
-# 1. 首次：交互式写入 .swagger2apirc.json（随仓库提交，团队共享）
+# 1. 首次：交互式写入 swagger2api.json（随仓库提交，团队共享）
 swagger2api init
 
 # 2. 之后每次生成：读配置，无参即可

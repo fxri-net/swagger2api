@@ -60,7 +60,7 @@ yarn global add @fxri/swagger2api
 :::
 
 ```sh
-# 首次：交互式写入配置（.swagger2apirc.json，可随仓库提交）
+# 首次：交互式写入配置（swagger2api.json，可随仓库提交）
 npx @fxri/swagger2api init
 
 # 之后一行生成（读配置，无参即可）

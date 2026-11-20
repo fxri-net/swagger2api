@@ -105,6 +105,8 @@ client.instance.interceptors.response.use(
 
 ## 配置文件
 
+> 新项目推荐使用分层配置 `swagger2api.json`（可随仓库提交，支持分组、清理与多产物；见[配置参考](./config)）；本节描述的是早期扁平配置 `saconfig.json`，仍完整兼容。
+
 - 默认配置文件为 `saconfig.json`，由工具在脚本执行目录生成
 - 生成代码结束后，如果参数有改动，配置文件会同步更新
 - 配置项与 CLI 参数一一对应，完整字段见 [配置参考](./config)

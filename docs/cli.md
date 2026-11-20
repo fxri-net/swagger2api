@@ -17,7 +17,7 @@ swagger2api [选项]
 # 默认：生成（无子命令时与原用法完全一致）
 swagger2api [选项]
 
-# 交互式建设配置（写入 .swagger2apirc.json）
+# 交互式建设配置（写入 swagger2api.json）
 swagger2api init
 
 # 从既有 npm script 迁移参数到配置
