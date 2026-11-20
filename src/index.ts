@@ -238,10 +238,16 @@ async function onLoadDoc(index = 0) {
 function onReplaceTags(data: Defines["data"]) {
   const replaceTags = datas.param.replaceTags
   if (!replaceTags?.length) return
+  const [pattern, replacement] = replaceTags
+  // 值不足时按「降级不静默」处理：保留原始标签并说明忽略项，避免空串替换把标签清空
+  if (!pattern || typeof replacement !== "string") {
+    console.error("⚠️ 已忽略 --replace-tags：需要「匹配 + 替换」两个值，回落到保留原始标签")
+    return
+  }
   Object.values(data.paths ?? {}).forEach((item) => {
     Object.values(item).forEach((operation: any) => {
       if (Array.isArray(operation?.tags)) {
-        operation.tags = operation.tags.map((tag: string) => tag.replace(new RegExp(`^${replaceTags[0]}$`, "g"), replaceTags[1] ?? ""))
+        operation.tags = operation.tags.map((tag: string) => tag.replace(new RegExp(`^${pattern}$`, "g"), replacement))
       }
     })
   })

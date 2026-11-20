@@ -1,6 +1,6 @@
 // 分组决策：把 spec 的每个接口归入一个组名，再经命名表转成模块名写回 tags，
 // 从而支持「规则 / tag / 路径段」三种策略与阈值合并，并保证产物文件名、类名与聚合入口同源。
-import { buildGroupNaming, type GroupNameInfo } from "./naming"
+import { buildGroupNaming, foldGroupKey, type GroupNameInfo } from "./naming"
 
 /** 单条分组规则 */
 export interface GroupingRule {
@@ -26,6 +26,8 @@ export interface GroupingConfig {
   fallback?: string
   /** 是否在 JSDoc 的 @tags 中保留原始标签（默认 true） */
   preserveTags?: boolean
+  /** 折叠键相同的组是否合并到同一原始组名（复现单文件产物的合并语义，默认 false） */
+  collapse?: boolean
   /** 手工命名覆盖表：原始组名（或折叠键）→ 期望模块名 */
   names?: Record<string, string>
 }
@@ -111,6 +113,19 @@ export function applyGrouping(data: Record<string, any>, grouping: GroupingConfi
       if (match.ruleIndex !== undefined) matchedRules.add(match.ruleIndex)
       assignments.push({ path, method, operation, group: match.group, ruleIndex: match.ruleIndex })
     }
+  }
+
+  // 折叠键相同即合并到同一原始组名：复现单文件产物「同名属性即同组」的语义
+  if (grouping.collapse) {
+    const canonical = new Map<string, string>()
+    for (const raw of [...new Set(assignments.map((item) => item.group))].sort()) {
+      const key = foldGroupKey(raw)
+      if (key && !canonical.has(key)) canonical.set(key, raw)
+    }
+    assignments.forEach((item) => {
+      const target = canonical.get(foldGroupKey(item.group))
+      if (target) item.group = target
+    })
   }
 
   // 阈值：先统计原始组大小，再决定并入兜底或按下一段路径二次拆分

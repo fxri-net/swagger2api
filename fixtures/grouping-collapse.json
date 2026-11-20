@@ -1,0 +1,27 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "命名兼容夹具", "version": "1.0.0" },
+  "paths": {
+    "/opt/list": {
+      "get": {
+        "tags": ["甲"],
+        "summary": "甲列表",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/opt_/list": {
+      "get": {
+        "tags": ["乙"],
+        "summary": "乙列表",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/instance/health": {
+      "get": {
+        "tags": ["健康"],
+        "summary": "健康检查",
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  }
+}

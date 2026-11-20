@@ -507,6 +507,78 @@ async function checkGroupedNaming() {
 }
 
 /**
+ * 分组命名兼容：collapse 合并、聚合成员保留名与 replace-tags 参数守卫。
+ * 统一走 `--dry-run --json`，只校验命名表，不落盘。
+ * @return {number} 退出码
+ */
+async function checkGroupingCompat() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 分组命名兼容：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-naming-compat-"))
+  try {
+    const fixture = join(root, "fixtures", "grouping-collapse.json")
+    const writeRc = (name, grouping) => {
+      const file = join(out, name)
+      writeFileSync(
+        file,
+        JSON.stringify({ input: { file: fixture }, output: { dir: join(out, "api"), name: "index", mode: "grouped" }, grouping }, null, 2),
+      )
+      return file
+    }
+    const run = (config, extra = []) =>
+      spawnSync(process.execPath, [cli, "-c", config, "--dry-run", "--json", ...extra], { cwd: out, encoding: "utf8" })
+    // 分组日志先于 JSON 输出，从首个 { 起截取结构化报表
+    const readReport = (result) => JSON.parse(result.stdout.slice(result.stdout.indexOf("{")))
+
+    const collapsed = run(writeRc("collapse-on.json", { strategy: ["path"], pathDepth: 0, collapse: true }))
+    if (collapsed.status !== 0) {
+      console.error("✖ 分组命名兼容：collapse 开启时报表失败")
+      console.error(`${collapsed.stdout ?? ""}${collapsed.stderr ?? ""}`)
+      return 1
+    }
+    const on = readReport(collapsed)
+    const onRaws = on.groups.map((group) => group.raw)
+    const onOpt = on.groups.find((group) => group.raw === "opt")
+    const onInstance = on.groups.find((group) => group.raw === "instance")
+    if (onRaws.join(",") !== "instance,opt" || onRaws.includes("opt_") || !onOpt || onOpt.property !== "opt") {
+      console.error(`✖ 分组命名兼容：collapse 未按预期合并（${onRaws.join(",")}）`)
+      return 1
+    }
+    if (!onInstance || onInstance.property !== "instance2") {
+      console.error("✖ 分组命名兼容：聚合成员保留名未追加后缀")
+      return 1
+    }
+
+    const loose = run(writeRc("collapse-off.json", { strategy: ["path"], pathDepth: 0 }))
+    if (loose.status !== 0) {
+      console.error("✖ 分组命名兼容：collapse 关闭时报表失败")
+      console.error(`${loose.stdout ?? ""}${loose.stderr ?? ""}`)
+      return 1
+    }
+    const offProperties = readReport(loose)
+      .groups.map((group) => group.property)
+      .sort()
+    if (offProperties.join(",") !== "instance2,opt,opt2") {
+      console.error(`✖ 分组命名兼容：默认行为与预期不符（${offProperties.join(",")}）`)
+      return 1
+    }
+
+    // 单个值的 replace-tags 必须告警并忽略，而不是用空串清空标签
+    const guarded = run(writeRc("tags.json", { strategy: ["path"], pathDepth: 0 }), ["-rt", "[a-z_]+(.+)"])
+    if (guarded.status !== 0 || !`${guarded.stderr ?? ""}`.includes("已忽略 --replace-tags")) {
+      console.error("✖ 分组命名兼容：replace-tags 缺值时未给出忽略告警")
+      return 1
+    }
+    return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 分组产物对外面：聚合入口导出面、模块声明类型链、共享客户端与类型推导。
  * 以「仓内桶文件 + declare.ts 增强」的真实形态断言 AxiosParse 推导不退化为 unknown。
  * @return {number} 退出码
@@ -682,6 +754,7 @@ const steps = [
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
+  { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

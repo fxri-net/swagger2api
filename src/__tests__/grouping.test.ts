@@ -73,4 +73,23 @@ describe("分组应用", () => {
     const { counts } = applyGrouping(spec, { strategy: ["path"], pathDepth: 0, maxRoutes: 1 })
     expect(Object.keys(counts).sort()).toEqual(["order_a", "order_b"])
   })
+
+  it("collapse 开启时合并折叠键相同的组", () => {
+    const spec = makeSpec([
+      { path: "/opt/list", tag: "甲" },
+      { path: "/opt_/list", tag: "乙" }
+    ])
+    const { counts } = applyGrouping(spec, { strategy: ["path"], pathDepth: 0, collapse: true })
+    expect(counts).toEqual({ opt: 2 })
+    expect(spec.paths["/opt_/list"].get.tags).toEqual(["Opt"])
+  })
+
+  it("collapse 关闭时折叠键相同的组各自独立", () => {
+    const spec = makeSpec([
+      { path: "/opt/list", tag: "甲" },
+      { path: "/opt_/list", tag: "乙" }
+    ])
+    const { counts } = applyGrouping(spec, { strategy: ["path"], pathDepth: 0 })
+    expect(Object.keys(counts).sort()).toEqual(["opt", "opt_"])
+  })
 })

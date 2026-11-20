@@ -36,6 +36,21 @@ export interface GroupNamingResult {
 const RESERVED_FILES = new Set(["index", "datacontracts", "httpclient"])
 /** 模块文件内的固定导入标识符：类名撞名会产生重复声明 */
 const RESERVED_IDENTIFIERS = new Set(["HttpClient", "RequestParams", "ContentType", "AxiosRequestConfig", "AxiosResponse"])
+/** 聚合类成员名：组名撞上会覆盖运行期能力 */
+const RESERVED_PROPERTIES = new Set([
+  "instance",
+  "request",
+  "setSecurityData",
+  "mergeRequestParams",
+  "stringifyFormItem",
+  "createFormData",
+  "securityData",
+  "securityWorker",
+  "secure",
+  "format",
+  "constructor",
+  "prototype"
+])
 /** Windows 设备名：同名文件无法创建 */
 const WINDOWS_DEVICES = new Set([
   "con",
@@ -228,14 +243,15 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
       base = `group${fallbackSeq}`
       fallbackSeq += 1
     }
-    const reserved =
-      RESERVED_FILES.has(base.toLowerCase()) ||
-      WINDOWS_DEVICES.has(base.toLowerCase()) ||
-      RESERVED_IDENTIFIERS.has(toClassName(base))
+    const fileReserved = RESERVED_FILES.has(base.toLowerCase()) || WINDOWS_DEVICES.has(base.toLowerCase())
+    const identifierReserved = RESERVED_IDENTIFIERS.has(toClassName(base))
+    const propertyReserved = RESERVED_PROPERTIES.has(base.toLowerCase())
+    const reserved = fileReserved || identifierReserved || propertyReserved
     const candidate = reserved ? take(`${base}2`, 3) : take(base)
     const fileName = toClassName(candidate)
     const reasons = [reason]
-    if (reserved) reasons.push("与保留名冲突")
+    if (propertyReserved && !fileReserved && !identifierReserved) reasons.push("与聚合成员同名")
+    else if (reserved) reasons.push("与保留名冲突")
     else if (candidate !== base) reasons.push("与已有组重名")
     entries.push({
       raw,

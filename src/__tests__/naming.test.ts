@@ -55,6 +55,12 @@ describe("命名表", () => {
     expect(entries.map((entry) => entry.fileName)).toEqual(["HttpClient2", "Con2", "Index2"])
   })
 
+  it("聚合成员保留名追加后缀并说明原因", () => {
+    const { entries } = buildGroupNaming(["instance", "request"])
+    expect(entries.map((entry) => entry.property)).toEqual(["instance2", "request2"])
+    expect(entries.every((entry) => entry.reason.includes("与聚合成员同名"))).toBe(true)
+  })
+
   it("手工覆盖优先，且支持折叠键匹配", () => {
     const { entries, warnings } = buildGroupNaming(["企业（团队）管理"], { "企业(团队)管理": "enterpriseTeam", 未出现: "unused" })
     expect(entries[0].fileName).toBe("EnterpriseTeam")

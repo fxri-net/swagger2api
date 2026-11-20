@@ -22,7 +22,7 @@
   "language": { "target": "ts" },
   "types": { "responses": true, "unwrapData": false, "extractParams": false, "extractQuery": "arg0" },
   "naming": { "pathPrefixIndex": 0, "convertGetToQuery": true, "dropPathParams": true, "tagRewrite": ["[a-z_]+(.+)", ""] },
-  "grouping": { "strategy": ["rules", "tag", "path"], "pathDepth": 0, "rules": [], "minRoutes": 0, "maxRoutes": 0, "fallback": "misc", "names": {} },
+  "grouping": { "strategy": ["rules", "tag", "path"], "pathDepth": 0, "rules": [], "minRoutes": 0, "maxRoutes": 0, "fallback": "misc", "collapse": false, "names": {} },
   "profiles": { "admin": { "output": { "dir": "./src/api/admin" } } }
 }
 ```
@@ -31,6 +31,8 @@
 - 多套预设：`profiles` 内的命名预设用 `--profile <name>` 选用
 - 排障：`swagger2api config status` 展示各层命中文件、生效字段与环境变量覆盖，`--json` 输出结构化结果
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
+- 合并同名组：`grouping.collapse` 为 `true` 时，折叠键相同的组（如 `opt` 与 `opt_`）合并为同一组，复现单文件产物「同名属性即同组」的语义；默认 `false` 时各自独立并追加序号
+- 保留名：`index`、`data-contracts`、`http-client` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
 ## 配置选项
@@ -44,7 +46,7 @@
 | `--config,-c` | string | `'saconfig.json'` | 填写配置文件路径，支持多选，用【,】分隔 |
 | `--config-all,-ca` | boolean | `false` | 加载全部配置文件，不进行选择 |
 | `--config-scan,-cs` | boolean | `true` | 扫描全部配置文件，并提供选择列表 |
-| `--replace-tags,-rt` | string[] | - | 替换标签，2个参数，第1个正则表达式（工具自动补^$头尾，整标签匹配），第2个替换字符串 |
+| `--replace-tags,-rt` | string[] | - | 替换标签，2个参数，第1个正则表达式（工具自动补^$头尾，整标签匹配），第2个替换字符串；值不足时忽略该参数并告警，保留原始标签 |
 | `--convert-get,-cg` | boolean | `false` | 转换无{.+}get为query；仅转换末段为 get 且紧邻前缀非【}】的地址 |
 | `--remove-param,-rp` | boolean | `false` | 移除{.+}参数 |
 | `--remove-prefix-index,-rpi` | number | 未设置 | 移除前缀索引；传 `-1` 或不传均表示不移除 |
