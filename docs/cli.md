@@ -30,6 +30,7 @@ swagger2api config status
 swagger2api grouping
 ```
 
+- `grouping` 向导会预览「原始组名 → 模块名」，并对兜底名、保留名冲突与重名组询问是否改名，结果写入 `grouping.names`；手工名非法或冲突时拒绝写入
 - `--config <path>`：显式指定项目层配置文件（只替换项目层，全局层与本地层照常叠加）
 - `--profile <name>`：选用配置文件内的命名预设
 - `--modular`：按组拆分为多文件并生成聚合入口

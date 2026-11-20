@@ -13,6 +13,7 @@ import {
   mergeShallow
 } from "./utils/config"
 import { migrateFromPackage } from "./utils/migrate"
+import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
 
 /** .gitignore 片段标识：认领本工具写入的注释行，重跑时据此改写 */
 const GITIGNORE_MARKER = "# @fxri/swagger2api"
@@ -226,7 +227,7 @@ export async function runGrouping() {
     { name: "maxRoutes", type: "number", message: "多于多少接口再拆一层（0 表示不拆）:", initial: 0 },
     { name: "fallback", type: "text", message: "兜底组名:", initial: "misc" }
   ])
-  const rules: Array<Record<string, any>> = []
+  const rules: GroupingRule[] = []
   if (answers.strategy === "rules") {
     // 规则编辑：循环录入「匹配方式 + 匹配值 + 组名」，可直接回车结束
     let more = true
@@ -246,12 +247,12 @@ export async function runGrouping() {
         { name: "group", type: "text", message: "归入组名：" }
       ])
       if (!rule.value || !rule.group) break
-      rules.push({ match: { [rule.kind]: rule.value }, group: rule.group })
+      rules.push({ match: { [rule.kind]: rule.value } as GroupingRule["match"], group: rule.group })
       const next = await prompts({ name: "again", type: "confirm", message: "继续添加规则？", initial: false })
       more = Boolean(next.again)
     }
   }
-  const grouping = {
+  const grouping: GroupingConfig = {
     strategy: [answers.strategy],
     pathDepth: Number(answers.pathDepth ?? 0),
     rules,
@@ -259,6 +260,32 @@ export async function runGrouping() {
     maxRoutes: Number(answers.maxRoutes ?? 0),
     fallback: answers.fallback || "misc",
     preserveTags: true
+  }
+  // 命名预览：在副本上跑一次分组，避免改动原始文档
+  const existingNames = (rc.grouping?.names ?? {}) as Record<string, string>
+  const preview = applyGrouping(JSON.parse(JSON.stringify(spec)), { ...grouping, names: existingNames })
+  preview.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+  console.log("命名预览：")
+  preview.entries.forEach((entry) => {
+    const notes = [entry.source === "fallback" ? "兜底" : entry.source === "manual" ? "手工" : "", entry.reason].filter(Boolean).join("；")
+    console.log(`  ${entry.raw} → ${entry.fileName}${notes ? `（${notes}）` : ""}`)
+  })
+  // 只对需要人工判断的组询问模块名：兜底名、保留名冲突、重名
+  const names: Record<string, string> = { ...existingNames }
+  const pending = preview.entries.filter(
+    (entry) => (entry.source !== "auto" && entry.source !== "manual") || entry.reason.includes("重名") || entry.reason.includes("保留名")
+  )
+  for (const entry of pending) {
+    const answer = await prompts({ name: "name", type: "text", message: `组「${entry.raw}」的模块名（留空保留 ${entry.fileName}）:` })
+    const value = String(answer.name ?? "").trim()
+    if (value) names[entry.raw] = value
+  }
+  if (Object.keys(names).length) grouping.names = names
+  // 写入前校验：手工名非法或冲突时拒绝落盘
+  const validation = applyGrouping(JSON.parse(JSON.stringify(spec)), grouping)
+  if (validation.errors.length) {
+    validation.errors.forEach((error) => console.error(`失败：${error}`))
+    return 1
   }
   console.log("将写入：", JSON.stringify(grouping))
   const target = configFile ? path.resolve(configFile) : path.join(process.cwd(), CONFIG_PROJECT_FILE)
