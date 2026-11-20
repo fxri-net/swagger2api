@@ -1,5 +1,55 @@
 # Swagger 转 API
 
+## 1.3.0
+
+> 2026-11-21 发布
+
+### ✨ 新增功能
+
+- 分层配置 `.swagger2apirc.json` / `.swagger2apirc.local.json` / `~/.swagger2apirc.json`，支持段级覆盖与 `FX_S2A_*` 环境变量
+- `swagger2api init` 交互向导与 `--from-script` 脚本迁移，`swagger2api config status` 排障命令
+- `--config` 与 `--profile` 参数；旧命令行参数与 `saconfig.json` 保持兼容
+- 外部 `$ref` 按官方策略校验（同源放行、其余仅公网 http(s)、逐跳校验重定向、拒绝私网与回环），不合规直接报错
+- 注入与私网引用夹具，并在 `pnpm verify` 增加安全夹具步骤
+- 分组输出，`output.mode = grouped`（或 `--modular`）时按组拆分多文件并补写聚合入口；每个模块文件只渲染本组接口，聚合入口共享同一个请求实例，调用形态保持 `api.<组>.<方法>`
+- `grouping` 配置支持 rules / tag / path 三种策略与 minRoutes、maxRoutes 阈值，`--dry-run` 输出分组报表
+- 分组命名契约，组名统一转为合法模块名——路径字符与标点作分隔、数字开头补前缀、超长截断加哈希、Windows 设备名与 `index` 等保留名追加序号；同名组各自独立并追加序号，不再合并或覆盖
+- `grouping.names` 手工指定可读模块名，`--dry-run` 输出命名映射与重命名原因，`--dry-run --json` 输出结构化报表
+- `swagger2api grouping` 展示标签与路径分布，交互式写入分组配置（非交互终端只输出报表）；规则策略支持逐条录入「匹配方式 + 匹配值 + 组名」
+- 向导预览「原始组名 → 模块名」，对兜底名、保留名冲突与重名组询问改名并写入 `grouping.names`，手工名非法或冲突时拒绝写入
+- `grouping.preserveTags`（默认 true），JSDoc 的 `@tags` 保留原始标签，分组名只用于文件与类名
+
+### 🔧 功能调整
+
+- 生成失败不再静默——存在不合规文档时以非 0 退出，并在 stderr 指出被忽略的文档
+- 运行时下限放宽至 node 18.12.0，构建目标同步改为 node18，CI 新增 node18 运行时回归 job
+- `swagger-typescript-api` 降到 13.0.28，13.1 起改用 biome WASM 格式化，在 node 18 上生成即失败
+
+### ⚡ 优化改进
+
+- `init` 写入受管 `.gitignore` 片段，避免个人配置误入库
+- 补充 `swagger-typescript-api` 的最小类型声明与 `package.json` 的 `types` 入口
+- 分组模式先生成命名表再渲染，模板类名与聚合挂载同源，生成后按命名表校验文件名与类名；`--replace-tags` 先于分组执行，避免模块名被二次改写
+- 分组结果同时输出「方法:路径 → 原始标签」映射，供模板回显
+- `tsconfig` 开启 `skipLibCheck`，适配降级后依赖自带的声明文件
+- `lodash` 通过 overrides 升到 4.18.1，修复其代码注入与原型污染告警
+- `pnpm verify` 新增分组产物一致性检查（axios / fetch 各生成一次，断言不串组且可解析）与分组命名边界检查
+- Windows 与 GitLab CI 补 node18 运行时作业，覆盖平台 × 运行时下限组合
+
+### 🐛 问题修复
+
+- 把官方 13.12.2 的代码注入与 SSRF 修复回移到本工具生成链（路径、枚举、默认值、servers 地址转义）
+- 批量生成失败提示不再统一归因为安全问题，改为按实际原因查看上方输出
+
+### 📝 文档更新
+
+- 说明 node18 线生成器版本的已知安全告警（代码注入 / SSRF）及其适用边界
+- README、快速开始、首页与 FAQ 更新推荐用法（init → 生成 → grouping）与分组入口
+
+### 🧹 清理移除
+
+- 移除 `glob` 依赖，配置文件扫描改为内部递归遍历，保持原有匹配范围、忽略规则与排序
+
 ## 1.2.16
 
 > 2026-11-13 发布
