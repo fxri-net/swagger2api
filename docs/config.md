@@ -17,7 +17,7 @@
 ```json
 {
   "input": { "url": "https://example.com/v3/api-docs" },
-  "output": { "dir": "./src/api", "name": "index", "mode": "single", "clean": false },
+  "output": { "dir": "./src/api", "name": "index", "mode": "single", "clean": false, "prune": false },
   "client": { "type": "axios" },
   "language": { "target": "ts" },
   "types": { "responses": true, "unwrapData": false, "extractParams": false, "extractQuery": "arg0" },
@@ -33,6 +33,7 @@
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
 - 合并同名组：`grouping.collapse` 为 `true` 时，折叠键相同的组（如 `opt` 与 `opt_`）合并为同一组，复现单文件产物「同名属性即同组」的语义；默认 `false` 时各自独立并追加序号
 - 保留名：`index`、`data-contracts`、`http-client` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
+- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；`output.prune` 只删除上一轮 `.swagger2api.manifest.json` 清单内、本轮不再生成的文件，不触碰手写适配文件与清单外产物，分组模式生成后自动写入清单
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
 ## 配置选项
@@ -51,6 +52,7 @@
 | `--remove-param,-rp` | boolean | `false` | 移除{.+}参数 |
 | `--remove-prefix-index,-rpi` | number | 未设置 | 移除前缀索引；传 `-1` 或不传均表示不移除 |
 | `--remove-dts,-rd` | boolean | `false` | 移除使用--js参数时生成的d.ts文件 |
+| `--prune-output` | boolean | `false` | 分组模式下按上一轮生成清单清理已消失的模块文件，不触碰手写文件与清单外产物 |
 | `--remove-empty-components,-rec` | boolean | `true` | 移除空组件定义 |
 | `--extract-request-query,-erq` | string | - | 提取参数，将query参数中的指定对象字段提取为根部字段，支持多选，用【,】分隔，每个接口只提取第一次命中的字段 |
 | `--extract-response-raw,-err` | boolean | `false` | 提取响应，将AxiosResponse返回值转移到raw字段，根部字段自行定义，使用该参数需在响应拦截中重新设计实际的返回值。仅 axios 客户端生效，需搭配 `--axios` 参数，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err) |

@@ -8,7 +8,7 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers } from "./utils/config"
-import { toModuleEntries, verifyGroupedOutput, writeAggregateEntry } from "./utils/modular"
+import { collectGeneratedFiles, findHandwrittenConflicts, pruneOutput, readOutputManifest, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig } from "./utils/grouping"
 import { findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
@@ -33,6 +33,27 @@ let namingEntries: GroupNameInfo[] = []
 const dryRun = () => process.argv.includes("--dry-run")
 /** 是否输出结构化报表 */
 const jsonOutput = () => process.argv.includes("--json")
+
+/**
+ * 临时文档路径：写到系统临时目录，避免被 output.clean 删除或进入产物目录。
+ * @return 临时文件路径
+ */
+function createDocFile() {
+  return path.join(os.tmpdir(), `swagger2api-${process.pid}-${Date.now()}.json`)
+}
+
+/**
+ * 读取工具版本：写入产物清单，便于排障与升级对齐。
+ * @return 版本号，读取失败返回空串
+ */
+function readToolVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(getDirname(), "../package.json"), "utf8"))
+    return String(pkg.version ?? "")
+  } catch {
+    return ""
+  }
+}
 /** 退出 */
 function onExit(message?: string, code = 0) {
   message && console.log(message)
@@ -83,6 +104,7 @@ async function onLoadParam() {
     typePrefix: getPValue("--type-prefix") ?? "", // 数据合同名称前缀
     typeSuffix: getPValue("--type-suffix") ?? "", // 数据合同名称后缀
     cleanOutput: getPKey("--clean-output"), // 在生成API之前清理输出文件夹。 警告：可能会导致数据丢失（默认：false）
+    pruneOutput: getPKey("--prune-output"), // 按上一轮生成清单清理输出目录，不影响清单外文件（默认：false）
     ...(getPValue("--api-class-name") ? { apiClassName: getPValue("--api-class-name") } : {}), // API类名
     patch: getPKey("--patch"), // 修正Swagger源定义中的小错误（默认：false）
     debug: getPKey("--debug"), // 此工具内进程的附加信息（默认：false）
@@ -138,6 +160,7 @@ function onApplyRc() {
   if (!hasFlag(["--unwrap-response-data"]) && types.unwrapData !== undefined) config.unwrapResponseData = Boolean(types.unwrapData)
   if (!hasFlag(["--extract-request-params"]) && types.extractParams !== undefined) config.extractRequestParams = Boolean(types.extractParams)
   if (!hasFlag(["--clean-output"]) && output.clean !== undefined) config.cleanOutput = Boolean(output.clean)
+  if (!hasFlag(["--prune-output"]) && output.prune !== undefined) config.pruneOutput = Boolean(output.prune)
   if (!hasFlag(["--modular"]) && output.mode === "grouped") config.modular = true
   if (!hasFlag(["--module-name-index"]) && grouping.pathDepth !== undefined) config.moduleNameIndex = Number(grouping.pathDepth)
   if (Object.keys(grouping).length) config.grouping = grouping
@@ -179,7 +202,7 @@ async function onInputParam() {
   // rc 配置驱动：直接使用配置值，不读 saconfig、不交互
   if (datas.rcDriven) {
     confs.param = { url: datas.rcUrl, output: datas.rcOutput, name: datas.rcName }
-    datas.docFile = path.resolve(`${datas.rcOutput}/${datas.rcName}-${new Date().getTime()}.json`)
+    datas.docFile = createDocFile()
     return
   }
   try {
@@ -200,7 +223,7 @@ async function onInputParam() {
   // 检查配置
   if ([confs.param.url, confs.param.output, confs.param.name].includes(undefined)) onExit("结束：手动退出")
   // 疏理文档
-  datas.docFile = path.resolve(`${confs.param.output}/${confs.param.name}-${new Date().getTime()}.json`)
+  datas.docFile = createDocFile()
 }
 /** 加载文档 */
 async function onLoadDoc(index = 0) {
@@ -282,11 +305,13 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[]) {
   entries.forEach((entry) => console.log(`命名：${entry.raw} → ${entry.fileName}（类 ${entry.className}${entry.reason ? `，${entry.reason}` : ""}）`))
   if (unmatchedRules.length) console.error(`⚠️ 未命中规则：${unmatchedRules.map((index) => index + 1).join("、")}`)
   if (add.length) console.log(`预计新增：${add.join("、")}`)
-  if (orphans.length) console.error(`⚠️ 表外产物（建议开启 output.clean）：${orphans.join("、")}`)
+  if (orphans.length) console.error(`⚠️ 表外产物（建议开启 output.prune）：${orphans.join("、")}`)
 }
 
 /** 生成接口 */
 async function onGenerateApi(data: Defines["data"]) {
+  // 上一轮生成清单：用于手写文件护栏与按清单清理
+  let previousManifest: OutputManifest | null = null
   // 检查格式
   if (typeof data?.paths != "object") return console.log("失败：缺少paths字段")
   // 安全守卫：解析外部引用、转义代码字面量、校验标识符字段
@@ -319,6 +344,19 @@ async function onGenerateApi(data: Defines["data"]) {
     console.log("分组：", ...Object.entries(result.counts).map(([group, count]) => `${group}-${count}`))
     if (dryRun()) {
       onGroupReport(result.entries, result.unmatchedRules)
+      return
+    }
+  }
+  // 写盘前比对上一轮清单：目标模块名已被手写文件占用时终止，避免静默覆盖
+  if (datas.config.modular && namingEntries.length) {
+    const dir = path.resolve(confs.param.output)
+    previousManifest = readOutputManifest(dir)
+    const conflicts = findHandwrittenConflicts(dir, namingEntries, Boolean(datas.config.toJS), previousManifest)
+    if (conflicts.length > 0) {
+      conflicts.forEach((file) =>
+        console.error(`失败：输出目录存在同名手写文件：${file}（不属于上一轮生成清单），已终止生成；确认可覆盖后删除该文件或调整分组名`)
+      )
+      failures += 1
       return
     }
   }
@@ -391,16 +429,23 @@ async function onGenerateApi(data: Defines["data"]) {
         failures += 1
         return
       }
-      orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.clean）：", file))
+      orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.prune）：", file))
     } else {
       writeAggregateEntry(dir, apiClassName, toJS)
+    }
+    // 分组模式：按清单清理已消失的模块，并写入本轮清单供下一轮比对
+    if (namingEntries.length) {
+      const files = collectGeneratedFiles(dir, namingEntries, toJS)
+      const removed = datas.config.pruneOutput ? pruneOutput(dir, previousManifest, files) : []
+      removed.forEach((file) => console.log("清理：", path.resolve(dir, file)))
+      writeOutputManifest(dir, readToolVersion(), files)
     }
   }
   if (datas.config.toJS) {
     console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
   }
-  // 删除文档
-  fs.unlinkSync(datas.docFile)
+  // 删除临时文档
+  if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
   // 移除使用--js参数时生成的d.ts文件
   if (datas.param.removeDts) {
     console.log("清理：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))

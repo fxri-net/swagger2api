@@ -579,6 +579,113 @@ async function checkGroupingCompat() {
 }
 
 /**
+ * 产物清理与可复现：按清单清理不碰手写文件、手写文件护栏终止、连续两次生成字节一致。
+ * @return {number} 退出码
+ */
+async function checkGroupedPrune() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 产物清理与可复现：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-prune-"))
+  try {
+    const base = join(out, "base")
+    const config = join(out, "swagger2api.json")
+    writeFileSync(
+      config,
+      JSON.stringify(
+        {
+          input: { file: join(root, "fixtures", "swagger.json") },
+          output: { dir: base, name: "index", mode: "grouped", prune: true },
+          client: { type: "axios" },
+          types: { responses: true },
+          grouping: { strategy: ["path"], pathDepth: 0 }
+        },
+        null,
+        2,
+      ),
+    )
+    const generate = () => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
+    const manifestFile = join(base, ".swagger2api.manifest.json")
+    const issues = []
+
+    const first = generate()
+    if (first.status !== 0) {
+      console.error("✖ 产物清理与可复现：首次生成失败")
+      console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
+      return 1
+    }
+    if (!existsSync(manifestFile)) return fail("首次生成未写入产物清单")
+    const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
+    for (const file of ["index.ts", "App.ts", "Home.ts", "Api.ts", "data-contracts.ts", "http-client.ts"]) {
+      if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
+    }
+
+    // 模拟手写适配文件与上一轮遗留模块
+    writeFileSync(join(base, "axios.ts"), "// 手写适配\n")
+    writeFileSync(join(base, "Old.ts"), "export {}\n")
+    manifest.files.push("Old.ts")
+    writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const second = generate()
+    if (second.status !== 0) {
+      console.error("✖ 产物清理与可复现：第二次生成失败")
+      console.error(`${second.stdout ?? ""}${second.stderr ?? ""}`)
+      return 1
+    }
+    if (existsSync(join(base, "Old.ts"))) issues.push("已消失的旧模块未被清理")
+    if (!existsSync(join(base, "axios.ts")) || !readFileSync(join(base, "axios.ts"), "utf8").includes("手写适配")) {
+      issues.push("手写文件被清理或改写")
+    }
+
+    // 可复现：同一配置连续生成，产物集合与内容完全一致
+    const snapshot = () =>
+      Object.fromEntries(
+        readdirSync(base)
+          .sort()
+          .map((name) => [name, readFileSync(join(base, name), "utf8")]),
+      )
+    const before = snapshot()
+    const third = generate()
+    if (third.status !== 0) {
+      console.error("✖ 产物清理与可复现：第三次生成失败")
+      console.error(`${third.stdout ?? ""}${third.stderr ?? ""}`)
+      return 1
+    }
+    const after = snapshot()
+    if (Object.keys(before).join(",") !== Object.keys(after).join(",")) issues.push("连续两次生成的产物集合不一致")
+    else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
+
+    // 手写文件护栏：清单外的同名文件必须终止生成且保持原样
+    const latest = JSON.parse(readFileSync(manifestFile, "utf8"))
+    latest.files = latest.files.filter((name) => name !== "Home.ts")
+    writeFileSync(manifestFile, `${JSON.stringify(latest, null, 2)}\n`)
+    writeFileSync(join(base, "Home.ts"), "// 手写模块\n")
+    const blocked = generate()
+    if (blocked.status === 0) issues.push("手写文件冲突未终止生成")
+    if (!`${blocked.stdout ?? ""}${blocked.stderr ?? ""}`.includes("不属于上一轮生成清单")) issues.push("手写文件冲突缺少提示")
+    if (readFileSync(join(base, "Home.ts"), "utf8") !== "// 手写模块\n") issues.push("手写文件被覆盖")
+
+    if (issues.length === 0) return 0
+    return fail(...issues)
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+
+  /**
+   * 输出问题清单
+   * @param {...string} issues 问题
+   * @return {number} 退出码
+   */
+  function fail(...issues) {
+    console.error(`\n✖ 产物清理与可复现未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  }
+}
+
+/**
  * 分组产物对外面：聚合入口导出面、模块声明类型链、共享客户端与类型推导。
  * 以「仓内桶文件 + declare.ts 增强」的真实形态断言 AxiosParse 推导不退化为 unknown。
  * @return {number} 退出码
@@ -755,6 +862,7 @@ const steps = [
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
+  { label: "产物清理与可复现（清单清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

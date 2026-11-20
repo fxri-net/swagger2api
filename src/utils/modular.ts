@@ -14,6 +14,18 @@ export interface ModuleEntry {
 
 /** 不参与聚合的文件名 */
 const RESERVED = new Set(["index", "data-contracts", "http-client"])
+/** 生成清单文件名：记录本轮产物，供下一轮按清单清理与手写文件护栏比对 */
+export const MANIFEST_FILE = ".swagger2api.manifest.json"
+
+/** 生成清单 */
+export interface OutputManifest {
+  /** 工具名 */
+  tool: string
+  /** 写入时的工具版本 */
+  version: string
+  /** 本轮生成的文件名 */
+  files: string[]
+}
 
 /**
  * 首字母大写并去掉分隔符，与模板里的 pascalCase 保持一致。
@@ -55,6 +67,88 @@ export function collectModules(dir: string, ext: string) {
  */
 export function toModuleEntries(entries: GroupNameInfo[]) {
   return entries.map((entry) => ({ base: entry.fileName, className: entry.className, property: entry.property }))
+}
+
+/**
+ * 读取上一轮生成清单；缺失或损坏时返回 null。
+ * @param dir 输出目录
+ * @return 清单或 null
+ */
+export function readOutputManifest(dir: string): OutputManifest | null {
+  const file = path.join(dir, MANIFEST_FILE)
+  if (!fs.existsSync(file)) return null
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
+    return {
+      tool: String(parsed.tool ?? ""),
+      version: String(parsed.version ?? ""),
+      files: Array.isArray(parsed.files) ? parsed.files.map(String) : []
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 收集本轮实际生成的产物文件（含 JS 模式的声明文件）。
+ * @param dir 输出目录
+ * @param entries 命名表
+ * @param toJS 是否为 JS 输出
+ * @return 已存在的产物文件名（排序）
+ */
+export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJS: boolean) {
+  const ext = toJS ? ".js" : ".ts"
+  const names = ["index", "data-contracts", "http-client", "route-types", ...entries.map((entry) => entry.fileName)]
+  const candidates = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
+  return [...new Set(candidates)].filter((file) => fs.existsSync(path.join(dir, file))).sort()
+}
+
+/**
+ * 写生成清单。
+ * @param dir 输出目录
+ * @param version 工具版本
+ * @param files 本轮产物
+ * @return 无
+ */
+export function writeOutputManifest(dir: string, version: string, files: string[]) {
+  fs.writeFileSync(path.join(dir, MANIFEST_FILE), `${JSON.stringify({ tool: "swagger2api", version, files }, null, 2)}\n`)
+}
+
+/**
+ * 按上一轮清单清理：只删除清单内、本轮不再生成的文件。
+ * @param dir 输出目录
+ * @param manifest 上一轮清单
+ * @param keep 本轮产物
+ * @return 已删除的文件名
+ */
+export function pruneOutput(dir: string, manifest: OutputManifest | null, keep: string[]) {
+  if (!manifest) return []
+  const keepSet = new Set(keep)
+  const removed: string[] = []
+  for (const file of manifest.files) {
+    if (keepSet.has(file)) continue
+    const target = path.join(dir, file)
+    if (!fs.existsSync(target)) continue
+    fs.rmSync(target)
+    removed.push(file)
+  }
+  return removed
+}
+
+/**
+ * 手写文件护栏：目标模块文件名已存在且不属于上一轮生成清单时返回冲突。
+ * @param dir 输出目录
+ * @param entries 命名表
+ * @param toJS 是否为 JS 输出
+ * @param manifest 上一轮清单（首轮为 null）
+ * @return 冲突文件名
+ */
+export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], toJS: boolean, manifest: OutputManifest | null) {
+  const ext = toJS ? ".js" : ".ts"
+  const known = new Set(manifest?.files ?? [])
+  return entries
+    .flatMap((entry) => (toJS ? [`${entry.fileName}${ext}`, `${entry.fileName}.d.ts`] : [`${entry.fileName}${ext}`]))
+    .filter((file) => fs.existsSync(path.join(dir, file)) && !known.has(file))
 }
 
 /**
