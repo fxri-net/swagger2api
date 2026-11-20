@@ -4,6 +4,8 @@ const { _, pascalCase } = utils;
 const dataContracts = config.modular ? _.map(modelTypes, "name") : [];
 const dataContractsFile = config.fileNames?.dataContracts ?? "data-contracts";
 const isModular = Boolean(config.modular && route);
+// 分组模式由命名表提供名称空间，与模块类名同源
+const moduleName = isModular ? (config.param?.moduleClassNames?.[route.moduleName] ?? pascalCase(route.moduleName)) : "";
 %>
 <% if (dataContracts.length) { %>
 import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
@@ -11,7 +13,7 @@ import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
 
 <% if (isModular) { %>
 
-export namespace <%~ pascalCase(route.moduleName) %> {
+export namespace <%~ moduleName %> {
 <% for (const item of route.routes || []) { %>
 
   <%~ includeFile('./route-type.ejs', { ...it, route: item }) %>

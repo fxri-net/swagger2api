@@ -22,7 +22,7 @@
   "language": { "target": "ts" },
   "types": { "responses": true, "unwrapData": false, "extractParams": false, "extractQuery": "arg0" },
   "naming": { "pathPrefixIndex": 0, "convertGetToQuery": true, "dropPathParams": true, "tagRewrite": ["[a-z_]+(.+)", ""] },
-  "grouping": { "strategy": ["rules", "tag", "path"], "pathDepth": 0, "rules": [], "minRoutes": 0, "maxRoutes": 0, "fallback": "misc" },
+  "grouping": { "strategy": ["rules", "tag", "path"], "pathDepth": 0, "rules": [], "minRoutes": 0, "maxRoutes": 0, "fallback": "misc", "names": {} },
   "profiles": { "admin": { "output": { "dir": "./src/api/admin" } } }
 }
 ```
@@ -30,6 +30,7 @@
 - 环境变量：`FX_S2A_INPUT`、`FX_S2A_OUTPUT`、`FX_S2A_NAME`、`FX_S2A_CLIENT`、`FX_S2A_LANGUAGE`、`FX_S2A_CLEAN`
 - 多套预设：`profiles` 内的命名预设用 `--profile <name>` 选用
 - 排障：`swagger2api config status` 展示各层命中文件、生效字段与环境变量覆盖，`--json` 输出结构化结果
+- 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
 ## 配置选项

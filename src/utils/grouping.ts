@@ -1,5 +1,7 @@
-// 分组决策：把 spec 的每个接口归入一个组名，通过重写 tags 交给模块化模板，
-// 从而支持「规则 / tag / 路径段」三种策略与阈值合并，而不是只能按路径首段切分。
+// 分组决策：把 spec 的每个接口归入一个组名，再经命名表转成模块名写回 tags，
+// 从而支持「规则 / tag / 路径段」三种策略与阈值合并，并保证产物文件名、类名与聚合入口同源。
+import { buildGroupNaming, type GroupNameInfo } from "./naming"
+
 /** 单条分组规则 */
 export interface GroupingRule {
   /** 匹配条件，命中即归入 group */
@@ -7,6 +9,7 @@ export interface GroupingRule {
   /** 目标组名 */
   group: string
 }
+
 /** 分组配置 */
 export interface GroupingConfig {
   /** 策略顺序，默认 rules → tag → path */
@@ -23,82 +26,125 @@ export interface GroupingConfig {
   fallback?: string
   /** 是否在 JSDoc 的 @tags 中保留原始标签（默认 true） */
   preserveTags?: boolean
+  /** 手工命名覆盖表：原始组名（或折叠键）→ 期望模块名 */
+  names?: Record<string, string>
 }
+
+/** 组名命中来源 */
+export type GroupMatchSource = "rules" | "tag" | "path" | "fallback"
+
+/** 单次命中结果 */
+export interface GroupMatch {
+  /** 原始组名 */
+  group: string
+  /** 命中来源 */
+  source: GroupMatchSource
+  /** 命中的规则下标（仅 rules 来源） */
+  ruleIndex?: number
+}
+
+/** 分组结果 */
+export interface GroupingResult {
+  /** 原始组名到路由数的映射 */
+  counts: Record<string, number>
+  /** 分组前的原始标签（键为「方法:路径」），用于 JSDoc 展示 */
+  originalTags: Record<string, string>
+  /** 命名表 */
+  entries: GroupNameInfo[]
+  /** 未被任何接口命中的规则下标 */
+  unmatchedRules: number[]
+  /** 命名错误（阻断生成） */
+  errors: string[]
+  /** 命名告警（不阻断） */
+  warnings: string[]
+}
+
 /** HTTP 方法集合 */
 const METHODS = ["get", "post", "put", "delete", "patch", "head", "options"]
 
 /**
- * 按策略计算单个接口的组名。
+ * 按策略计算单个接口的组名与命中来源。
  * @param path 路径
  * @param operation 接口定义
  * @param grouping 分组配置
- * @return 组名（空串表示未命中，由兜底处理）
+ * @return 组名、来源与规则下标
  */
-export function matchGroup(path: string, operation: Record<string, any>, grouping: GroupingConfig) {
+export function matchGroup(path: string, operation: Record<string, any>, grouping: GroupingConfig): GroupMatch {
   const strategies = grouping.strategy?.length ? grouping.strategy : ["rules", "tag", "path"]
   const fallback = grouping.fallback ?? "misc"
   for (const strategy of strategies) {
     if (strategy === "rules") {
-      for (const rule of grouping.rules ?? []) {
+      for (const [index, rule] of (grouping.rules ?? []).entries()) {
         const match = rule.match ?? {}
-        if (match.prefix && path.startsWith(match.prefix)) return rule.group
-        if (match.regex && new RegExp(match.regex).test(path)) return rule.group
-        if (match.tag && (operation.tags ?? []).includes(match.tag)) return rule.group
-        if (match.operationId && operation.operationId === match.operationId) return rule.group
+        if (match.prefix && path.startsWith(match.prefix)) return { group: rule.group, source: "rules", ruleIndex: index }
+        if (match.regex && new RegExp(match.regex).test(path)) return { group: rule.group, source: "rules", ruleIndex: index }
+        if (match.tag && (operation.tags ?? []).includes(match.tag)) return { group: rule.group, source: "rules", ruleIndex: index }
+        if (match.operationId && operation.operationId === match.operationId) return { group: rule.group, source: "rules", ruleIndex: index }
       }
     } else if (strategy === "tag") {
       const tag = (operation.tags ?? [])[0]
-      if (tag) return String(tag)
+      if (tag) return { group: String(tag), source: "tag" }
     } else if (strategy === "path") {
       const segments = path.split("/").filter(Boolean)
       const index = grouping.pathDepth ?? 0
-      if (segments[index]) return segments[index]
+      if (segments[index]) return { group: segments[index], source: "path" }
     }
   }
-  return fallback
+  return { group: fallback, source: "fallback" }
 }
 
 /**
- * 为文档打组：重写每个接口的 tags，并处理阈值合并与拆分。
+ * 为文档打组：先按策略与阈值确定原始组名，再按命名表写入模块名。
  * @param data 文档对象（原地修改）
  * @param grouping 分组配置
- * @return 组名到路由数的映射
+ * @return 分组结果（含命名表与报表所需信息）
  */
-export function applyGrouping(data: Record<string, any>, grouping: GroupingConfig) {
-  const assignments: Array<{ path: string; method: string; operation: Record<string, any>; group: string }> = []
+export function applyGrouping(data: Record<string, any>, grouping: GroupingConfig): GroupingResult {
+  const fallback = grouping.fallback ?? "misc"
+  const assignments: Array<{ path: string; method: string; operation: Record<string, any>; group: string; ruleIndex?: number }> = []
+  const matchedRules = new Set<number>()
   for (const [path, item] of Object.entries(data.paths ?? {})) {
     for (const method of METHODS) {
       const operation = (item as Record<string, any>)[method]
       if (!operation || typeof operation !== "object") continue
-      assignments.push({ path, method, operation, group: matchGroup(path, operation, grouping) })
+      const match = matchGroup(path, operation, grouping)
+      if (match.ruleIndex !== undefined) matchedRules.add(match.ruleIndex)
+      assignments.push({ path, method, operation, group: match.group, ruleIndex: match.ruleIndex })
     }
   }
+
+  // 阈值：先统计原始组大小，再决定并入兜底或按下一段路径二次拆分
   const counts = new Map<string, number>()
   assignments.forEach(({ group }) => counts.set(group, (counts.get(group) ?? 0) + 1))
+  for (const item of assignments) {
+    const count = counts.get(item.group) ?? 0
+    if (grouping.minRoutes && count < grouping.minRoutes && item.group !== fallback) {
+      item.group = fallback
+    } else if (grouping.maxRoutes && count > grouping.maxRoutes) {
+      const segments = item.path.split("/").filter(Boolean)
+      const next = segments[(grouping.pathDepth ?? 0) + 1]
+      if (next) item.group = `${item.group}_${next}`
+    }
+  }
 
-  const fallback = grouping.fallback ?? "misc"
-  const finalGroups: string[] = []
-  /** 原始标签映射：键为「方法:路径」，供模板保留 @tags 展示 */
+  // 命名表：以最终原始组名为输入，冲突由命名模块统一解析
+  const naming = buildGroupNaming(
+    assignments.map((item) => item.group),
+    grouping.names
+  )
+  const byRaw = new Map(naming.entries.map((entry) => [entry.raw, entry]))
+
   const originalTags: Record<string, string> = {}
+  const result: Record<string, number> = {}
   for (const item of assignments) {
     const rawTags = Array.isArray(item.operation.tags) ? item.operation.tags.join(", ") : ""
     if (rawTags) originalTags[`${item.method.toUpperCase()}:${item.path}`] = rawTags
-    let group = item.group
-    const count = counts.get(group) ?? 0
-    if (grouping.minRoutes && count < grouping.minRoutes && group !== fallback) {
-      group = fallback
-    } else if (grouping.maxRoutes && count > grouping.maxRoutes) {
-      // 超阈值：按下一段路径再拆一层，避免单文件过大
-      const segments = item.path.split("/").filter(Boolean)
-      const next = segments[(grouping.pathDepth ?? 0) + 1]
-      if (next) group = `${group}_${next}`
-    }
-    item.operation.tags = [group]
-    finalGroups.push(group)
+    const entry = byRaw.get(item.group)
+    if (entry) item.operation.tags = [entry.fileName]
+    result[item.group] = (result[item.group] ?? 0) + 1
   }
-  const result: Record<string, number> = {}
-  finalGroups.forEach((group) => {
-    result[group] = (result[group] ?? 0) + 1
-  })
-  return { counts: result, originalTags }
+
+  const unmatchedRules = Array.from({ length: grouping.rules?.length ?? 0 }, (_, index) => index).filter((index) => !matchedRules.has(index))
+
+  return { counts: result, originalTags, entries: naming.entries, unmatchedRules, errors: naming.errors, warnings: naming.warnings }
 }

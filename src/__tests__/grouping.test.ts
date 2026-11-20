@@ -19,19 +19,24 @@ describe("分组匹配", () => {
   it("显式规则优先于 tag 与路径", () => {
     const spec = makeSpec([{ path: "/admin/user/list", tag: "用户" }])
     const operation = spec.paths["/admin/user/list"].get
-    expect(matchGroup("/admin/user/list", operation, { strategy: ["rules", "tag", "path"], rules: [{ match: { prefix: "/admin" }, group: "后台" }], pathDepth: 0 })).toBe("后台")
+    expect(matchGroup("/admin/user/list", operation, { strategy: ["rules", "tag", "path"], rules: [{ match: { prefix: "/admin" }, group: "后台" }], pathDepth: 0 }).group).toBe("后台")
   })
 
   it("tag 策略取首个标签", () => {
-    expect(matchGroup("/a/b", { tags: ["订单"] }, { strategy: ["tag"] })).toBe("订单")
+    expect(matchGroup("/a/b", { tags: ["订单"] }, { strategy: ["tag"] }).group).toBe("订单")
   })
 
   it("路径策略按深度取段", () => {
-    expect(matchGroup("/api/v1/order/list", { tags: [] }, { strategy: ["path"], pathDepth: 1 })).toBe("v1")
+    expect(matchGroup("/api/v1/order/list", { tags: [] }, { strategy: ["path"], pathDepth: 1 }).group).toBe("v1")
   })
 
   it("未命中时落到兜底组", () => {
-    expect(matchGroup("/a/b", { tags: [] }, { strategy: ["path"], pathDepth: 5, fallback: "misc" })).toBe("misc")
+    expect(matchGroup("/a/b", { tags: [] }, { strategy: ["path"], pathDepth: 5, fallback: "misc" }).group).toBe("misc")
+  })
+
+  it("返回命中来源与规则下标", () => {
+    const match = matchGroup("/admin/user", { tags: [] }, { strategy: ["rules"], rules: [{ match: { prefix: "/other" }, group: "甲" }, { match: { prefix: "/admin" }, group: "乙" }] })
+    expect(match).toEqual({ group: "乙", source: "rules", ruleIndex: 1 })
   })
 })
 
@@ -57,7 +62,7 @@ describe("分组应用", () => {
     ])
     const { counts } = applyGrouping(spec, { strategy: ["tag"], minRoutes: 2, fallback: "misc" })
     expect(counts).toEqual({ 应用: 2, misc: 1 })
-    expect(spec.paths["/home/c"].get.tags).toEqual(["misc"])
+    expect(spec.paths["/home/c"].get.tags).toEqual(["Misc"])
   })
 
   it("超过 maxRoutes 的组按下一段路径再拆", () => {

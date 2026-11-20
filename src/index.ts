@@ -8,8 +8,9 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers } from "./utils/config"
-import { writeAggregateEntry } from "./utils/modular"
+import { toModuleEntries, verifyGroupedOutput, writeAggregateEntry } from "./utils/modular"
 import { applyGrouping, type GroupingConfig } from "./utils/grouping"
+import { findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -26,6 +27,12 @@ const datas = {
 } as Defines["datas"]
 /** 生成失败的文档数量 */
 let failures = 0
+/** 本次分组的命名表（非分组模式为空） */
+let namingEntries: GroupNameInfo[] = []
+/** 是否只输出分组报表 */
+const dryRun = () => process.argv.includes("--dry-run")
+/** 是否输出结构化报表 */
+const jsonOutput = () => process.argv.includes("--json")
 /** 退出 */
 function onExit(message?: string, code = 0) {
   message && console.log(message)
@@ -224,6 +231,54 @@ async function onLoadDoc(index = 0) {
     onExit(`结束：${failures} 个文档因安全问题未生成`, 1)
   }
 }
+/**
+ * 标签改写：先于分组执行，避免把分组写入的模块名再次改写。
+ * @param data 文档对象（原地修改）
+ */
+function onReplaceTags(data: Defines["data"]) {
+  const replaceTags = datas.param.replaceTags
+  if (!replaceTags?.length) return
+  Object.values(data.paths ?? {}).forEach((item) => {
+    Object.values(item).forEach((operation: any) => {
+      if (Array.isArray(operation?.tags)) {
+        operation.tags = operation.tags.map((tag: string) => tag.replace(new RegExp(`^${replaceTags[0]}$`, "g"), replaceTags[1] ?? ""))
+      }
+    })
+  })
+}
+
+/**
+ * 分组报表：输出命名映射、未命中规则与产物增删；dry-run 与生成前预览共用。
+ * @param entries 命名表
+ * @param unmatchedRules 未命中的规则下标
+ */
+function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[]) {
+  const ext = datas.config.toJS ? ".js" : ".ts"
+  const dir = path.resolve(confs.param.output ?? "./src/api")
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir) : []
+  const add = entries.map((entry) => `${entry.fileName}${ext}`).filter((file) => !files.includes(file))
+  const orphans = findOrphanModules(files, entries, ext)
+  if (jsonOutput()) {
+    console.log(
+      JSON.stringify(
+        {
+          groups: entries.map(({ raw, fileName, className, property, reason, source }) => ({ raw, fileName, className, property, reason, source })),
+          unmatchedRules,
+          add,
+          orphans
+        },
+        null,
+        2
+      )
+    )
+    return
+  }
+  entries.forEach((entry) => console.log(`命名：${entry.raw} → ${entry.fileName}（类 ${entry.className}${entry.reason ? `，${entry.reason}` : ""}）`))
+  if (unmatchedRules.length) console.error(`⚠️ 未命中规则：${unmatchedRules.map((index) => index + 1).join("、")}`)
+  if (add.length) console.log(`预计新增：${add.join("、")}`)
+  if (orphans.length) console.error(`⚠️ 表外产物（建议开启 output.clean）：${orphans.join("、")}`)
+}
+
 /** 生成接口 */
 async function onGenerateApi(data: Defines["data"]) {
   // 检查格式
@@ -235,26 +290,35 @@ async function onGenerateApi(data: Defines["data"]) {
     failures += 1
     return
   }
-  // 模块化 + 分组配置：重写 tags 交给模块化模板，支持规则 / tag / 路径段三种策略
+  // 命名表按文档重置，避免批量场景沿用上一份文档的产物名
+  namingEntries = []
+  datas.param.moduleClassNames = undefined
+  // 标签改写必须先于分组：分组会把模块名写进 tags，之后再改写会把模块名抹掉
+  onReplaceTags(data)
+  // 模块化 + 分组配置：把接口归入原始组名，再按命名表写入模块名
   const groupingConfig = (datas.config as Record<string, any>).grouping as GroupingConfig | undefined
   if (datas.config.modular && groupingConfig && (groupingConfig.strategy?.length || groupingConfig.rules?.length)) {
-    const { counts, originalTags } = applyGrouping(data, groupingConfig)
+    const result = applyGrouping(data, groupingConfig)
+    result.warnings.forEach((warning) => console.error("⚠️", warning))
+    if (result.errors.length > 0) {
+      result.errors.forEach((error) => console.error("失败：", error))
+      failures += 1
+      return
+    }
+    namingEntries = result.entries
     ;(datas.config as Record<string, any>).moduleNameFirstTag = true
+    datas.param.moduleClassNames = toClassNames(result.entries)
     // 默认在 JSDoc 中保留原始标签，避免分组名污染业务文档
-    if (groupingConfig.preserveTags !== false) datas.param.groupOriginalTags = originalTags
-    console.log("分组：", ...Object.entries(counts).map(([group, count]) => `${group}-${count}`))
-    if (process.argv.includes("--dry-run")) return
+    if (groupingConfig.preserveTags !== false) datas.param.groupOriginalTags = result.originalTags
+    console.log("分组：", ...Object.entries(result.counts).map(([group, count]) => `${group}-${count}`))
+    if (dryRun()) {
+      onGroupReport(result.entries, result.unmatchedRules)
+      return
+    }
   }
   // 处理路径
   Object.entries(data.paths).forEach((item) => {
     Object.keys(item[1]).forEach((item2) => {
-      // 配置标签
-      if (datas.param.replaceTags.length) {
-        // 替换标签
-        data.paths[item[0]][item2].tags = data.paths[item[0]][item2].tags?.map((item) =>
-          item.replace(new RegExp(`^${datas.param.replaceTags[0]}$`, "g"), datas.param.replaceTags[1] ?? "")
-        )
-      }
       // 配置操作id
       let id = `${item[0]}/${item2}`
       // 转换无{.+}get为query
@@ -302,13 +366,29 @@ async function onGenerateApi(data: Defines["data"]) {
     ...{ param: datas.param }
   })
   console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
-  // 模块化输出：补写聚合入口，各模块共享同一个请求实例
+  // 模块化输出：分组模式按命名表校验并挂载；未分组时沿用目录扫描
   if (datas.config.modular) {
-    writeAggregateEntry(
-      path.resolve(confs.param.output),
-      String((datas.config as Record<string, any>).apiClassName ?? "Api"),
-      Boolean(datas.config.toJS)
-    )
+    const dir = path.resolve(confs.param.output)
+    const apiClassName = String((datas.config as Record<string, any>).apiClassName ?? "Api")
+    const toJS = Boolean(datas.config.toJS)
+    if (namingEntries.length) {
+      const modules = verifyGroupedOutput(dir, namingEntries, toJS, { aggregate: false })
+      if (modules.errors.length > 0) {
+        modules.errors.forEach((error) => console.error("失败：", error))
+        failures += 1
+        return
+      }
+      writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries))
+      const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS)
+      if (errors.length > 0) {
+        errors.forEach((error) => console.error("失败：", error))
+        failures += 1
+        return
+      }
+      orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.clean）：", file))
+    } else {
+      writeAggregateEntry(dir, apiClassName, toJS)
+    }
   }
   if (datas.config.toJS) {
     console.log("完成：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))

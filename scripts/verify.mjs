@@ -428,6 +428,70 @@ async function checkGroupedOutput() {
 }
 
 /**
+ * 分组命名边界：非 ASCII、路径字符、全半角重名、数字开头、保留名与纯符号组名，
+ * 断言产物文件名合法、命名表与产物一致、JSDoc 保留原始标签。走 rc 配置驱动，覆盖分组装配全链路。
+ * @return {number} 退出码
+ */
+async function checkGroupedNaming() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 分组命名边界：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const ts = await import("typescript")
+  const out = mkdtempSync(join(tmpdir(), "s2a-grouped-naming-"))
+  try {
+    // 生成器要求输出目录存在，rc 从工作目录向上查找
+    writeFileSync(
+      join(out, ".swagger2apirc.json"),
+      JSON.stringify({
+        input: { url: join(root, "fixtures", "grouping-edge.json") },
+        output: { dir: out, mode: "grouped", name: "index" },
+        client: { type: "axios" },
+        grouping: { strategy: ["tag"], names: { "★☆": "symbolGroup" } }
+      }, null, 2),
+    )
+    const result = spawnSync(process.execPath, [cli], { cwd: out, encoding: "utf8" })
+    if (result.status !== 0) {
+      console.error("✖ 分组命名边界：生成失败")
+      console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+      return 1
+    }
+    const expected = ["SymbolGroup.ts", "G20孵化器.ts", "Con2.ts", "Index2.ts", "企业团队管理.ts", "企业团队管理2.ts", "用户管理.ts", "管理端其他功能510红名单管理.ts"]
+    const files = readdirSync(out)
+    for (const file of expected) {
+      if (!files.includes(file)) {
+        console.error(`✖ 分组命名边界：缺少预期模块文件 ${file}`)
+        return 1
+      }
+    }
+    // JSDoc 保留原始标签，模块名只用于文件与类名
+    const userModule = readFileSync(join(out, "用户管理.ts"), "utf8")
+    if (!userModule.includes("@tags 用户管理")) {
+      console.error("✖ 分组命名边界：JSDoc 未保留原始标签")
+      return 1
+    }
+    const aggregate = readFileSync(join(out, "index.ts"), "utf8")
+    for (const property of ["symbolGroup", "g20孵化器", "con2", "index2"]) {
+      if (!aggregate.includes(`this.${property}.instance = this.instance`)) {
+        console.error(`✖ 分组命名边界：聚合入口缺少 ${property}`)
+        return 1
+      }
+    }
+    for (const file of files.filter((name) => name.endsWith(".ts"))) {
+      const source = ts.createSourceFile(file, readFileSync(join(out, file), "utf8"), ts.ScriptTarget.Latest, true)
+      if (source.parseDiagnostics.length > 0) {
+        console.error(`✖ 分组命名边界：${file} 无法解析`)
+        return 1
+      }
+    }
+    return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -484,6 +548,7 @@ const steps = [
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
+  { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

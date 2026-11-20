@@ -48,6 +48,8 @@ export type Defines = {
       template: string
       /** 分组前原始标签映射（键为「方法:路径」），用于 JSDoc 展示 */
       groupOriginalTags?: Record<string, string>
+      /** 分组模式模块类名映射（键为模块名），供模板与聚合入口同源取名 */
+      moduleClassNames?: Record<string, string>
     }
     /** 枚举 */
     enum: { [key: string]: number }

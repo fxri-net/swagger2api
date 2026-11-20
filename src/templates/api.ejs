@@ -6,6 +6,8 @@ const { _, require, formatDescription, pascalCase } = utils;
 const server = (servers && servers[0]) || { url: "" };
 const isModular = Boolean(config.modular && route);
 const moduleName = isModular ? route.moduleName : "";
+// 分组模式由命名表提供类名，与聚合入口同源；未分组时沿用依赖的 pascalCase
+const moduleClassName = isModular ? (config.param?.moduleClassNames?.[moduleName] ?? pascalCase(moduleName)) : "";
 const moduleRoutes = isModular ? (route.routes || []) : [];
 const dataContractsFile = config.fileNames?.dataContracts ?? "data-contracts";
 const httpClientFile = config.fileNames?.httpClient ?? "http-client";
@@ -42,7 +44,7 @@ import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
 <% } %>
 
 /** <%~ moduleName %> 模块 */
-export class <%~ pascalCase(moduleName) %><SecurityDataType = unknown> extends HttpClient<SecurityDataType> {
+export class <%~ moduleClassName %><SecurityDataType = unknown> extends HttpClient<SecurityDataType> {
 <% for (const item of moduleRoutes) { %>
 
   <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined } }) %>

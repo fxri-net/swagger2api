@@ -1,0 +1,67 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "分组命名边界夹具", "version": "1.0.0" },
+  "paths": {
+    "/user/list": {
+      "get": {
+        "tags": ["用户管理"],
+        "operationId": "userList",
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } } }
+      }
+    },
+    "/admin/510": {
+      "get": {
+        "tags": ["管理端/其他功能/“510”红名单管理"],
+        "operationId": "redList",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/enterprise/a": {
+      "get": {
+        "tags": ["企业(团队)管理"],
+        "operationId": "enterpriseA",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/enterprise/b": {
+      "get": {
+        "tags": ["企业（团队）管理"],
+        "operationId": "enterpriseB",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/incubator": {
+      "get": {
+        "tags": ["20孵化器"],
+        "operationId": "incubator",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/index": {
+      "get": {
+        "tags": ["index"],
+        "operationId": "indexOp",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/device": {
+      "get": {
+        "tags": ["con"],
+        "operationId": "deviceOp",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/symbol": {
+      "get": {
+        "tags": ["★☆"],
+        "operationId": "symbolOp",
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "User": { "type": "object", "properties": { "id": { "type": "string" } } }
+    }
+  }
+}
