@@ -763,7 +763,11 @@ async function checkGroupedContract() {
         'type Data = Settled extends { data?: infer D } ? D : "NO_DATA"',
         "// 期望推导为夹具 Setting 契约，而不是 unknown / never",
         "const assertData: Data extends { key?: string } ? true : false = true",
+        "// 两个组的类型交叉不得坍缩为 never（下游用于多平台兼容）",
+        "type Both = typeof api.app & typeof api.home",
+        "const assertIntersect: Both extends never ? never : true = true",
         "void assertData",
+        "void assertIntersect",
         "void api.instance",
         ""
       ].join("\n"),
