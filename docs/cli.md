@@ -11,6 +11,25 @@ npx @fxri/swagger2api [选项]
 swagger2api [选项]
 ```
 
+## 子命令
+
+```bash
+# 默认：生成（无子命令时与原用法完全一致）
+swagger2api [选项]
+
+# 交互式建设配置（写入 .swagger2apirc.json）
+swagger2api init
+
+# 从既有 npm script 迁移参数到配置
+swagger2api init --from-script package.json
+
+# 查看配置分层与生效结果（--json 输出结构化内容）
+swagger2api config status
+```
+
+- `--config <path>`：显式指定项目层配置文件（只替换项目层，全局层与本地层照常叠加）
+- `--profile <name>`：选用配置文件内的命名预设
+
 ## 配置选项
 
 完整的配置文件字段与命令行参数见[配置参考](./config)。

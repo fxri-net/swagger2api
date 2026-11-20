@@ -7,6 +7,7 @@ import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
+import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers } from "./utils/config"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -80,9 +81,65 @@ async function onLoadParam() {
     sortTypes: getPKey("--sort-types"), // 排序字段和类型（默认：false）
     extractEnums: getPKey("--extract-enums") // 从内联接口提取所有枚举类型 将内容提取到 typescript 枚举构造中（默认：false）
   } as Parameters<typeof generateApi>["0"]
+  // 应用 rc 配置（命令行显式参数优先）
+  onApplyRc()
+}
+/**
+ * 判断命令行是否显式给出某个开关
+ * @param names 参数名（含短名）
+ * @return 是否出现
+ */
+function hasFlag(names: string[]) {
+  const argv = process.argv.slice(2)
+  return names.some((name) => argv.includes(name))
+}
+/**
+ * 应用 rc 配置：仅在命令行未显式给出时回落到配置值
+ * @return 无
+ */
+function onApplyRc() {
+  const flags = getConfigFlags()
+  const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
+  layers.warnings.forEach((warning) => console.error("⚠️", warning))
+  const rc = applyEnvOverrides(applyProfile(layers.merged, flags.profile))
+  const input = rc.input ?? {}
+  const output = rc.output ?? {}
+  const types = rc.types ?? {}
+  const naming = rc.naming ?? {}
+  const grouping = rc.grouping ?? {}
+  const rcUrl = input.url ?? input.file
+  if (!rcUrl) return
+  // rc 提供输入地址即视为配置驱动：不扫描、不回写 saconfig
+  datas.rcDriven = true
+  datas.rcUrl = rcUrl
+  datas.rcOutput = output.dir ?? "./src/api"
+  datas.rcName = output.name ?? "index"
+  const param = datas.param
+  param.quick = true
+  if (!hasFlag(["--remove-prefix-index", "-rpi"]) && naming.pathPrefixIndex !== undefined) param.removePrefixIndex = String(naming.pathPrefixIndex)
+  if (!hasFlag(["--convert-get", "-cg"]) && naming.convertGetToQuery !== undefined) param.convertGet = naming.convertGetToQuery
+  if (!hasFlag(["--remove-param", "-rp"]) && naming.dropPathParams !== undefined) param.removeParam = naming.dropPathParams
+  if (!hasFlag(["--extract-request-query", "-erq"]) && types.extractQuery !== undefined) param.extractRequestQuery = types.extractQuery
+  if (!hasFlag(["--remove-dts", "-rd"]) && types.removeDts !== undefined) param.removeDts = types.removeDts
+  if (!hasFlag(["--replace-tags", "-rt"]) && naming.tagRewrite) param.replaceTags = naming.tagRewrite
+  const config = datas.config as Record<string, any>
+  if (!hasFlag(["--axios"]) && rc.client?.type) config.httpClientType = rc.client.type === "axios" ? "axios" : "fetch"
+  if (!hasFlag(["--js"]) && rc.language?.target) config.toJS = rc.language.target === "js"
+  if (!hasFlag(["--responses", "-r"]) && types.responses !== undefined) config.generateResponses = Boolean(types.responses)
+  if (!hasFlag(["--unwrap-response-data"]) && types.unwrapData !== undefined) config.unwrapResponseData = Boolean(types.unwrapData)
+  if (!hasFlag(["--extract-request-params"]) && types.extractParams !== undefined) config.extractRequestParams = Boolean(types.extractParams)
+  if (!hasFlag(["--clean-output"]) && output.clean !== undefined) config.cleanOutput = Boolean(output.clean)
+  if (!hasFlag(["--modular"]) && output.mode === "grouped") config.modular = true
+  if (!hasFlag(["--module-name-index"]) && grouping.pathDepth !== undefined) config.moduleNameIndex = Number(grouping.pathDepth)
+  if (Object.keys(grouping).length) config.grouping = grouping
 }
 /** 加载配置 */
 async function onLoadConfig() {
+  // rc 配置驱动时不需要扫描 saconfig
+  if (datas.rcDriven) {
+    confs.files = ["(swagger2apirc)"]
+    return
+  }
   // 疏理文件
   if (datas.param.config) {
     // 指定配置文件
@@ -110,6 +167,12 @@ async function onLoadConfig() {
 }
 /** 输入参数 */
 async function onInputParam() {
+  // rc 配置驱动：直接使用配置值，不读 saconfig、不交互
+  if (datas.rcDriven) {
+    confs.param = { url: datas.rcUrl, output: datas.rcOutput, name: datas.rcName }
+    datas.docFile = path.resolve(`${datas.rcOutput}/${datas.rcName}-${new Date().getTime()}.json`)
+    return
+  }
   try {
     // 初始化配置
     confs.param = {}
@@ -237,8 +300,8 @@ async function onGenerateApi(data: Defines["data"]) {
     console.log("清理：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
     execSync(`npx rimraf ${path.resolve(confs.param.output, `${confs.param.name}.d.ts`)}`, { cwd: datas.home }).toString()
   }
-  // 保存配置
-  saveFile(confs.file, JSON.stringify(confs.param, null, 2))
+  // 保存配置（rc 驱动时不回写 saconfig）
+  if (!datas.rcDriven) saveFile(confs.file, JSON.stringify(confs.param, null, 2))
 }
 /** 主线 */
 async function onMain() {

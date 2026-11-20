@@ -1,0 +1,236 @@
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+
+// 配置分层：全局层 ~/.swagger2apirc.json（个人跨项目）、项目层 .swagger2apirc.json（团队共享，向上查找）、
+// 本地层 .swagger2apirc.local.json（个人按项目，默认不入库）。合并粒度：全局→项目按段整体覆盖，
+// 项目→本地按段内字段浅合并（数组整体替换），与同基地工具链的 rc 约定保持一致。
+/** 项目层配置文件名 */
+export const CONFIG_PROJECT_FILE = ".swagger2apirc.json"
+/** 本地层配置文件名 */
+export const CONFIG_LOCAL_FILE = ".swagger2apirc.local.json"
+/** 全局层配置文件名 */
+export const CONFIG_GLOBAL_FILE = ".swagger2apirc.json"
+
+/** 层名 */
+export type ConfigLayerName = "全局层" | "项目层" | "本地层"
+
+/** 单层加载结果 */
+export interface ConfigLayerRecord {
+  /** 层名 */
+  layer: ConfigLayerName
+  /** 命中文件（未命中为 null） */
+  file: string | null
+  /** 文件存在且解析成功 */
+  hit: boolean
+  /** 该层写出的段名 */
+  sections: string[]
+  /** 原始配置 */
+  config: Record<string, any> | null
+}
+
+/** 三层加载结果 */
+export interface ConfigLayers {
+  /** 全局层 */
+  global: ConfigLayerRecord
+  /** 项目层 */
+  project: ConfigLayerRecord
+  /** 本地层 */
+  local: ConfigLayerRecord
+  /** 合并结果 */
+  merged: Record<string, any> | null
+  /** 加载过程中的告警 */
+  warnings: string[]
+}
+
+/**
+ * 读取单个 rc 文件并解析。
+ * @param file 绝对路径
+ * @return 层记录
+ */
+function readLayer(file: string | null, layer: ConfigLayerName, warnings: string[]): ConfigLayerRecord {
+  const empty: ConfigLayerRecord = { layer, file, hit: false, sections: [], config: null }
+  if (!file || !fs.existsSync(file)) return empty
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      warnings.push(`${file}：根节点必须是对象，已忽略该层`)
+      return { ...empty, hit: false }
+    }
+    return { layer, file, hit: true, sections: Object.keys(parsed), config: parsed }
+  } catch (error) {
+    warnings.push(`${file}：解析失败（${(error as Error).message}），已忽略该层`)
+    return empty
+  }
+}
+
+/**
+ * 自起始目录向上查找最近的指定文件。
+ * @param fileName 文件名
+ * @param startDir 起始目录
+ * @return 命中的绝对路径或 null
+ */
+export function findUpward(fileName: string, startDir: string) {
+  let current = path.resolve(startDir)
+  while (true) {
+    const candidate = path.join(current, fileName)
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+}
+
+/**
+ * 按段合并：base 的段被 overlay 的同名段整体替换。
+ * @param base 底层配置
+ * @param overlay 覆盖层配置
+ * @return 合并结果
+ */
+export function mergeSections(base: Record<string, any> | null, overlay: Record<string, any> | null) {
+  if (!base) return overlay ? { ...overlay } : null
+  if (!overlay) return { ...base }
+  const merged: Record<string, any> = { ...base }
+  for (const [section, value] of Object.entries(overlay)) {
+    merged[section] = value
+  }
+  return merged
+}
+
+/**
+ * 段内字段浅合并：本地层覆盖项目层同名字段，数组整体替换。
+ * @param base 底层配置
+ * @param overlay 覆盖层配置
+ * @return 合并结果
+ */
+export function mergeShallow(base: Record<string, any> | null, overlay: Record<string, any> | null) {
+  if (!base) return overlay ? { ...overlay } : null
+  if (!overlay) return { ...base }
+  const merged: Record<string, any> = { ...base }
+  for (const [section, value] of Object.entries(overlay)) {
+    const current = merged[section]
+    merged[section] =
+      current && typeof current === "object" && !Array.isArray(current) && value && typeof value === "object" && !Array.isArray(value)
+        ? { ...current, ...value }
+        : value
+  }
+  return merged
+}
+
+/**
+ * 加载三层配置。
+ * @param cwd 起始目录，默认当前工作目录
+ * @param options.projectFile 显式指定的项目层文件（--config）
+ * @param options.homeDir 全局层目录（测试可注入，默认用户主目录）
+ * @return 三层加载结果
+ */
+export function loadConfigLayers(cwd = process.cwd(), options: { projectFile?: string; homeDir?: string } = {}): ConfigLayers {
+  const warnings: string[] = []
+  const global = readLayer(path.join(options.homeDir ?? os.homedir(), CONFIG_GLOBAL_FILE), "全局层", warnings)
+  const projectFile = options.projectFile ? path.resolve(options.projectFile) : findUpward(CONFIG_PROJECT_FILE, cwd)
+  const project = readLayer(projectFile, "项目层", warnings)
+  const local = readLayer(findUpward(CONFIG_LOCAL_FILE, cwd), "本地层", warnings)
+  const merged = mergeShallow(mergeSections(global.config, project.config), local.config)
+  return { global, project, local, merged, warnings }
+}
+
+/** 环境变量覆盖表：唯一真源，config status 与文档共用 */
+export const CONFIG_ENV_OVERRIDES: ReadonlyArray<{ env: string; key: string; type: "string" | "boolean" }> = [
+  { env: "FX_S2A_INPUT", key: "input.url", type: "string" },
+  { env: "FX_S2A_OUTPUT", key: "output.dir", type: "string" },
+  { env: "FX_S2A_NAME", key: "output.name", type: "string" },
+  { env: "FX_S2A_CLIENT", key: "client.type", type: "string" },
+  { env: "FX_S2A_LANGUAGE", key: "language.target", type: "string" },
+  { env: "FX_S2A_CLEAN", key: "output.clean", type: "boolean" },
+]
+
+/**
+ * 按点号路径取值。
+ * @param source 对象
+ * @param keyPath 点号路径
+ * @return 值或 undefined
+ */
+export function getByPath(source: any, keyPath: string) {
+  return keyPath.split(".").reduce((value, key) => (value === undefined || value === null ? undefined : value[key]), source)
+}
+
+/**
+ * 按点号路径写值（不存在时自动建对象）。
+ * @param target 对象
+ * @param keyPath 点号路径
+ * @param value 值
+ * @return 无
+ */
+export function setByPath(target: Record<string, any>, keyPath: string, value: unknown) {
+  const keys = keyPath.split(".")
+  let current = target
+  keys.forEach((key, index) => {
+    if (index === keys.length - 1) {
+      current[key] = value
+      return
+    }
+    if (!current[key] || typeof current[key] !== "object") current[key] = {}
+    current = current[key]
+  })
+}
+
+/**
+ * 用环境变量覆盖配置。
+ * @param config 基础配置
+ * @param env 环境变量
+ * @return 覆盖后的新配置
+ */
+export function applyEnvOverrides(config: Record<string, any> | null, env: Record<string, string | undefined> = process.env) {
+  const result: Record<string, any> = config ? structuredClone(config) : {}
+  for (const item of CONFIG_ENV_OVERRIDES) {
+    const raw = env[item.env]
+    if (raw === undefined || raw === "") continue
+    setByPath(result, item.key, item.type === "boolean" ? !["0", "false"].includes(raw.toLowerCase()) : raw)
+  }
+  return result
+}
+
+/**
+ * 应用命名预设：profiles[name] 按字段浅合并到顶层各段。
+ * @param config 基础配置
+ * @param profile 预设名
+ * @return 应用后的新配置
+ */
+export function applyProfile(config: Record<string, any> | null, profile?: string) {
+  const result: Record<string, any> = config ? structuredClone(config) : {}
+  if (!profile) return result
+  const preset = result.profiles?.[profile]
+  if (!preset || typeof preset !== "object") return result
+  for (const [section, value] of Object.entries(preset)) {
+    if (section === "profiles") continue
+    const current = result[section]
+    result[section] =
+      current && typeof current === "object" && !Array.isArray(current) && value && typeof value === "object" && !Array.isArray(value)
+        ? { ...current, ...value }
+        : value
+  }
+  return result
+}
+
+/**
+ * 解析命令行里的 --config 与 --profile 值。
+ * @param argv 参数列表
+ * @return 指定值
+ */
+export function getConfigFlags(argv: string[] = process.argv.slice(2)) {
+  const pick = (names: string[]) => names.reduce<string | undefined>((found, name) => found ?? (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined), undefined)
+  return { configFile: pick(["--config", "-c"]), profile: pick(["--profile"]) }
+}
+
+/**
+ * 生成配置来源摘要（config status 用）。
+ * @param layers 三层结果
+ * @return 文本行
+ */
+export function describeLayers(layers: ConfigLayers) {
+  const lines: string[] = []
+  for (const record of [layers.global, layers.project, layers.local]) {
+    lines.push(`${record.layer}：${record.file ?? "未命中"}${record.hit ? `（段：${record.sections.join("、") || "无"}）` : ""}`)
+  }
+  return lines
+}

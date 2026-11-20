@@ -49,6 +49,14 @@ export type Defines = {
     }
     /** 枚举 */
     enum: { [key: string]: number }
+    /** 是否由 rc 配置驱动（不读写 saconfig） */
+    rcDriven?: boolean
+    /** rc 提供的文档地址 */
+    rcUrl?: string
+    /** rc 提供的输出目录 */
+    rcOutput?: string
+    /** rc 提供的入口文件名 */
+    rcName?: string
   }
   /** 数据 */
   data: {
