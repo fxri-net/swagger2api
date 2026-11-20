@@ -6,6 +6,7 @@ import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
+import { guardSpec } from "./utils/security/spec-guard"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -20,10 +21,12 @@ const datas = {
   /** 枚举 */
   enum: {} as { [key: string]: number }
 } as Defines["datas"]
+/** 生成失败的文档数量 */
+let failures = 0
 /** 退出 */
-function onExit(message?: string) {
+function onExit(message?: string, code = 0) {
   message && console.log(message)
-  process.exit()
+  process.exit(code)
 }
 /** 加载参数 */
 async function onLoadParam() {
@@ -149,12 +152,24 @@ async function onLoadDoc(index = 0) {
     }
   }
   // 加载下一个文档
-  confs.files[index + 1] && onLoadDoc(index + 1)
+  if (confs.files[index + 1]) {
+    await onLoadDoc(index + 1)
+  } else if (failures > 0) {
+    // 批量场景下跳过不合规文档，但整体以非 0 退出，避免静默降级
+    onExit(`结束：${failures} 个文档因安全问题未生成`, 1)
+  }
 }
 /** 生成接口 */
 async function onGenerateApi(data: Defines["data"]) {
   // 检查格式
   if (typeof data?.paths != "object") return console.log("失败：缺少paths字段")
+  // 安全守卫：解析外部引用、转义代码字面量、校验标识符字段
+  const guard = await guardSpec(data, { baseUrl: isUrl(confs.param.url) ? confs.param.url : undefined })
+  if (guard.errors.length > 0) {
+    guard.errors.forEach((error) => console.error("失败：", error))
+    failures += 1
+    return
+  }
   // 处理路径
   Object.entries(data.paths).forEach((item) => {
     Object.keys(item[1]).forEach((item2) => {
@@ -181,6 +196,8 @@ async function onGenerateApi(data: Defines["data"]) {
         ids = ids.slice(0, 1).concat(ids.slice(Number(datas.param.removePrefixIndex) + 2))
         id = ids.join("/")
       }
+      // 操作id会作为路由名写入代码，剔除可闭合字面量的字符
+      id = id.replace(/["\\`\r\n]/g, "_").replace(/\$\{/g, "_")
       // 配置操作id
       data.paths[item[0]][item2].operationId = id
       // 统计请求方式

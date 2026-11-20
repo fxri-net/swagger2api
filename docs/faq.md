@@ -21,7 +21,7 @@ Node.js >= 18.12.0。运行时以 node18 为下限；node 18 线仅到 18.20.x�
 
 ### node 18 环境下依赖有安全告警怎么办？
 
-node18 线使用 `swagger-typescript-api@13.0.28`：13.1 起改用 biome WASM 格式化，在 node 18 上无法生成；13.12.2 起要求 node20。该版本存在已公开的代码注入与 SSRF 告警（GHSA-w284-33mx-6g9v、GHSA-5f94-x226-ccpm、GHSA-38c3-wv3c-v3xj、GHSA-hqj5-cw9f-rx67、GHSA-h754-fxp7-88wx、GHSA-x36r-4347-pm5x），官方补丁只随 13.12.2+ 发布。实际风险集中在处理**不可信** swagger 源：请只对自有或可信文档运行生成；依赖 `lodash` 已通过 overrides 升到修复版。有条件时升级到 node20 并升回新版生成器即可消除告警。
+node18 线使用 `swagger-typescript-api@13.0.28`：13.1 起改用 biome WASM 格式化，在 node 18 上无法生成；13.12.2 起要求 node20。该版本存在已公开的代码注入与 SSRF 告警（GHSA-w284-33mx-6g9v、GHSA-5f94-x226-ccpm、GHSA-38c3-wv3c-v3xj、GHSA-hqj5-cw9f-rx67、GHSA-h754-fxp7-88wx、GHSA-x36r-4347-pm5x），官方补丁只随 13.12.2+ 发布。本工具已把官方修复回移到自己的生成链上：路径、枚举、默认值与 `servers` 地址在写入代码前统一转义，外部 `$ref` 按官方策略校验（同源放行、其余仅公网 http(s)、逐跳校验重定向、拒绝私网与回环）。与官方唯一差异是不合规引用会直接报错并终止，而不是静默跳过。依赖 `lodash` 已通过 overrides 升到修复版；`pnpm audit` 仍会按版本列出上述 6 条，但利用路径已闭合。有条件时升级到 node20 并升回新版生成器即可彻底消除告警。
 
 ### 全局装还是项目里装？
 

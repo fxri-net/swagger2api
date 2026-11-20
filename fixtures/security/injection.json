@@ -1,0 +1,25 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "注入用例", "version": "1.0.0" },
+  "servers": [{ "url": "https://x\";globalThis.PWNED=2;//" }],
+  "paths": {
+    "/a`;globalThis.PWNED=1;//": {
+      "get": {
+        "tags": ["app"],
+        "summary": "路径注入",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Item": { "type": "object", "properties": { "status": { "$ref": "#/components/schemas/Status" } } },
+      "Status": { "type": "string", "enum": ["a\";globalThis.PWNED=3;//"] }
+    }
+  }
+}

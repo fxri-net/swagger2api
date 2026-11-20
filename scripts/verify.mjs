@@ -316,6 +316,69 @@ function checkGeneratedOutput() {
 }
 
 /**
+ * 安全夹具：注入用例的产物必须能被 TS 解析，私网外部引用必须被拒绝并以非 0 退出。
+ * @return {number} 退出码
+ */
+async function checkSecurityFixtures() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 安全夹具：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const securityDir = join(root, "fixtures", "security")
+  const ts = await import("typescript")
+
+  /**
+   * 用指定夹具跑一次生成
+   * @param fixture 夹具文件名
+   * @param outDir 输出目录
+   * @return {{ status: number, output: string }}
+   */
+  const runFixture = (fixture, outDir) => {
+    const config = join(outDir, "saconfig.json")
+    writeFileSync(config, JSON.stringify({ url: join(securityDir, fixture), output: outDir, name: "index" }, null, 2))
+    const result = spawnSync(process.execPath, [cli, "-c", config, "-q", "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, encoding: "utf8" })
+    return { status: result.status ?? 1, output: `${result.stdout ?? ""}${result.stderr ?? ""}` }
+  }
+
+  // 注入用例：生成成功且产物语法合法
+  const injectionOut = mkdtempSync(join(tmpdir(), "s2a-security-"))
+  try {
+    const injection = runFixture("injection.json", injectionOut)
+    if (injection.status !== 0) {
+      console.error("✖ 安全夹具：注入用例未按预期生成成功")
+      console.error(injection.output)
+      return 1
+    }
+    const file = join(injectionOut, "index.ts")
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true)
+    if (source.parseDiagnostics.length > 0) {
+      console.error(`✖ 安全夹具：注入用例产物无法解析（${source.parseDiagnostics.length} 条语法错误）`)
+      return 1
+    }
+  } finally {
+    rmSync(injectionOut, { recursive: true, force: true })
+  }
+
+  // 私网引用用例：必须被拒绝且退出码非 0
+  const privateOut = mkdtempSync(join(tmpdir(), "s2a-security-"))
+  try {
+    const privateRef = runFixture("private-ref.json", privateOut)
+    if (privateRef.status === 0) {
+      console.error("✖ 安全夹具：私网外部引用未被拒绝")
+      return 1
+    }
+    if (!privateRef.output.includes("拒绝拉取")) {
+      console.error("✖ 安全夹具：私网外部引用缺少明确的拒绝信息")
+      return 1
+    }
+  } finally {
+    rmSync(privateOut, { recursive: true, force: true })
+  }
+  return 0
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -371,6 +434,7 @@ const steps = [
   { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: runtimeOnly ? "运行时回归模式" : skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
+  { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站导航规范（分类 / 命名 / 顶栏）", run: checkDocsNav, skip: runtimeOnly ? "运行时回归模式" : "" },
@@ -390,7 +454,8 @@ for (const step of steps) {
   }
   console.log(`\n▶ ${step.label}`)
   executed += 1
-  const status = step.run ? step.run() : runCommand(step)
+  // run 可能为异步（如安全夹具需动态加载 typescript），统一 await
+  const status = step.run ? await step.run() : runCommand(step)
 
   if (status === 0) continue
   failures.push(step.label)

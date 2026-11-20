@@ -18,6 +18,7 @@
   "homepage": "https://fxri-net.github.io/swagger2api/",
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
     "swagger2api": "dist/cli.js"
   },
