@@ -49,12 +49,27 @@ runtime18:
     - job: test
       artifacts: true
   script:
-    # 镜像为 Alpine（busybox tar + gzip），使用官方 tar.gz 包，避免依赖未预装的 xz
-    - curl -fsSL https://nodejs.org/dist/v18.12.0/node-v18.12.0-linux-x64.tar.gz -o /tmp/node18.tar.gz
-    - tar -xzf /tmp/node18.tar.gz -C /opt
-    - export PATH=/opt/node-v18.12.0-linux-x64/bin:$PATH
-    - node -v
-    - EXPECTED_NODE=18.12.0 node scripts/verify.mjs --runtime-only
+    # 镜像基于 Debian slim：自带 tar 与 gzip，故使用官方 tar.gz；按架构选包、双源回退并校验完整性
+    - |
+      set -euo pipefail
+      case "$(uname -m)" in
+        x86_64) NODE_ARCH=x64 ;;
+        aarch64|arm64) NODE_ARCH=arm64 ;;
+        *) echo "不支持的架构：$(uname -m)"; exit 1 ;;
+      esac
+      NODE_VERSION=18.12.0
+      NODE_TARBALL="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz"
+      BASE="https://nodejs.org/dist/v${NODE_VERSION}"
+      curl -fsSL "${BASE}/${NODE_TARBALL}" -o "/tmp/${NODE_TARBALL}" || {
+        BASE="https://npmmirror.com/mirrors/node/v${NODE_VERSION}"
+        curl -fsSL "${BASE}/${NODE_TARBALL}" -o "/tmp/${NODE_TARBALL}"
+      }
+      curl -fsSL "${BASE}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt
+      ( cd /tmp && grep " ${NODE_TARBALL}$" SHASUMS256.txt | sha256sum -c - )
+      tar -xzf "/tmp/${NODE_TARBALL}" -C /opt
+      export PATH="/opt/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin:${PATH}"
+      node -v
+      EXPECTED_NODE=${NODE_VERSION} node scripts/verify.mjs --runtime-only
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 

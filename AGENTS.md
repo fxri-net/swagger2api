@@ -19,6 +19,7 @@
 - 跑 `pnpm verify`——聚合门禁，步骤定义在 `scripts/verify.mjs`，本地与 CI 共用同一份清单，禁止在本文或 CI 配置里另写步骤枚举；任一步失败即不得交付。
 - `toolkit tasks check` 的 error 与 warn 均为 0。
 - 开发与 CI 工具链保持 node 20（`.node-version` / `.ci/toolchain.json`），发布产物的运行时下限为 node 18.12，由 `engines`、构建 target 与 node18 运行时作业保证；构建工具 `tsup` 选用声明支持 node 18 及以上的 8.x 线，与开发版本保持一致。
+- CI 脚本只使用 Node 内置能力或 `.ci/toolchain.json` 已声明的 `system` 命令：GitHub runner 工具齐全、GitLab 镜像按声明精简，未声明的系统命令只会在 GitLab 侧暴露；新增系统命令须在两侧都验证。
 - 复核发现遗漏必须当场回补，不允许「下次再说」。
 
 ## 协作流程约束
