@@ -350,3 +350,69 @@ export function describeLayers(layers: ConfigLayers) {
   }
   return lines
 }
+
+/**
+ * 判断两个目录是否相同或互相嵌套：嵌套会让一方的横幅扫描删掉另一方的产物。
+ * @param left 目录
+ * @param right 目录
+ * @return 是否重叠
+ */
+function overlapsDir(left: string, right: string) {
+  const contains = (parent: string, child: string) => {
+    const rel = path.relative(parent, child)
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
+  }
+  return contains(left, right) || contains(right, left)
+}
+
+/**
+ * 提取配置文件声明的输出目录（绝对路径）：顶层 output、多目标与默认值都参与。
+ * @param config 原始配置
+ * @param configDir 配置目录
+ * @return 输出目录列表（去重）
+ */
+function outputDirsOf(config: Record<string, any>, configDir: string) {
+  const resolveDir = (value: unknown) => (typeof value === "string" && value ? path.resolve(configDir, value) : null)
+  const pick = (source: any) => {
+    if (!source || typeof source !== "object") return null
+    return resolveDir(source.output) ?? resolveDir(source.output?.dir)
+  }
+  const fallback = pick(config) ?? path.resolve(configDir, "./src/api")
+  const targets = Array.isArray(config.targets) ? config.targets : []
+  const dirs = targets.length ? targets.map((target) => pick(target) ?? pick(config.defaults) ?? fallback) : [fallback]
+  return [...new Set(dirs)]
+}
+
+/**
+ * 校验同一配置目录内的其他配置：输出目录相同或互相嵌套时互删产物，必须拒绝。
+ * @param options.configDir 配置目录
+ * @param options.currentFile 当前生效的配置文件（排除自身）
+ * @param options.outputDirs 本配置的输出目录（绝对路径）
+ * @return 冲突说明（空数组表示无冲突）
+ */
+export function findOutputDirConflicts(options: { configDir: string; currentFile?: string | null; outputDirs: string[] }) {
+  const conflicts: string[] = []
+  if (!fs.existsSync(options.configDir)) return conflicts
+  const current = options.currentFile ? path.resolve(options.currentFile) : null
+  for (const name of fs.readdirSync(options.configDir)) {
+    // 只认项目层配置：本地层是叠加层，旧名 swagger2apirc 与新名并存时由加载器忽略
+    const isProject = /^swagger2api(?:\.[^./\\]+)?\.json$/i.test(name) || /^saconfig.*\.json$/i.test(name)
+    if (!isProject || name === CONFIG_LOCAL_FILE) continue
+    const file = path.join(options.configDir, name)
+    if (current && path.resolve(file) === current) continue
+    let config: Record<string, any>
+    try {
+      config = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch {
+      continue
+    }
+    if (!config || typeof config !== "object" || Array.isArray(config)) continue
+    for (const other of outputDirsOf(config, options.configDir)) {
+      for (const own of options.outputDirs) {
+        if (!overlapsDir(other, own)) continue
+        conflicts.push(`输出目录 ${own} 与同目录配置 ${name} 的输出 ${other} 重叠；同一输出目录只允许一份配置`)
+      }
+    }
+  }
+  return [...new Set(conflicts)]
+}

@@ -89,7 +89,7 @@ swagger2api        # 之后：读取最近的 swagger2api.json 直接生成
 | `client` / `language` | `axios` / `fetch`、`ts` / `js` |
 | `responses` / `query` 等 | 项目自己的口径，按需保留 |
 
-分桶阈值、清单、清理与产物校验由工具默认，不需要写进配置；生成清单存放在系统临时目录缓存，不进入仓库。`swagger2api --check` 可校验产物是否与当前配置一致。
+分桶阈值、清理与产物校验由工具默认，不需要写进配置；产物归属靠文件头的生成横幅识别，不落任何持久状态。`swagger2api --check` 可校验产物是否与当前配置一致。
 
 ## 调用接口
 

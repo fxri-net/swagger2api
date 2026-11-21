@@ -5,12 +5,23 @@ import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
+import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
-import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
+import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
 import { stripTsNoCheck } from "./utils/postprocess"
-import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import {
+  collectGeneratedFiles,
+  collectGeneratedFilesOf,
+  findHandwrittenConflicts,
+  findStaleOutputFiles,
+  pruneGeneratedOutput,
+  removeLegacyOutput,
+  toModuleEntries,
+  verifyGroupedOutput,
+  writeAggregateEntry,
+  writeSplitFacades
+} from "./utils/modular"
 import { inspectLayout, inspectThresholdsOf } from "./utils/inspect"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
@@ -41,6 +52,51 @@ const dryRun = () => process.argv.includes("--dry-run")
 const jsonOutput = () => process.argv.includes("--json")
 /** 是否只校验产物是否与当前配置一致 */
 const checkMode = () => process.argv.includes("--check")
+/** 诊断 JSON 的格式版本：字段结构变化时递增 */
+const DIAGNOSTIC_SCHEMA_VERSION = 1
+
+/**
+ * 判断 child 是否位于 parent 之内（含相同）。
+ * @param parent 父目录
+ * @param child 子目录
+ * @return 是否包含
+ */
+function isInside(parent: string, child: string) {
+  const rel = path.relative(parent, child)
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
+}
+
+/**
+ * 清理安全护栏：输出目录为仓库根、配置目录或两者的祖先时，横幅扫描会误伤整个仓库。
+ * @param dir 输出目录
+ * @return 拒绝原因；安全时返回 null
+ */
+function cleanupBlockedReason(dir: string) {
+  const guards = [process.cwd(), datas.configDir ?? process.cwd()].map((item) => path.resolve(item))
+  for (const guard of guards) {
+    if (isInside(dir, guard)) return `输出目录 ${dir} 是 ${guard} 的祖先或本身，拒绝按横幅清理`
+  }
+  return null
+}
+
+/**
+ * 单文件模式遗留检测：输出目录含 client + types/ 与模块文件时提示清理方式。
+ * @param dir 输出目录
+ * @param toJS 是否为 JS 输出
+ * @return 提示文案；无遗留返回 null
+ */
+function groupedLeftoverHint(dir: string, toJS: boolean) {
+  const ext = toJS ? ".js" : ".ts"
+  if (!fs.existsSync(dir) || !fs.existsSync(path.join(dir, TYPES_DIR))) return null
+  if (!fs.existsSync(path.join(dir, `${CLIENT_BASE}${ext}`))) return null
+  const modules = fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(ext) && !entry.name.endsWith(`.d${ext}`))
+    .map((entry) => entry.name.slice(0, -ext.length))
+    .filter((base) => !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
+  if (modules.length === 0) return null
+  return `检测到输出目录含分组模式产物（client + types/ + ${modules.length} 个模块文件），单文件模式不会自动删除旧产物；确认后可设置 output.clean 整目录重建，或手动删除旧分组产物`
+}
 
 /**
  * 临时文档路径：写到系统临时目录，避免被 output.clean 删除或进入产物目录。
@@ -204,6 +260,16 @@ function onApplyRc() {
     datas.targetMode = true
     datas.rcDriven = true
     datas.targets = picked.id ? plan.targets.filter((target) => target.id === picked.id) : plan.targets
+    // 同目录其他配置若与本配置输出重叠，两边的横幅清理会互删产物
+    const conflicts = findOutputDirConflicts({
+      configDir: datas.configDir as string,
+      currentFile: layers.project.file,
+      outputDirs: (datas.targets ?? []).map((target) => path.resolve(target.outputDir))
+    })
+    if (conflicts.length > 0) {
+      conflicts.forEach((conflict) => console.error("失败：", conflict))
+      onExit("结束：配置输出目录冲突，未生成任何目标", 2)
+    }
     return
   }
   // 单目标：--target 只在多目标配置下有意义，脚本残留时明确报错而非静默失效
@@ -219,6 +285,13 @@ function onApplyRc() {
   // 先归一化扁平配置，再套预设、再做一次归一化，兼容预设内继续使用扁平字段
   const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
   applyRcConfig(rc)
+  if (!datas.rcUrl || !datas.rcOutput) return
+  // 同目录其他配置若与本配置输出重叠，两边的横幅清理会互删产物
+  const conflicts = findOutputDirConflicts({ configDir: datas.configDir as string, currentFile: layers.project.file, outputDirs: [datas.rcOutput] })
+  if (conflicts.length > 0) {
+    conflicts.forEach((conflict) => console.error("失败：", conflict))
+    onExit("结束：配置输出目录冲突，未生成任何产物", 2)
+  }
 }
 /** 加载配置 */
 async function onLoadConfig() {
@@ -369,39 +442,84 @@ function collectRelativeFiles(dir: string, base = dir): string[] {
   return files.sort()
 }
 
+/** 产物校验结果：按缺失 / 内容不一致 / 多余三类归集 */
+interface CheckResult {
+  /** 本轮应生成但不存在的文件 */
+  missing: string[]
+  /** 存在但内容与生成结果不一致的文件 */
+  mismatched: string[]
+  /** 真实目录中含生成横幅、但本轮不再生成的文件 */
+  extra: string[]
+}
+
 /**
- * 产物校验：临时目录的生成结果与现有产物逐文件比对，并检查清单中已消失的文件。
+ * 产物校验：临时目录的生成结果与现有产物逐文件比对，并按横幅找出多余产物。
  * @param targetDir 现有产物目录
  * @param generatedDir 临时生成目录
- * @param split 生效的分组 split 配置，用于布局判据
- * @return 无；差异计入 failures
+ * @return 校验结果
  */
-function onCheckOutput(targetDir: string, generatedDir: string, split?: unknown) {
+function collectCheckResult(targetDir: string, generatedDir: string): CheckResult {
   const expected = collectRelativeFiles(generatedDir)
-  const issues: string[] = []
+  const result: CheckResult = { missing: [], mismatched: [], extra: [] }
   for (const file of expected) {
     const target = path.join(targetDir, file)
     if (!fs.existsSync(target)) {
-      issues.push(`缺少产物：${file}`)
+      result.missing.push(file)
       continue
     }
     // 行尾归一后再比对，避免 Windows 检出配置造成假差异
     const want = fs.readFileSync(path.join(generatedDir, file), "utf8").replace(/\r\n/g, "\n")
     const got = fs.readFileSync(target, "utf8").replace(/\r\n/g, "\n")
-    if (want !== got) issues.push(`产物不一致：${file}`)
+    if (want !== got) result.mismatched.push(file)
   }
-  // 清单中记录、本次不再生成的文件即过期产物，提示重新生成
-  const previous = readOutputManifest(manifestPathFor(targetDir))
-  for (const file of previous?.files ?? []) {
-    if (!expected.includes(file)) issues.push(`产物已过期：${file}`)
+  // 横幅归属：真实目录中属于生成物但本轮不再生成的文件即多余产物
+  const expectedSet = new Set(expected)
+  result.extra = collectGeneratedFilesOf(targetDir).filter((file) => !expectedSet.has(file))
+  return result
+}
+
+/**
+ * 输出校验结果：文本模式逐类列出并以稳定结论行收尾，JSON 模式输出结构化结论。
+ * @param result 校验结果
+ * @param generatedDir 临时生成目录
+ * @param split 生效的分组 split 配置，用于布局判据
+ * @return 无
+ */
+function onCheckOutput(result: CheckResult, generatedDir: string, split?: unknown) {
+  const total = result.missing.length + result.mismatched.length + result.extra.length
+  if (jsonOutput()) {
+    console.log(
+      JSON.stringify(
+        {
+          schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+          toolVersion: readToolVersion(),
+          mode: "check",
+          ok: total === 0,
+          missing: result.missing,
+          mismatched: result.mismatched,
+          extra: result.extra
+        },
+        null,
+        2
+      )
+    )
+  } else if (total > 0) {
+    console.error(`\n✖ 产物校验未通过：${total} 项`)
+    result.missing.forEach((file) => console.error(`  - 缺少产物：${file}`))
+    result.mismatched.forEach((file) => console.error(`  - 产物不一致：${file}`))
+    result.extra.forEach((file) => console.error(`  - 产物多余：${file}`))
   }
-  if (issues.length > 0) {
+  if (total > 0) {
     failures += 1
-    console.error(`\n✖ 产物校验未通过：${issues.length} 项`)
-    issues.forEach((issue) => console.error(`  - ${issue}`))
+    if (!jsonOutput()) {
+      // 结论行保持稳定，便于 AI 与 CI 直接匹配
+      console.log(`校验结论：未通过（缺失 ${result.missing.length} / 不一致 ${result.mismatched.length} / 多余 ${result.extra.length}）`)
+    }
     return
   }
+  if (jsonOutput()) return
   console.log("校验：产物与当前配置一致")
+  console.log("校验结论：通过")
   // 布局审计：与 inspect 同一判据，只提示不改变退出码
   const report = inspectLayout(generatedDir, inspectThresholdsOf(split))
   if (report.issues.length || report.hints.length) {
@@ -488,8 +606,6 @@ function createSplitRouteNameHook() {
 
 /** 生成接口 */
 async function onGenerateApi(data: Defines["data"]) {
-  // 上一轮生成清单：用于手写文件护栏与按清单清理
-  let previousManifest: OutputManifest | null = null
   // 检查格式
   if (typeof data?.paths != "object") return console.log("失败：缺少paths字段")
   // 安全守卫：解析外部引用、转义代码字面量、校验标识符字段
@@ -543,16 +659,15 @@ async function onGenerateApi(data: Defines["data"]) {
       return
     }
   }
-  // 写盘前比对上一轮清单：目标模块名已被手写文件占用时终止，避免静默覆盖
+  // 写盘前检查目标文件：已被手写文件占用时终止，避免静默覆盖
   if (datas.config.modular && namingEntries.length) {
     const dir = path.resolve(confs.param.output)
-    previousManifest = readOutputManifest(manifestPathFor(dir))
     // split 模式的实际文件由桶/分片/门面给出，命名空间名不再落盘，避免误判或误收手写文件
     const conflictEntries = splitPlan ? [] : namingEntries
-    const conflicts = findHandwrittenConflicts(dir, conflictEntries, Boolean(datas.config.toJS), previousManifest, plannedFileNames(namingEntries, splitPlan))
+    const conflicts = findHandwrittenConflicts(dir, conflictEntries, Boolean(datas.config.toJS), plannedFileNames(namingEntries, splitPlan))
     if (conflicts.length > 0) {
       conflicts.forEach((file) =>
-        console.error(`失败：输出目录存在同名手写文件：${file}（不属于上一轮生成清单），已终止生成；确认可覆盖后删除该文件或调整分组名`)
+        console.error(`失败：输出目录存在同名手写文件：${file}（不含生成横幅），已终止生成；确认可覆盖后删除该文件或调整分组名`)
       )
       failures += 1
       return
@@ -621,12 +736,20 @@ async function onGenerateApi(data: Defines["data"]) {
     const dir = path.resolve(confs.param.output)
     const apiClassName = String((datas.config as Record<string, any>).apiClassName ?? "Api")
     const toJS = Boolean(datas.config.toJS)
+    // 清理安全护栏：输出目录为仓库根、配置目录或两者的祖先时，横幅扫描会误伤整个仓库
+    const blocked = checkMode() ? null : cleanupBlockedReason(dir)
+    if (blocked) {
+      console.error(`失败：${blocked}；本次仅生成，不删除任何文件`)
+      failures += 1
+    }
+    // 升级退场：旧版固定产物已不再生成，成功落盘后删除残留（校验模式不动真实目录）
+    if (!checkMode()) removeLegacyOutput(dir, toJS).forEach((file) => console.log("清理：", path.resolve(dir, file)))
     if (namingEntries.length) {
       const extraFiles = plannedFileNames(namingEntries, splitPlan)
       // 分片门面由本工具补写，必须先于产物校验与聚合入口
       if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS)
       // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
-      const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS, knownFiles: new Set(previousManifest?.files ?? []) })
+      const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS })
       if (contracts.errors.length > 0) {
         contracts.errors.forEach((error) => console.error("失败：", error))
         failures += 1
@@ -646,8 +769,16 @@ async function onGenerateApi(data: Defines["data"]) {
         return
       }
       orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.prune）：", file))
+      // 横幅清理：删除本轮不再生成的旧产物；开关关闭时只报告不删除
+      const keep = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, extraFiles)
+      const stale = findStaleOutputFiles(dir, keep)
+      if (stale.length > 0 && datas.config.pruneOutput && !checkMode() && !blocked) {
+        pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
+      } else if (stale.length > 0 && !checkMode()) {
+        console.error(`⚠️ 产物多余（未开启 output.prune，未删除）：${stale.join("、")}`)
+      }
     } else {
-      // 手动模块化没有命名表：按本轮实际生成的文件确定模块集合，先按清单清掉旧产物再补写聚合入口
+      // 手动模块化没有命名表：按本轮实际生成的文件确定模块集合，先按横幅清掉旧产物再补写聚合入口
       const generatedFiles = ((generated as { files?: Array<{ fileName?: string; fileExtension?: string }> }).files ?? [])
         .map((file) => `${String(file.fileName ?? "").replace(/\\/g, "/")}${file.fileExtension ?? ""}`)
         .filter((name) => Boolean(name) && !name.startsWith("."))
@@ -655,31 +786,24 @@ async function onGenerateApi(data: Defines["data"]) {
         .filter((name) => !name.includes("/") && !name.endsWith(".d.ts"))
         .map((name) => name.slice(0, name.lastIndexOf(".")))
         .filter((base) => Boolean(base) && !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
-      if (!checkMode()) {
-        const previous = readOutputManifest(manifestPathFor(dir))
-        // 清单内、本轮不再生成的文件都属于上一轮产物，直接清理，避免聚合入口继续引用幽灵模块
-        pruneOutput(dir, previous, generatedFiles.length > 0 ? generatedFiles : collectGeneratedFiles(dir, [], toJS)).forEach((file) =>
-          console.log("清理：", path.resolve(dir, file))
-        )
+      const keep = collectGeneratedFiles(dir, [], toJS, modules)
+      if (!checkMode() && !blocked) {
+        // keep 内的文件本轮会重建，留旧产物会让聚合入口继续引用幽灵模块
+        pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
       }
-      const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS, knownFiles: null })
+      const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS })
       if (contracts.errors.length > 0) {
         contracts.errors.forEach((error) => console.error("失败：", error))
         failures += 1
         return
       }
       writeAggregateEntry(dir, apiClassName, toJS)
-      if (!checkMode()) writeOutputManifest(manifestPathFor(dir), collectGeneratedFiles(dir, [], toJS, modules))
     }
-    // 升级退场：旧版固定产物已不再生成，成功落盘后删除残留（校验模式不动真实目录）
-    if (!checkMode()) removeLegacyOutput(dir, toJS).forEach((file) => console.log("清理：", path.resolve(dir, file)))
-    // 分组模式：按清单清理已消失的模块，并写入本轮清单供下一轮比对
-    if (namingEntries.length) {
-      const files = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, plannedFileNames(namingEntries, splitPlan))
-      const removed = datas.config.pruneOutput && !checkMode() ? pruneOutput(dir, previousManifest, files) : []
-      removed.forEach((file) => console.log("清理：", path.resolve(dir, file)))
-      if (!checkMode()) writeOutputManifest(manifestPathFor(dir), files)
-    }
+  }
+  // 单文件模式：不自动删除旧分组产物，检测到遗留时提示清理方式，避免模式切换时静默大删
+  if (!datas.config.modular && !checkMode()) {
+    const hint = groupedLeftoverHint(targetDir, Boolean(datas.config.toJS))
+    if (hint) console.error(`⚠️ ${hint}`)
   }
   // 类型检查策略：写盘完成后剥离 @ts-nocheck；--check 的临时产物走同一处理再比对
   if (datas.typeCheck === "enforce") {
@@ -690,7 +814,7 @@ async function onGenerateApi(data: Defines["data"]) {
     console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))
   }
   // 产物校验：临时目录与现有产物逐文件比对
-  if (checkDir) onCheckOutput(targetDir, checkDir, datas.config.grouping?.split)
+  if (checkDir) onCheckOutput(collectCheckResult(targetDir, checkDir), checkDir, datas.config.grouping?.split)
   // 删除临时文档
   if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
   // 移除使用--js参数时生成的d.ts文件（校验模式不动真实目录）

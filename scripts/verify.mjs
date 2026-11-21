@@ -1,6 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -11,14 +10,36 @@ import { fileURLToPath } from "node:url"
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const isWindows = process.platform === "win32"
 
+/** 生成横幅：与 CLI 的 GENERATED_BANNER 同源，用于判定产物归属 */
+const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
+
 /**
- * 生成清单缓存路径：与 CLI 的 manifestPathFor 保持同一算法。
- * @param outputDir 产物目录
- * @return 清单文件路径
+ * 按文件头 1KB 判定生成物，与 CLI 的 isGeneratedFile 保持同一口径。
+ * @param {string} file 文件绝对路径
+ * @return {boolean} 是否为生成物
  */
-function manifestPath(outputDir) {
-  const key = createHash("sha1").update(resolve(outputDir)).digest("hex").slice(0, 12)
-  return join(tmpdir(), "swagger2api", `${key}.json`)
+function hasBanner(file) {
+  const fd = openSync(file, "r")
+  try {
+    const buffer = Buffer.alloc(1024)
+    const read = readSync(fd, buffer, 0, 1024, 0)
+    return buffer.subarray(0, read).toString("utf8").includes(GENERATED_BANNER)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * 断言目录内所有代码文件都带生成横幅，手写文件之外不应出现无横幅产物。
+ * @param {string} dir 产物目录
+ * @param {string[]} issues 问题收集数组
+ * @return {void}
+ */
+function assertAllGenerated(dir, issues) {
+  for (const file of collectFiles(dir)) {
+    if (!/\.(?:ts|js)$/.test(file)) continue
+    if (!hasBanner(join(dir, file))) issues.push(`生成物缺少横幅：${file}`)
+  }
 }
 
 const flags = new Set(process.argv.slice(2))
@@ -516,26 +537,27 @@ async function checkGroupedOutput() {
   ]
   for (const client of clients) {
     const out = mkdtempSync(join(tmpdir(), "s2a-grouped-"))
+    const api = join(out, "api")
     try {
       const config = join(out, "saconfig.json")
-      writeFileSync(config, JSON.stringify({ url: join(root, "fixtures", "swagger.json"), output: out, name: "index" }, null, 2))
+      writeFileSync(config, JSON.stringify({ url: join(root, "fixtures", "swagger.json"), output: api, name: "index" }, null, 2))
       const result = spawnSync(process.execPath, [cli, "-c", config, "-q", ...client.args, "--modular", "--module-name-index", "0"], { cwd: root, encoding: "utf8" })
       if (result.status !== 0) {
         console.error(`✖ 分组产物（${client.name}）：生成失败`)
         console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
         return 1
       }
-      if (!existsSync(join(out, "index.ts"))) {
+      if (!existsSync(join(api, "index.ts"))) {
         console.error(`✖ 分组产物（${client.name}）：缺少聚合入口 index.ts`)
         return 1
       }
-      const appModule = readFileSync(join(out, "App.ts"), "utf8")
+      const appModule = readFileSync(join(api, "App.ts"), "utf8")
       if (!appModule.includes("appItemsGet") || appModule.includes("homeDetailPost")) {
         console.error(`✖ 分组产物（${client.name}）：模块文件串组或缺少本组接口`)
         return 1
       }
-      for (const file of collectFiles(out).filter((name) => name.endsWith(".ts"))) {
-        const source = ts.createSourceFile(file, readFileSync(join(out, file), "utf8"), ts.ScriptTarget.Latest, true)
+      for (const file of collectFiles(api).filter((name) => name.endsWith(".ts"))) {
+        const source = ts.createSourceFile(file, readFileSync(join(api, file), "utf8"), ts.ScriptTarget.Latest, true)
         if (source.parseDiagnostics.length > 0) {
           console.error(`✖ 分组产物（${client.name}）：${file} 无法解析`)
           return 1
@@ -561,13 +583,14 @@ async function checkGroupedNaming() {
   }
   const ts = await import("typescript")
   const out = mkdtempSync(join(tmpdir(), "s2a-grouped-naming-"))
+  const api = join(out, "api")
   try {
     // 生成器要求输出目录存在，rc 从工作目录向上查找
     writeFileSync(
       join(out, "swagger2api.json"),
       JSON.stringify({
         input: { url: join(root, "fixtures", "grouping-edge.json") },
-        output: { dir: out, mode: "grouped", name: "index" },
+        output: { dir: api, mode: "grouped", name: "index" },
         client: { type: "axios" },
         grouping: { strategy: ["tag"], names: { "★☆": "symbolGroup" } }
       }, null, 2),
@@ -579,7 +602,7 @@ async function checkGroupedNaming() {
       return 1
     }
     const expected = ["SymbolGroup.ts", "G20孵化器.ts", "Con2.ts", "Index2.ts", "企业团队管理.ts", "企业团队管理2.ts", "用户管理.ts", "管理端其他功能510红名单管理.ts"]
-    const files = readdirSync(out)
+    const files = readdirSync(api)
     for (const file of expected) {
       if (!files.includes(file)) {
         console.error(`✖ 分组命名边界：缺少预期模块文件 ${file}`)
@@ -587,20 +610,20 @@ async function checkGroupedNaming() {
       }
     }
     // JSDoc 保留原始标签，模块名只用于文件与类名
-    const userModule = readFileSync(join(out, "用户管理.ts"), "utf8")
+    const userModule = readFileSync(join(api, "用户管理.ts"), "utf8")
     if (!userModule.includes("@tags 用户管理")) {
       console.error("✖ 分组命名边界：JSDoc 未保留原始标签")
       return 1
     }
-    const aggregate = readFileSync(join(out, "index.ts"), "utf8")
+    const aggregate = readFileSync(join(api, "index.ts"), "utf8")
     for (const property of ["symbolGroup", "g20孵化器", "con2", "index2"]) {
       if (!aggregate.includes(`${property} = new `)) {
         console.error(`✖ 分组命名边界：聚合入口缺少 ${property}`)
         return 1
       }
     }
-    for (const file of collectFiles(out).filter((name) => name.endsWith(".ts"))) {
-      const source = ts.createSourceFile(file, readFileSync(join(out, file), "utf8"), ts.ScriptTarget.Latest, true)
+    for (const file of collectFiles(api).filter((name) => name.endsWith(".ts"))) {
+      const source = ts.createSourceFile(file, readFileSync(join(api, file), "utf8"), ts.ScriptTarget.Latest, true)
       if (source.parseDiagnostics.length > 0) {
         console.error(`✖ 分组命名边界：${file} 无法解析`)
         return 1
@@ -685,7 +708,7 @@ async function checkGroupingCompat() {
 }
 
 /**
- * 产物清理与可复现：按清单清理不碰手写文件、手写文件护栏终止、连续两次生成字节一致。
+ * 产物清理与可复现：按横幅清理不碰手写文件、手写文件护栏终止、连续两次生成字节一致。
  * @return {number} 退出码
  */
 async function checkGroupedPrune() {
@@ -713,7 +736,6 @@ async function checkGroupedPrune() {
       ),
     )
     const generate = () => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
-    const manifestFile = manifestPath(base)
     const issues = []
 
     const first = generate()
@@ -722,19 +744,18 @@ async function checkGroupedPrune() {
       console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
       return 1
     }
-    if (!existsSync(manifestFile)) return fail("首次生成未写入产物清单")
-    if (existsSync(join(base, ".swagger2api.manifest.json"))) issues.push("清单仍写入产物目录")
-    const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
     for (const file of ["index.ts", "App.ts", "Home.ts", "Api.ts", "client.ts", "types/index.ts"]) {
-      if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
+      if (!existsSync(join(base, file))) issues.push(`缺少产物：${file}`)
     }
-    if (!manifest.files.some((file) => file.startsWith("types/") && file !== "types/index.ts")) issues.push("清单缺少拆分后的契约文件")
+    if (!collectFiles(base).some((file) => file.startsWith("types/") && file.endsWith(".ts") && file !== "types/index.ts")) {
+      issues.push("缺少拆分后的契约文件")
+    }
+    // 归属判据：整目录产物（含本工具补写的聚合入口与契约）都带生成横幅
+    assertAllGenerated(base, issues)
 
-    // 模拟手写适配文件与上一轮遗留模块
+    // 模拟手写适配文件与上一轮遗留模块：横幅只写在生成物里，手写文件不带
     writeFileSync(join(base, "axios.ts"), "// 手写适配\n")
-    writeFileSync(join(base, "Old.ts"), "export {}\n")
-    manifest.files.push("Old.ts")
-    writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`)
+    writeFileSync(join(base, "Old.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
 
     const second = generate()
     if (second.status !== 0) {
@@ -765,15 +786,22 @@ async function checkGroupedPrune() {
     if (Object.keys(before).join(",") !== Object.keys(after).join(",")) issues.push("连续两次生成的产物集合不一致")
     else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
 
-    // 手写文件护栏：清单外的同名文件必须终止生成且保持原样
-    const latest = JSON.parse(readFileSync(manifestFile, "utf8"))
-    latest.files = latest.files.filter((name) => name !== "Home.ts")
-    writeFileSync(manifestFile, `${JSON.stringify(latest, null, 2)}\n`)
+    // 手写文件护栏：不含横幅的同名文件必须终止生成且保持原样
     writeFileSync(join(base, "Home.ts"), "// 手写模块\n")
     const blocked = generate()
     if (blocked.status === 0) issues.push("手写文件冲突未终止生成")
-    if (!`${blocked.stdout ?? ""}${blocked.stderr ?? ""}`.includes("不属于上一轮生成清单")) issues.push("手写文件冲突缺少提示")
+    if (!`${blocked.stdout ?? ""}${blocked.stderr ?? ""}`.includes("不含生成横幅")) issues.push("手写文件冲突缺少提示")
     if (readFileSync(join(base, "Home.ts"), "utf8") !== "// 手写模块\n") issues.push("手写文件被覆盖")
+
+    // 关闭 prune：只报告多余产物，不删除
+    writeFileSync(join(base, "Home.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport class Home {}\n`)
+    writeFileSync(join(base, "Orphan.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
+    const kept = spawnSync(process.execPath, [cli, "-c", config, "--prune-output", "false"], { cwd: out, encoding: "utf8" })
+    if (kept.status !== 0) issues.push("prune 关闭时生成失败")
+    else {
+      if (!existsSync(join(base, "Orphan.ts"))) issues.push("prune 关闭时仍删除了多余产物")
+      if (!`${kept.stdout ?? ""}${kept.stderr ?? ""}`.includes("产物多余")) issues.push("prune 关闭时未报告多余产物")
+    }
 
     if (issues.length === 0) return 0
     return fail(...issues)
@@ -926,7 +954,7 @@ async function checkGroupedContract() {
 }
 
 /**
- * 自适应分桶与分片：桶内多类、分片门面、聚合导入、清单清理与关闭开关回滚。
+ * 自适应分桶与分片：桶内多类、分片门面、聚合导入、横幅归属与关闭开关回滚。
  * 生成后编译类型探针，断言分片合并后的调用形态与单文件产物一致。
  * @return {number} 退出码
  */
@@ -987,7 +1015,8 @@ async function checkGroupedSplit() {
     if (!splitBarrel.includes('export type { Order } from "./DgAdminPart1"')) issues.push("契约出口未导出单归属类型")
     if (!splitBarrel.includes('export type { User } from "./shared"')) issues.push("契约出口未导出共享类型")
     if (files.some((name) => /^DgAdminV\d/i.test(name))) issues.push("版本段被当作子分类生成了文件")
-    if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
+    // 归属判据：桶、分片、门面、聚合入口与契约都带生成横幅
+    assertAllGenerated(base, issues)
 
     // 桶文件：一个文件内渲染多个命名空间类，且不串入分片命名空间
     const bucket = readFileSync(join(base, "Modules.ts"), "utf8")
@@ -1010,17 +1039,6 @@ async function checkGroupedSplit() {
     const aggregate = readFileSync(join(base, "index.ts"), "utf8")
     if (!aggregate.includes('import { App, Misc } from "./Modules"')) issues.push("聚合入口未合并同桶导入")
     if (!aggregate.includes("dgAdmin = new DgAdmin(this)")) issues.push("聚合入口未挂载分片命名空间")
-
-    // 清单：落在依赖缓存，桶、分片与门面都纳入，供下一轮清理
-    const manifestFile = manifestPath(base)
-    if (!existsSync(manifestFile)) issues.push("清单未写入依赖缓存")
-    else {
-      const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
-      for (const file of ["Modules.ts", "DgAdmin.ts", "DgAdminPart1.ts", "DgAdminPart2.ts", "client.ts", "types/index.ts"]) {
-        if (!manifest.files.includes(file)) issues.push(`清单缺少 ${file}`)
-      }
-      if ("version" in manifest) issues.push("清单包含工具版本")
-    }
 
     // 可复现：同一配置再生成一次，产物集合与内容完全一致（含 types/ 子目录）
     const snapshot = () => Object.fromEntries(collectFiles(base).sort().map((name) => [name, readFileSync(join(base, name), "utf8")]))
@@ -1066,8 +1084,6 @@ async function checkGroupedSplit() {
     } else {
       const leftovers = collectFiles(shrinkDir).filter((name) => /^(?:types\/)?DgAdmin/.test(name))
       if (leftovers.length) issues.push(`契约缩水后残留：${leftovers.join(", ")}`)
-      const shrinkManifest = JSON.parse(readFileSync(manifestPath(shrinkDir), "utf8"))
-      if (shrinkManifest.files.some((name) => name.includes("DgAdmin"))) issues.push("契约缩水后清单仍记录已删除模块")
       const shrinkCheck = spawnSync(process.execPath, [cli, "-c", shrinkConfig("shrink-check.json", shrinkSpec), "--check"], { cwd: out, encoding: "utf8" })
       if (shrinkCheck.status !== 0) {
         issues.push("契约缩水后 --check 未通过")
@@ -1136,6 +1152,8 @@ async function checkGroupedSplit() {
         const source = ts.createSourceFile(file, readFileSync(join(jsDir, file), "utf8"), ts.ScriptTarget.Latest, true)
         if (source.parseDiagnostics.length > 0) issues.push(`JS 声明无法解析：${file}`)
       }
+      // JS 模式的声明文件与门面实现同样要带横幅，否则下一轮会被误判为手写文件
+      assertAllGenerated(jsDir, issues)
     }
 
     if (issues.length === 0) return 0
@@ -1198,13 +1216,13 @@ async function checkSplitSmallBuckets() {
 }
 
 /**
- * 手动模块化清单：连续生成时清理已消失模块，`--check` 能发现缺失与过期产物。
+ * 手动模块化（横幅清理）：连续生成时清理已消失模块，`--check` 能发现缺失、不一致与多余产物。
  * @return {number} 退出码
  */
 async function checkManualModularPrune() {
   const cli = join(root, "dist", "cli.js")
   if (!existsSync(cli)) {
-    console.error("✖ 手动模块化清单：未找到 dist/cli.js，需先构建或提供构建产物")
+    console.error("✖ 手动模块化清理：未找到 dist/cli.js，需先构建或提供构建产物")
     return 1
   }
   const out = mkdtempSync(join(tmpdir(), "s2a-manual-modular-"))
@@ -1222,46 +1240,51 @@ async function checkManualModularPrune() {
 
     const first = run(writeConfig("full"))
     if (first.status !== 0) {
-      console.error("✖ 手动模块化清单：首次生成失败")
+      console.error("✖ 手动模块化清理：首次生成失败")
       console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
       return 1
     }
     if (!existsSync(join(api, "Misc.ts"))) {
-      console.error("✖ 手动模块化清单：首次生成缺少 Misc.ts")
+      console.error("✖ 手动模块化清理：首次生成缺少 Misc.ts")
       return 1
     }
 
     delete spec.paths["/misc/ping"]
     const second = run(writeConfig("trimmed"))
     if (second.status !== 0) {
-      console.error("✖ 手动模块化清单：二次生成失败")
+      console.error("✖ 手动模块化清理：二次生成失败")
       console.error(`${second.stdout ?? ""}${second.stderr ?? ""}`)
       return 1
     }
-    if (existsSync(join(api, "Misc.ts"))) {
-      console.error("✖ 手动模块化清单：已消失的模块未被清理")
+    // 顶层模块与嵌套契约都要清干净：只删模块文件会留下幽灵契约
+    const leftovers = collectFiles(api).filter((name) => /^(?:types\/)?Misc\.(?:ts|js|d\.ts)$/.test(name))
+    if (leftovers.length) {
+      console.error(`✖ 手动模块化清理：已消失模块残留 ${leftovers.join("、")}`)
       return 1
     }
     const aggregate = readFileSync(join(api, "index.ts"), "utf8")
     if (aggregate.includes("Misc")) {
-      console.error("✖ 手动模块化清单：聚合入口仍引用已清理模块")
-      return 1
-    }
-    if (existsSync(join(api, ".swagger2api.manifest.json"))) {
-      console.error("✖ 手动模块化清单：清单仍写入产物目录")
+      console.error("✖ 手动模块化清理：聚合入口仍引用已清理模块")
       return 1
     }
 
     const checkOk = run(writeConfig("trimmed"), ["--check"])
     if (checkOk.status !== 0) {
-      console.error("✖ 手动模块化清单：--check 未通过")
+      console.error("✖ 手动模块化清理：--check 未通过")
       console.error(`${checkOk.stdout ?? ""}${checkOk.stderr ?? ""}`)
       return 1
     }
     rmSync(join(api, "App.ts"))
     const checkBroken = run(writeConfig("trimmed"), ["--check"])
     if (checkBroken.status === 0 || !`${checkBroken.stdout ?? ""}${checkBroken.stderr ?? ""}`.includes("缺少产物")) {
-      console.error("✖ 手动模块化清单：--check 未发现缺失产物")
+      console.error("✖ 手动模块化清理：--check 未发现缺失产物")
+      return 1
+    }
+    // 多余产物：真实目录中带横幅、但本轮不生成的文件按「产物多余」报出
+    writeFileSync(join(api, "Stale.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
+    const checkExtra = run(writeConfig("trimmed"), ["--check"])
+    if (checkExtra.status === 0 || !`${checkExtra.stdout ?? ""}${checkExtra.stderr ?? ""}`.includes("产物多余")) {
+      console.error("✖ 手动模块化清理：--check 未发现多余产物")
       return 1
     }
     return 0
@@ -1271,7 +1294,7 @@ async function checkManualModularPrune() {
 }
 
 /**
- * 扁平配置与产物校验：一份 swagger2api.json 驱动分组生成，清单落缓存，--check 能发现篡改与缺失。
+ * 扁平配置与产物校验：一份 swagger2api.json 驱动分组生成，产物靠横幅归属，--check 能发现缺失、篡改与多余。
  * @return {number} 退出码
  */
 async function checkFlatConfig() {
@@ -1325,7 +1348,9 @@ async function checkFlatConfig() {
     const splitTypes = collectFiles(api).filter((file) => file.startsWith("types/") && file.endsWith(".ts") && file !== "types/index.ts")
     if (!splitTypes.length) issues.push("契约未按业务文件拆分")
     else if (!splitTypes.some((file) => readFileSync(join(api, file), "utf8").includes("export interface "))) issues.push("拆分后的契约文件缺少声明")
-    if (files.includes(".swagger2api.manifest.json")) issues.push("清单仍写入产物目录")
+    if (files.includes(".swagger2api.manifest.json")) issues.push("产物目录混入清单文件")
+    // 归属判据：所有生成文件带横幅，产物目录不落清单等额外状态
+    assertAllGenerated(api, issues)
     const bucket = readFileSync(join(api, "Modules.ts"), "utf8")
     for (const name of ["class App", "class DgAdmin", "class Misc"]) {
       if (!bucket.includes(name)) issues.push(`单桶文件缺少 ${name}`)
@@ -1335,17 +1360,6 @@ async function checkFlatConfig() {
     if (!aggregate.includes('export * from "./types"')) issues.push("聚合入口未导出 types")
     if (!aggregate.includes('export * from "./client"')) issues.push("聚合入口未导出 client")
     if (!readFileSync(join(api, "client.ts"), "utf8").includes("axios")) issues.push("扁平配置的 client 未生效")
-
-    const manifestFile = manifestPath(api)
-    if (!existsSync(manifestFile)) {
-      issues.push("清单未写入依赖缓存")
-    } else {
-      const manifest = JSON.parse(readFileSync(manifestFile, "utf8"))
-      if ("version" in manifest) issues.push("清单包含工具版本")
-      if (!manifest.files.includes("Modules.ts")) issues.push("清单缺少 Modules.ts")
-      if (!manifest.files.includes("types/index.ts")) issues.push("清单缺少 types/index.ts")
-      if (!manifest.files.some((file) => file.startsWith("types/") && file !== "types/index.ts")) issues.push("清单缺少拆分后的契约文件")
-    }
 
     // 升级退场：旧版固定产物在成功生成后自动删除
     writeFileSync(join(api, "data-contracts.ts"), "// 旧产物\n")
@@ -1365,6 +1379,25 @@ async function checkFlatConfig() {
       console.error(`${ok.stdout ?? ""}${ok.stderr ?? ""}`)
     }
 
+    // --check --json：stdout 可解析，字段固定，供 AI 与 CI 直接消费
+    const jsonOk = run(["--check", "--json"])
+    if (jsonOk.status !== 0) {
+      issues.push("--check --json 对一致产物判失败")
+      console.error(`${jsonOk.stdout ?? ""}${jsonOk.stderr ?? ""}`)
+    } else {
+      try {
+        const summary = JSON.parse(jsonOk.stdout.slice(jsonOk.stdout.indexOf("{")))
+        if (summary.schemaVersion !== 1) issues.push("--check --json 缺少 schemaVersion")
+        if (!summary.toolVersion) issues.push("--check --json 缺少 toolVersion")
+        if (summary.ok !== true) issues.push("--check --json 结论错误")
+        for (const key of ["missing", "mismatched", "extra"]) {
+          if (!Array.isArray(summary[key])) issues.push(`--check --json 缺少 ${key} 列表`)
+        }
+      } catch (error) {
+        issues.push(`--check --json 输出无法解析：${error.message}`)
+      }
+    }
+
     // 篡改后必须失败，且真实产物保持篡改状态（校验不落地）
     writeFileSync(join(api, "Modules.ts"), `${readFileSync(join(api, "Modules.ts"), "utf8")}\n// tampered\n`)
     const tampered = run(["--check"])
@@ -1377,6 +1410,23 @@ async function checkFlatConfig() {
     const missing = run(["--check"])
     if (missing.status === 0) issues.push("--check 未发现产物缺失")
     if (!`${missing.stdout ?? ""}${missing.stderr ?? ""}`.includes("缺少产物")) issues.push("--check 缺少缺失提示")
+
+    // 模式切换：单文件模式不自动删除旧分组产物，只提示清理方式
+    // 配置放在子目录，避免与同目录项目配置共用输出目录而被冲突校验拦截
+    writeFileSync(join(api, "Modules.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
+    const singleDir = join(out, "single")
+    mkdirSync(singleDir, { recursive: true })
+    const singleConfig = join(singleDir, "swagger2api.json")
+    writeFileSync(singleConfig, JSON.stringify({ file: join(root, "fixtures", "grouping-split.json"), output: "../api", name: "index" }, null, 2))
+    const single = spawnSync(process.execPath, [cli], { cwd: singleDir, encoding: "utf8" })
+    if (single.status !== 0) issues.push("单文件模式切换生成失败")
+    else if (!`${single.stdout ?? ""}${single.stderr ?? ""}`.includes("分组模式产物")) issues.push("单文件模式未提示旧分组产物")
+
+    // 跨配置冲突：同目录另一份配置指向同一输出时以退出码 2 拒绝，且不落盘
+    writeFileSync(join(out, "swagger2api.other.json"), JSON.stringify({ file: join(root, "fixtures", "grouping-split.json"), output: "./api", name: "index" }, null, 2))
+    const conflict = spawnSync(process.execPath, [cli], { cwd: out, encoding: "utf8" })
+    if (conflict.status !== 2) issues.push(`跨配置输出重叠未以退出码 2 拒绝（实际 ${conflict.status}）`)
+    if (!`${conflict.stdout ?? ""}${conflict.stderr ?? ""}`.includes("重叠")) issues.push("跨配置输出重叠缺少提示")
 
     if (issues.length === 0) return 0
     console.error(`\n✖ 扁平配置与产物校验未通过：${issues.length} 项`)
@@ -1602,13 +1652,13 @@ const steps = [
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },
   { label: "分桶合并（中间小桶并入相邻桶）", run: checkSplitSmallBuckets },
-  { label: "手动模块化清单（清理 / --check）", run: checkManualModularPrune },
-  { label: "扁平配置与产物校验（缓存清单 / --check）", run: checkFlatConfig },
+  { label: "手动模块化清理（横幅 / --check）", run: checkManualModularPrune },
+  { label: "扁平配置与产物校验（横幅归属 / --check）", run: checkFlatConfig },
   { label: "类型检查策略（enforce / skip / --check）", run: checkTypeCheckPolicy },
   { label: "接口面基线（提取 / 比对 / 多目标）", run: checkSurfaceCommand },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
-  { label: "产物清理与可复现（清单清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
+  { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

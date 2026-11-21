@@ -19,13 +19,14 @@
 ```
 
 - 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`typeCheck`（`skip` / `enforce`）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
-- 只写项目自己的口径；分桶阈值、分片规则、清单、清理与产物校验默认由工具决定，需要时可用 `grouping.split` 覆写（见下文「自适应分桶」）
+- 只写项目自己的口径；分桶阈值、分片规则、清理与产物校验默认由工具决定，需要时可用 `grouping.split` 覆写（见下文「自适应分桶」）
 - `typeCheck: "enforce"` 让类型检查接管生成物：写盘后剥离 `.ts` / `.js` / `.d.ts` 中独立成行的 `// @ts-nocheck`，`--check` 也按剥离后的产物比对；默认 `skip` 保留该行
 - `mode: "grouped"` 自动按路径首段分组，并按体量分桶、对超大命名空间分片；对外仍是 `api.<命名空间>.<方法>`
 - 产物布局：`mode: "grouped"` 固定为 `index`（聚合入口）+ 业务模块文件 + `client`（客户端底座）+ `types/`（契约目录），契约统一从 `types/index` 导出；契约再按业务文件拆分为 `types/<业务文件>.ts` 与 `types/shared.ts`
 - 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留，无需手动清理
 - 相对路径按配置文件所在目录解析，从任意目录执行都能落对位置
-- 分组模式的生成清单存放在系统临时目录缓存，不进入仓库与产物目录；`--check` 只校验产物是否与当前配置一致
+- 产物归属靠生成横幅识别：生成物（含聚合入口与契约）文件头带 `THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API`，手写文件不带；`--check` 与清理都以文件头前 1KB 判定，不依赖任何持久状态
+- 不要手写生成目录、不要在自写文件里复用生成横幅，否则会被当成产物覆盖或清理
 - `swagger2api init` 可交互生成这份配置；`swagger2api` 无参即按最近的配置生成
 
 ## 多目标配置
@@ -85,8 +86,8 @@
 - 自适应分桶：`mode: "grouped"` 默认启用（`grouping.split` 未配置即为 `true`）。总量 ≤ `minRoutes`（默认 150）时只生成一个 `Modules` 模块文件；否则按命名空间码点顺序装箱，单桶达到 `targetRoutes`（默认 300）后开新桶；装箱后小于 `minBucketRoutes`（默认 60）的桶与相邻桶合并（优先前一桶且不超过 `maxRoutes`）；单个命名空间超过 `maxRoutes`（默认 450）时按子分类分片，尾片小于 `minBucketRoutes` 且与前一片合并后不超过 `maxRoutes` 时并入前一片，分片由门面类合并实例与类型；桶名取桶内首个命名空间，单桶固定 `Modules`。对外始终是 `api.<命名空间>.<方法>`
 - `grouping.split` 三种形态：不配置即采用上述默认阈值；写对象可按需覆写 `minRoutes` / `targetRoutes` / `maxRoutes` / `minBucketRoutes` / `fallback`（默认 `misc`）/ `categories`，未写的项仍取默认；写 `false` 关闭自适应分桶，一个命名空间一个模块文件，仅作回滚逃生口。业务仓通常保持默认，确需固定文件数或调整桶大小时再覆写。离线产物可用 `swagger2api inspect --dir <目录>` 按同一判据审计（见 [CLI 参考](./cli)）
 - 保留名：`index`、`types`、`client`、`shared` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
-- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按上一轮生成清单清理，不触碰手写适配文件与清单外产物；手动 `--modular` 同样维护清单并清理已消失模块。清单存放在系统临时目录缓存，不进入仓库
-- 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`
+- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按生成横幅清理，只删除带横幅且本轮不再生成的文件，手写适配文件不受影响；开关关闭时只报告多余产物、不删除；手动 `--modular` 同样按横幅清理已消失模块。横幅只读文件头前 1KB
+- 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`。同一输出目录只允许一份配置：同目录其他配置的输出与本配置相同或互相嵌套时以退出码 2 拒绝
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
 ## 配置选项
@@ -97,7 +98,7 @@
 | `output` | string | `'./src/api'` | 生成代码的输出目录，相对配置文件所在目录解析 |
 | `name` | string | `'index'` | 接口文件名称，默认后缀为ts |
 | `typeCheck` | `skip` / `enforce` | `'skip'` | 生成物是否保留 `// @ts-nocheck`；`enforce` 在写盘后剥离，`--check` 走同一处理 |
-| `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；有差异时非 0 退出 |
+| `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；按缺失 / 不一致 / 多余三类报出，有差异时非 0 退出 |
 | `--quick,-q` | boolean | `false` | 快速模式，直接使用配置文件参数，不再二次确认参数 |
 | `--config,-c` | string | `'saconfig.json'` | 填写配置文件路径，支持多选，用【,】分隔 |
 | `--config-all,-ca` | boolean | `false` | 加载全部配置文件，不进行选择 |
@@ -107,7 +108,7 @@
 | `--remove-param,-rp` | boolean | `false` | 移除{.+}参数 |
 | `--remove-prefix-index,-rpi` | number | 未设置 | 移除前缀索引；传 `-1` 或不传均表示不移除 |
 | `--remove-dts,-rd` | boolean | `false` | 移除使用--js参数时生成的d.ts文件 |
-| `--prune-output` | boolean | 分组模式默认开启 | 按上一轮生成清单清理已消失的模块文件，不触碰手写文件与清单外产物 |
+| `--prune-output` | boolean | 分组模式默认开启 | 按生成横幅清理已消失的产物，只读文件头前 1KB，不触碰手写文件；关闭时只报告不删除 |
 | `--remove-empty-components,-rec` | boolean | `true` | 移除空组件定义 |
 | `--extract-request-query,-erq` | string | - | 提取参数，将query参数中的指定对象字段提取为根部字段，支持多选，用【,】分隔，每个接口只提取第一次命中的字段 |
 | `--extract-response-raw,-err` | boolean | `false` | 提取响应，将AxiosResponse返回值转移到raw字段，根部字段自行定义，使用该参数需在响应拦截中重新设计实际的返回值。仅 axios 客户端生效，需搭配 `--axios` 参数，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err) |

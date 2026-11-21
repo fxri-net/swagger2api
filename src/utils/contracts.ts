@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import ts from "typescript"
+import { isGeneratedFile } from "./modular"
 import { SHARED_BASE, TYPES_DIR } from "./naming"
 
 /** 契约顶层声明 */
@@ -355,16 +356,10 @@ function readText(file: string) {
 
 /**
  * 按业务文件拆分契约：生成 types/<业务文件> 与 types/shared，并把 types/index 改为 barrel。
- * @param options 输出目录、业务文件名、输出形态与上一轮清单
+ * @param options 输出目录、业务文件名与输出形态
  * @return 写入结果与错误
  */
-export function splitContractOutput(options: {
-  dir: string
-  moduleFiles: string[]
-  toJS: boolean
-  /** 上一轮生成清单；null 表示该用法不维护清单，跳过手写护栏 */
-  knownFiles: Set<string> | null
-}): ContractSplitResult {
+export function splitContractOutput(options: { dir: string; moduleFiles: string[]; toJS: boolean }): ContractSplitResult {
   const typesDir = path.join(options.dir, TYPES_DIR)
   const entryFile = options.toJS ? "index.d.ts" : "index.ts"
   const source = readText(path.join(typesDir, entryFile))
@@ -383,10 +378,12 @@ export function splitContractOutput(options: {
   // 先整体校验手写冲突，避免部分落盘后才失败；barrel 由生成器提供，属本轮产物
   const barrelFiles = new Set(["index.ts", "index.js", "index.d.ts"])
   for (const file of files.keys()) {
-    if (barrelFiles.has(file) || !options.knownFiles) continue
+    if (barrelFiles.has(file)) continue
     const relative = `${TYPES_DIR}/${file}`
-    if (fs.existsSync(path.join(options.dir, relative)) && !options.knownFiles.has(relative)) {
-      errors.push(`输出目录存在同名手写文件：${relative}（不属于上一轮生成清单）`)
+    const target = path.join(options.dir, relative)
+    // 生成物带横幅，可安全覆盖；不含横幅的同名文件视为手写，终止写入
+    if (fs.existsSync(target) && !isGeneratedFile(target)) {
+      errors.push(`输出目录存在同名手写文件：${relative}（不含生成横幅）`)
     }
   }
   if (errors.length > 0) return { written: [], errors }

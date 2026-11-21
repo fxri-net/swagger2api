@@ -2,7 +2,18 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { buildAggregateDeclarations, buildAggregateEntry, buildSplitFacade, buildSplitFacadeDeclarations, collectGeneratedFiles } from "../utils/modular"
+import {
+  GENERATED_BANNER,
+  buildAggregateDeclarations,
+  buildAggregateEntry,
+  buildSplitFacade,
+  buildSplitFacadeDeclarations,
+  collectGeneratedFiles,
+  findHandwrittenConflicts,
+  findStaleOutputFiles,
+  isGeneratedFile,
+  pruneGeneratedOutput
+} from "../utils/modular"
 
 /** 模块列表：含与聚合类同名的模块，覆盖别名分支 */
 const modules = [
@@ -48,9 +59,87 @@ describe("分组聚合入口", () => {
     const declarations = buildAggregateDeclarations(splitModules, "Api")
     expect(declarations).toContain('import { App, Misc } from "./App"')
   })
+
+  it("本工具自写产物同样带生成横幅，整目录可被同源识别", () => {
+    expect(buildAggregateEntry(modules, "Api", "", false)).toContain(GENERATED_BANNER)
+    expect(buildAggregateDeclarations(modules, "Api")).toContain(GENERATED_BANNER)
+    const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
+    expect(buildSplitFacade(facade)).toContain(GENERATED_BANNER)
+    expect(buildSplitFacadeDeclarations(facade)).toContain(GENERATED_BANNER)
+  })
 })
 
-describe("生成清单收集", () => {
+describe("产物归属与清理", () => {
+  /** 用例创建的临时目录，结束后清理 */
+  const roots: string[] = []
+
+  afterEach(() => {
+    while (roots.length) fs.rmSync(roots.pop() as string, { recursive: true, force: true })
+  })
+
+  /**
+   * 创建用例目录
+   * @return 目录绝对路径
+   */
+  const makeDir = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "s2a-output-"))
+    roots.push(dir)
+    return dir
+  }
+
+  /**
+   * 写入文件（自动建目录）
+   * @param dir 目录
+   * @param file 相对路径
+   * @param content 内容
+   * @return 无
+   */
+  const write = (dir: string, file: string, content: string) => {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+    fs.writeFileSync(path.join(dir, file), content)
+  }
+
+  /** 生成物内容 */
+  const generated = `/* ## ${GENERATED_BANNER} ## */\nexport class App {}\n`
+
+  it("按文件头横幅判定归属，手写文件不算生成物", () => {
+    const dir = makeDir()
+    write(dir, "App.ts", generated)
+    write(dir, "hand.ts", "// 手写适配\n")
+    expect(isGeneratedFile(path.join(dir, "App.ts"))).toBe(true)
+    expect(isGeneratedFile(path.join(dir, "hand.ts"))).toBe(false)
+  })
+
+  it("横幅只在文件头 1KB 内生效，正文提及不算生成物", () => {
+    const dir = makeDir()
+    write(dir, "hand.ts", `${"// 填充内容，确保横幅落在 1KB 之后\n".repeat(80)}/* ${GENERATED_BANNER} */\n`)
+    expect(isGeneratedFile(path.join(dir, "hand.ts"))).toBe(false)
+  })
+
+  it("递归找出不在 keep 集合内的生成物，保留手写文件与 keep 内文件", () => {
+    const dir = makeDir()
+    write(dir, "index.ts", generated)
+    write(dir, "types/index.ts", generated)
+    write(dir, "types/Old.ts", generated)
+    write(dir, "types/hand.ts", "// 手写契约\n")
+    expect(findStaleOutputFiles(dir, ["index.ts", "types/index.ts"])).toEqual(["types/Old.ts"])
+    expect(pruneGeneratedOutput(dir, ["index.ts", "types/index.ts"])).toEqual(["types/Old.ts"])
+    expect(fs.existsSync(path.join(dir, "types/Old.ts"))).toBe(false)
+    expect(fs.existsSync(path.join(dir, "types/hand.ts"))).toBe(true)
+    expect(fs.existsSync(path.join(dir, "types/index.ts"))).toBe(true)
+  })
+
+  it("手写文件护栏：不含横幅的同名文件视为冲突", () => {
+    const dir = makeDir()
+    const entries = [{ raw: "app", key: "app", fileName: "App", className: "App", property: "app", reason: "", source: "auto" as const }]
+    write(dir, "App.ts", "// 手写模块\n")
+    expect(findHandwrittenConflicts(dir, entries, false)).toEqual(["App.ts"])
+    write(dir, "App.ts", generated)
+    expect(findHandwrittenConflicts(dir, entries, false)).toEqual([])
+  })
+})
+
+describe("本轮产物收集", () => {
   /** 用例创建的临时目录，结束后清理 */
   const roots: string[] = []
 

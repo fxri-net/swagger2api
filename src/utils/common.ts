@@ -87,6 +87,35 @@ export function getFilename() {
 export function getDirname() {
   return typeof require !== "undefined" && typeof module !== "undefined" ? __dirname : path.dirname(getFilename())
 }
+/** 工具版本缓存 */
+let toolVersion: string | null = null
+/**
+ * 读取工具版本：从模块所在目录向上查找包根 package.json。
+ * @return 版本号；未找到返回空串
+ */
+export function readToolVersion() {
+  if (toolVersion !== null) return toolVersion
+  toolVersion = ""
+  let dir = getDirname()
+  for (;;) {
+    const file = path.join(dir, "package.json")
+    if (fs.existsSync(file)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
+        if (parsed.name === "@fxri/swagger2api" && typeof parsed.version === "string") {
+          toolVersion = parsed.version
+          break
+        }
+      } catch {
+        // 非法 JSON 视为非目标包，继续向上
+      }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return toolVersion
+}
 /**
  * 扫描配置文件（替代 glob 的 `./**\/saconfig*.json`）
  * 语义对齐 glob 默认值：包含根目录、跳过 node_modules 与点开头目录、结果按字典序排序

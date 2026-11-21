@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   applyEnvOverrides,
   applyProfile,
+  findOutputDirConflicts,
   findUpward,
   getByPath,
   loadConfigLayers,
@@ -222,5 +223,37 @@ describe("扁平配置归一化", () => {
   it("嵌套配置原样返回", () => {
     const nested = { input: { url: "https://example.com" }, output: { dir: "./api", mode: "single" } }
     expect(normalizeConfig(nested)).toEqual(nested)
+  })
+})
+
+describe("同目录配置输出冲突", () => {
+  it("输出相同或互相嵌套时报冲突，不同输出放行", () => {
+    const root = makeTree({
+      "swagger2api.json": JSON.stringify({ input: { file: "./a.json" }, output: { dir: "./api" } }),
+      "swagger2api.base.json": JSON.stringify({ input: { file: "./b.json" }, output: { dir: "./api/nested" } }),
+      "swagger2api.lc.json": JSON.stringify({ input: { file: "./c.json" }, output: { dir: "./other" } })
+    })
+    const conflicts = findOutputDirConflicts({
+      configDir: root,
+      currentFile: path.join(root, "swagger2api.json"),
+      outputDirs: [path.join(root, "api")]
+    })
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]).toContain("swagger2api.base.json")
+  })
+
+  it("排除当前配置文件与本地叠加层，目标输出参与比较", () => {
+    const root = makeTree({
+      "swagger2api.json": JSON.stringify({ defaults: { output: "./api" }, targets: [{ id: "a", url: "https://example.com/a" }] }),
+      "swagger2api.local.json": JSON.stringify({ output: { dir: "./api" } }),
+      "saconfig.json": JSON.stringify({ url: "https://example.com/b", output: "./api" })
+    })
+    const conflicts = findOutputDirConflicts({
+      configDir: root,
+      currentFile: path.join(root, "swagger2api.json"),
+      outputDirs: [path.join(root, "api")]
+    })
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]).toContain("saconfig.json")
   })
 })

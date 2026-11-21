@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto"
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import type { SplitNamespacePlan } from "./grouping"
 import { CLIENT_BASE, LEGACY_OUTPUT_BASES, TYPES_DIR, findOrphanModules, type GroupNameInfo } from "./naming"
@@ -20,20 +18,78 @@ export interface ModuleEntry {
 /** 不参与聚合的文件名（折叠键比较，兼容大小写不敏感的文件系统） */
 const RESERVED = new Set(["index", "shared", "types", CLIENT_BASE, ...LEGACY_OUTPUT_BASES])
 
-/** 生成清单：只记录文件名，不含工具版本，避免业务仓产物携带易腐信息 */
-export interface OutputManifest {
-  /** 本轮生成的文件名 */
-  files: string[]
+/**
+ * 生成横幅：生成器写入文件头，用于判定产物归属。
+ * 本工具自行补写的聚合入口、门面与声明同样带上该横幅，保证整目录同源可识别。
+ */
+export const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
+/** 判定横幅时读取的文件头字节数：只读前 1KB，不整文件读取 */
+const BANNER_SCAN_BYTES = 1024
+/** 本工具自写文件头：与生成器产物同样可被横幅识别 */
+const GENERATED_HEADER = ["/* eslint-disable */", "/* tslint:disable */", `/* ## ${GENERATED_BANNER} ## */`]
+
+/**
+ * 判断文件是否为生成物：文件头前 1KB 含生成横幅。
+ * @param file 文件绝对路径
+ * @return 是否为生成物
+ */
+export function isGeneratedFile(file: string) {
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(file, "r")
+    const buffer = Buffer.alloc(BANNER_SCAN_BYTES)
+    const read = fs.readSync(fd, buffer, 0, BANNER_SCAN_BYTES, 0)
+    return buffer.subarray(0, read).toString("utf8").includes(GENERATED_BANNER)
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
+  }
 }
 
 /**
- * 清单缓存路径：按输出目录哈希落在系统临时目录，不进入业务仓与产物目录。
- * @param outputDir 输出目录
- * @return 清单文件路径
+ * 递归收集目录下的生成物：只认文件头横幅，跳过硬链接与软链接。
+ * @param dir 扫描目录
+ * @param base 相对路径基准目录
+ * @return 相对路径（统一 / 分隔，排序）
  */
-export function manifestPathFor(outputDir: string) {
-  const key = createHash("sha1").update(path.resolve(outputDir)).digest("hex").slice(0, 12)
-  return path.join(os.tmpdir(), "swagger2api", `${key}.json`)
+export function collectGeneratedFilesOf(dir: string, base = dir): string[] {
+  if (!fs.existsSync(dir)) return []
+  const files: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...collectGeneratedFilesOf(full, base))
+      continue
+    }
+    if (!entry.isFile() || !isGeneratedFile(full)) continue
+    files.push(path.relative(base, full).split(path.sep).join("/"))
+  }
+  return files.sort()
+}
+
+/**
+ * 失效产物：目录中含生成横幅、但不在本轮 keep 集合内的文件。
+ * @param dir 输出目录
+ * @param keep 本轮产物相对路径
+ * @return 待清理的相对路径
+ */
+export function findStaleOutputFiles(dir: string, keep: string[]) {
+  const keepSet = new Set(keep)
+  return collectGeneratedFilesOf(dir).filter((file) => !keepSet.has(file))
+}
+
+/**
+ * 按横幅清理失效产物：只删除生成物，手写文件不受影响。
+ * @param dir 输出目录
+ * @param keep 本轮产物相对路径
+ * @return 已删除的相对路径
+ */
+export function pruneGeneratedOutput(dir: string, keep: string[]) {
+  const stale = findStaleOutputFiles(dir, keep)
+  for (const file of stale) fs.rmSync(path.join(dir, file))
+  return stale
 }
 
 /**
@@ -79,24 +135,9 @@ export function toModuleEntries(entries: GroupNameInfo[]) {
 }
 
 /**
- * 读取上一轮生成清单；缺失或损坏时返回 null。
- * @param file 清单路径
- * @return 清单或 null
- */
-export function readOutputManifest(file: string): OutputManifest | null {
-  if (!fs.existsSync(file)) return null
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
-    return { files: Array.isArray(parsed.files) ? parsed.files.map(String) : [] }
-  } catch {
-    return null
-  }
-}
-
-/**
  * 收集本轮实际生成的产物文件（含 JS 模式的声明文件）。
  * 契约文件名与业务文件同源，按命名推导并校验存在；不扫描 types/ 目录，
- * 避免把上一轮遗留（已删除的组 / 分片）的契约当成本轮产物写进清单。
+ * 避免把上一轮遗留（已删除的组 / 分片）的契约当成本轮产物。
  * @param dir 输出目录
  * @param entries 命名表
  * @param toJS 是否为 JS 输出
@@ -141,54 +182,20 @@ export function removeLegacyOutput(dir: string, toJS: boolean) {
 }
 
 /**
- * 写生成清单。
- * @param file 清单路径
- * @param files 本轮产物
- * @return 无
- */
-export function writeOutputManifest(file: string, files: string[]) {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, `${JSON.stringify({ files }, null, 2)}\n`)
-}
-
-/**
- * 按上一轮清单清理：只删除清单内、本轮不再生成的文件。
- * @param dir 输出目录
- * @param manifest 上一轮清单
- * @param keep 本轮产物
- * @return 已删除的文件名
- */
-export function pruneOutput(dir: string, manifest: OutputManifest | null, keep: string[]) {
-  if (!manifest) return []
-  const keepSet = new Set(keep)
-  const removed: string[] = []
-  for (const file of manifest.files) {
-    if (keepSet.has(file)) continue
-    const target = path.join(dir, file)
-    if (!fs.existsSync(target)) continue
-    fs.rmSync(target)
-    removed.push(file)
-  }
-  return removed
-}
-
-/**
- * 手写文件护栏：目标模块文件名已存在且不属于上一轮生成清单时返回冲突。
+ * 手写文件护栏：目标文件已存在且不含生成横幅时返回冲突。
  * @param dir 输出目录
  * @param entries 命名表
  * @param toJS 是否为 JS 输出
- * @param manifest 上一轮清单（首轮为 null）
  * @param extraFiles 额外产物文件名（桶、分片、门面，不含扩展名）
  * @return 冲突文件名
  */
-export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], toJS: boolean, manifest: OutputManifest | null, extraFiles: string[] = []) {
+export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], toJS: boolean, extraFiles: string[] = []) {
   const ext = toJS ? ".js" : ".ts"
-  const known = new Set(manifest?.files ?? [])
-  // 固定产物（客户端底座与契约出口）同样纳入护栏，避免首轮生成覆盖手写文件
+  // 固定产物（客户端底座与契约出口）同样纳入护栏，避免覆盖手写文件
   const bases = new Set([CLIENT_BASE, `${TYPES_DIR}/index`, ...entries.flatMap((entry) => [entry.fileName, entry.importFrom ?? entry.fileName]), ...extraFiles])
   return [...bases]
     .flatMap((base) => (toJS ? [`${base}${ext}`, `${base}.d.ts`] : [`${base}${ext}`]))
-    .filter((file) => fs.existsSync(path.join(dir, file)) && !known.has(file))
+    .filter((file) => fs.existsSync(path.join(dir, file)) && !isGeneratedFile(path.join(dir, file)))
 }
 
 /**
@@ -220,8 +227,7 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
   })
   const props = modules.map((item) => `${item.property} = new ${aliasOf(item)}(this)`)
   const lines = [
-    "/* eslint-disable */",
-    "/* tslint:disable */",
+    ...GENERATED_HEADER,
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...importLines,
     `export * from "./${TYPES_DIR}"`,
@@ -347,8 +353,7 @@ export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName:
   })
   const props = modules.map((item) => `  ${item.property}: ${aliasOf(item)}`)
   return [
-    "/* eslint-disable */",
-    "/* tslint:disable */",
+    ...GENERATED_HEADER,
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     `export * from "./${TYPES_DIR}"`,
@@ -400,8 +405,7 @@ export function buildSplitFacade(facade: SplitFacade) {
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
   const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
   return [
-    "/* eslint-disable */",
-    "/* tslint:disable */",
+    ...GENERATED_HEADER,
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     "",
@@ -436,8 +440,7 @@ export function buildSplitFacadeJs(facade: SplitFacade) {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
   return [
-    "/* eslint-disable */",
-    "/* tslint:disable */",
+    ...GENERATED_HEADER,
     ...imports,
     "",
     `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
@@ -464,8 +467,7 @@ export function buildSplitFacadeDeclarations(facade: SplitFacade) {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
   return [
-    "/* eslint-disable */",
-    "/* tslint:disable */",
+    ...GENERATED_HEADER,
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     "",
