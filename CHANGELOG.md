@@ -1,5 +1,38 @@
 # Swagger 转 API
 
+## 1.3.4
+
+> 2026-11-21 发布
+
+### ✨ 新增功能
+
+- 同目录其他配置输出与本配置相同或嵌套时以退出码 2 拒绝（JSON 模式返回 `E_CONFIG_CONFLICT`），避免横幅清理互删产物
+- 输出目录为仓库根、配置目录或其祖先时拒绝清理并报错；单文件模式检测到旧分组产物时告警
+- `--no-interactive` 与终端判定，需要交互时在非 TTY 环境直接以退出码 2 结束并给出等价非交互命令
+- `swagger2api capabilities --json` 输出命令、配置项、退出码与技能参考索引，能力 ID 作为稳定契约
+- `swagger2api skill --json` 补 references 索引，供 AI 按需加载
+- 验收门禁校验注册表与 `--help`、技能能力地图、docs 能力总览、README 命令表一致
+- `input.timeout`（默认 30000 毫秒）与 `--timeout` 覆盖，超时与网络错误转为可读提示并提示重试或改用本地快照，退出码 1
+- `swagger2api --version` 输出版本号（纯文本一行），诊断 JSON 的 `toolVersion` 与之一致
+- `swagger2api prune --dir <目录>` 清理废弃产物目录中的生成物，默认只列、`--yes` 才删，手写文件不受影响
+- prune 拒绝仓库根、当前目录祖先、配置目录与软链接目录，`--json` 输出结构化清单供 AI 与 CI 消费
+
+### 🔧 功能调整
+
+- 产物清理与 `--check` 改为按生成横幅识别归属，移除系统临时目录里的产物清单
+- `--check` 按缺失 / 不一致 / 多余三类输出并支持 `--json`，末尾给出稳定结论行
+- `init`、`grouping` 在非终端环境改为报错退出 2，不读取 stdin、不猜测配置
+- 未找到配置文件时提示 `swagger2api init` 或 `--config <文件>`，不再隐式进入交互向导
+- 技能重构为能力地图（场景 → 命令 → 输出 → 下一步），新增 `capabilities.md` / `recipes.md` / `troubleshooting.md` 参考与退出码表，明确生成后必须跑 `--check`
+- `--check` / `inspect` / `prune` 的 `--json` 统一带 `schemaVersion`、`toolVersion`、`command`、`ok`、`errorCode` 与 `actions`
+- JSON 模式下人类日志改走 stderr，stdout 只输出一份可直接解析的 JSON
+- `grouping` 的文档拉取同样受超时约束，非法超时值告警后回落默认
+
+### 📝 文档更新
+
+- 技能明确 AI / CI 一律显式传 `--config`
+- 新增能力总览页并接入站点导航
+
 ## 1.3.3
 
 > 2026-11-21 发布
