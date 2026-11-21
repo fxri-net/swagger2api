@@ -277,6 +277,100 @@ function smokeExports() {
 }
 
 /**
+ * 技能规范校验：全局 toolkit 达到下限时调用 skills lint；缺失或过旧时降级为本仓硬断言并提示升级。
+ * 规范真源在 @fxri/toolkit，本仓不复制命名、篇幅与版本规则。
+ * @return {number} 退出码
+ */
+function checkSkillsLint() {
+  const minVersion = "1.17.6"
+  const probe = spawnCli("toolkit", ["skills", "lint", "--help"], { encoding: "utf8" })
+  const versionRun = spawnCli("toolkit", ["--version"], { encoding: "utf8" })
+  const version = versionRun.status === 0 ? (versionRun.stdout ?? "").trim() : ""
+  if (probe.status !== 0 || !version) {
+    console.warn(`⚠️ 跳过技能规范校验：未检测到全局 toolkit（需要 @fxri/toolkit >= ${minVersion}）；安装或升级后重跑`)
+    return 0
+  }
+  if (!versionAtLeast(version, minVersion)) {
+    console.warn(`⚠️ 跳过技能规范校验：全局 toolkit ${version} 低于 ${minVersion}；升级后重跑`)
+    return 0
+  }
+  const base = resolveBaseline() ?? "HEAD"
+  return spawnCli("toolkit", ["skills", "lint", "skills", "--base", base], { cwd: root, stdio: "inherit" }).status ?? 1
+}
+
+/**
+ * 版本下限比较：只取前三段数字，预发布后缀按同号正式版处理。
+ * @param {string} actual 实际版本
+ * @param {string} expected 期望下限
+ * @return {boolean} 实际版本不低于期望
+ */
+function versionAtLeast(actual, expected) {
+  const parse = (value) => (/^(\d+)\.(\d+)\.(\d+)/.exec(value) ?? []).slice(1, 4).map(Number)
+  const a = parse(actual)
+  const b = parse(expected)
+  if (a.length < 3 || b.length < 3) return false
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] !== b[index]) return a[index] > b[index]
+  }
+  return true
+}
+
+/**
+ * 技能打包与定位硬断言：files 含 skills、skill 命令可定位、入口可读、npm 包带上技能目录。
+ * 不复制 toolkit 的规范规则，只保证「打包带得上、入口找得到」。
+ * @return {number} 退出码
+ */
+function checkSkillPackage() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 技能打包与定位：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const issues = []
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
+  if (!Array.isArray(pkg.files) || !pkg.files.includes("skills")) issues.push("package.json files 未包含 skills")
+
+  const jsonRun = spawnSync(process.execPath, [cli, "skill", "--json"], { cwd: root, encoding: "utf8" })
+  if (jsonRun.status !== 0) {
+    issues.push("skill --json 执行失败")
+  } else {
+    try {
+      const info = JSON.parse(jsonRun.stdout)
+      if (!info.entry || !existsSync(info.entry)) issues.push("skill --json 的 entry 不可读")
+      if (!info.referencesDir || !existsSync(info.referencesDir)) issues.push("skill --json 的 referencesDir 不可读")
+      if (!info.version) issues.push("skill --json 缺少技能版本")
+    } catch {
+      issues.push("skill --json 输出不可解析")
+    }
+  }
+
+  const printRun = spawnSync(process.execPath, [cli, "skill", "--print"], { cwd: root, encoding: "utf8" })
+  if (printRun.status !== 0) issues.push("skill --print 执行失败")
+  else if (!/^---[\s\S]*?name:\s*fxri-swagger2api/m.test(printRun.stdout ?? "") || !(printRun.stdout ?? "").includes("本技能版本")) {
+    issues.push("skill --print 未输出完整技能入口")
+  }
+
+  // npm 打包清单：只读预演，不生成 tgz
+  const pack = spawnCli("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8" })
+  if (pack.status !== 0) {
+    issues.push("npm pack --dry-run 执行失败")
+  } else {
+    try {
+      const parsed = JSON.parse(pack.stdout)
+      const files = (Array.isArray(parsed) ? parsed[0]?.files : parsed.files) ?? []
+      if (!files.some((item) => item.path === "skills/fxri-swagger2api/SKILL.md")) issues.push("npm 打包未包含 skills/fxri-swagger2api/SKILL.md")
+    } catch {
+      issues.push("npm pack --dry-run 输出不可解析")
+    }
+  }
+
+  if (issues.length === 0) return 0
+  console.error(`\n✖ 技能打包与定位未通过：${issues.length} 项`)
+  for (const issue of issues) console.error(`  - ${issue}`)
+  return 1
+}
+
+/**
  * 递归收集目录下的文件，返回相对路径数组。
  * @param {string} dir 目录
  * @param {string} [base] 相对基准目录（递归时保持一致，避免子目录路径丢失前缀）
@@ -1309,6 +1403,8 @@ const steps = [
   // 产物断言依赖构建结果，运行时回归模式由 node20 job 的 dist 产物提供
   { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: runtimeOnly ? "运行时回归模式" : skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
+  { label: "技能打包与定位（skills/** / skill 命令）", run: checkSkillPackage, skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "技能规范校验（toolkit skills lint）", run: checkSkillsLint, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },

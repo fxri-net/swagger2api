@@ -32,7 +32,13 @@ swagger2api config status
 
 # 查看分组分布并写入分组配置（交互式；非交互终端只输出报表）
 swagger2api grouping
+
+# 输出包内 AI 技能入口（--print 全文，--json 结构化定位）
+swagger2api skill
 ```
+
+- `skill` 只读输出包内技能入口路径、全文或 `{ entry, referencesDir, version }`；不安装、不写文件、不维护状态
+- 首次接入、迁移旧配置或调整产物结构时用 `pnpm exec swagger2api skill --print` 激活；日常生成与 `--check` 不需要加载
 
 - `grouping` 向导会预览「原始组名 → 模块名」，并对兜底名、保留名冲突与重名组询问是否改名，结果写入 `grouping.names`；手工名非法或冲突时拒绝写入
 - `--config <path>`：显式指定项目层配置文件（只替换项目层，全局层与本地层照常叠加）
