@@ -822,6 +822,68 @@ async function checkGroupedPrune() {
 }
 
 /**
+ * 非交互保护：缺配置、init、grouping 在管道 stdio 下立即以退出码 2 结束并给出等价非交互命令。
+ * @return {number} 退出码
+ */
+async function checkNonInteractive() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 非交互保护：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-noninteractive-"))
+  try {
+    const issues = []
+    // 隔离用户主目录，避免本机全局配置影响「缺配置」判定
+    const home = join(out, "home")
+    mkdirSync(home, { recursive: true })
+    const run = (args) =>
+      spawnSync(process.execPath, [cli, ...args], {
+        cwd: out,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, HOME: home, USERPROFILE: home }
+      })
+
+    // 空目录裸跑：缺配置直接报错，不进入交互
+    const boot = run([])
+    if (boot.status !== 2) issues.push(`缺配置未以退出码 2 结束（实际 ${boot.status}）`)
+    if (!`${boot.stderr ?? ""}`.includes("未找到配置文件")) issues.push("缺配置缺少明确提示")
+    if (!`${boot.stderr ?? ""}`.includes("--config")) issues.push("缺配置未给出非交互命令")
+
+    // init 非交互：给出 --from-script 等价命令
+    const init = run(["init"])
+    if (init.status !== 2) issues.push(`init 非终端未以退出码 2 结束（实际 ${init.status}）`)
+    if (!`${init.stderr ?? ""}`.includes("--from-script")) issues.push("init 未给出迁移命令")
+
+    // grouping 非交互：报表后报错，退出码 2
+    writeFileSync(
+      join(out, "swagger2api.json"),
+      JSON.stringify({ input: { file: join(root, "fixtures", "swagger.json") }, output: { dir: join(out, "api") } }, null, 2)
+    )
+    const grouping = run(["grouping"])
+    if (grouping.status !== 2) issues.push(`grouping 非终端未以退出码 2 结束（实际 ${grouping.status}）`)
+    if (!`${grouping.stderr ?? ""}`.includes("grouping 需要交互式终端")) issues.push("grouping 缺少非交互提示")
+
+    // 显式 --config + -q：非交互环境仍可生成
+    const config = join(out, "api-config.json")
+    writeFileSync(config, JSON.stringify({ url: join(root, "fixtures", "swagger.json"), output: join(out, "gen"), name: "index" }, null, 2))
+    const generate = run(["--config", config, "-q", "--no-interactive"])
+    if (generate.status !== 0) {
+      issues.push("显式 --config + -q 在非交互环境未生成成功")
+      console.error(`${generate.stdout ?? ""}${generate.stderr ?? ""}`)
+    }
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 非交互保护未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 废弃目录清理命令：默认只列不删、--yes 才删、手写文件保留、高风险目录拒绝。
  * @return {number} 退出码
  */
@@ -1747,6 +1809,7 @@ const steps = [
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
+  { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

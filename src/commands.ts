@@ -20,7 +20,7 @@ import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePay
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
-import { DIAGNOSTIC_SCHEMA_VERSION, readToolVersion, writeJson } from "./utils"
+import { DIAGNOSTIC_SCHEMA_VERSION, canPrompt, readToolVersion, writeJson } from "./utils"
 import { collectGeneratedFilesOf } from "./utils/modular"
 
 /**
@@ -146,9 +146,9 @@ export async function runInit() {
     return result.unknown.length ? 1 : 0
   }
 
-  if (!process.stdout.isTTY) {
-    console.error("init 需要交互式终端；非交互环境请使用 --from-script 或手写配置文件")
-    return 1
+  if (!canPrompt()) {
+    console.error("init 需要交互式终端；非交互环境请用 swagger2api init --from-script package.json 迁移，或手写 swagger2api.json")
+    return 2
   }
   const patch = await askConfig()
   writeConfig(targetFile, patch)
@@ -241,9 +241,10 @@ export async function runGrouping() {
   console.log("按标签分布：", ...Object.entries(stats.tags).map(([tag, count]) => `${tag}-${count}`))
   console.log("按路径首段分布：", ...Object.entries(stats.prefixes).map(([prefix, count]) => `${prefix}-${count}`))
 
-  if (!process.stdout.isTTY) {
-    console.log("非交互终端：仅输出报表，分组规则请直接写入配置文件的 grouping 段")
-    return 0
+  if (!canPrompt()) {
+    // 报表已输出，但写入配置必须交互：明确原因与等价做法，不静默成功
+    console.error("grouping 需要交互式终端写入配置；非交互环境请直接把 grouping 段写进 swagger2api.json")
+    return 2
   }
   const answers = await prompts([
     {
@@ -560,7 +561,8 @@ function printUsage() {
       "  swagger2api skill [--print|--json]  输出包内 AI 技能入口",
       "",
       "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
-      "日常生成与 --check 不需要加载技能。"
+      "日常生成与 --check 不需要加载技能。",
+      "非交互环境（AI / CI）一律显式传 --config，不要依赖交互提问。"
     ].join("\n")
   )
 }

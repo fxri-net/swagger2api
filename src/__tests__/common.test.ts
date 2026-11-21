@@ -47,3 +47,20 @@ describe("命令行参数解析", () => {
     expect(getPArray("--missing")).toEqual([])
   })
 })
+
+describe("交互判定", () => {
+  it("终端可用且未显式关闭时可交互", async () => {
+    const { canPrompt } = await loadCommon([])
+    expect(canPrompt([], true)).toBe(true)
+  })
+
+  it("非终端环境不可交互", async () => {
+    const { canPrompt } = await loadCommon([])
+    expect(canPrompt([], false)).toBe(false)
+  })
+
+  it("--no-interactive 在终端下也关闭交互", async () => {
+    const { canPrompt } = await loadCommon([])
+    expect(canPrompt(["--no-interactive"], true)).toBe(false)
+  })
+})

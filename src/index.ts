@@ -5,7 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, DIAGNOSTIC_SCHEMA_VERSION, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles, writeJson } from "./utils"
+import { Defines, DIAGNOSTIC_SCHEMA_VERSION, canPrompt, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles, writeJson } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
@@ -128,6 +128,16 @@ function createDocFile() {
 /** 退出 */
 function onExit(message?: string, code = 0) {
   message && console.log(message)
+  process.exit(code)
+}
+/**
+ * 以错误方式退出：说明写 stderr，避免与正常输出混在一起。
+ * @param message 错误说明
+ * @param code 退出码
+ * @return 不返回
+ */
+function onFailExit(message: string, code = 2): never {
+  console.error(message)
   process.exit(code)
 }
 /** 加载参数 */
@@ -331,6 +341,12 @@ async function onLoadConfig() {
   if (confs.files.length == 0) confs.files = ["saconfig.json"]
   // 选择文件
   if (!datas.param.configAll && confs.files.length > 1) {
+    // 非交互环境不能多选：给出等价的显式参数，不猜测用户选择
+    if (!canPrompt()) {
+      onFailExit(
+        `结束：检测到 ${confs.files.length} 份配置文件，需要交互选择；非交互环境请用 --config <文件> 指定，或加 --config-all 全部处理`
+      )
+    }
     confs.files = (
       await prompts({
         type: "multiselect",
@@ -343,6 +359,11 @@ async function onLoadConfig() {
   }
   // 检查配置
   if (!(confs.files?.length > 0)) onExit("结束：手动退出")
+  // 配置文件缺失时明确报错，不隐式进入交互
+  const missingFiles = confs.files.filter((file) => file !== "(swagger2apirc)" && !fs.existsSync(path.resolve(file)))
+  if (missingFiles.length > 0) {
+    onFailExit(`结束：未找到配置文件 ${missingFiles.join("、")}；请先执行 swagger2api init 生成 swagger2api.json，或用 --config <文件> 指定`)
+  }
 }
 /** 输入参数 */
 async function onInputParam() {
@@ -360,6 +381,12 @@ async function onInputParam() {
   } catch (error) {}
   // 检查快速模式
   if (!datas.param.quick || [confs.param.url, confs.param.output, confs.param.name].includes(undefined)) {
+    // 非交互环境不能补问参数：给出等价的非交互命令，不猜测配置
+    if (!canPrompt()) {
+      onFailExit(
+        "结束：缺少输入参数（url / output / name），非交互环境请用 swagger2api init 生成配置，或用 --config <文件> 指定完整配置后再加 -q"
+      )
+    }
     // 输入配置
     confs.param = await prompts([
       { name: "url", type: "text", message: "Swagger docs 地址:", initial: confs.param.url ?? "https://example.com/v3/api-docs" },

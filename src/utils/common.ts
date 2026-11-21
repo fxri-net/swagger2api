@@ -127,6 +127,15 @@ export function writeJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
 }
 /**
+ * 判断是否允许交互：显式 --no-interactive 优先，其次要求 stdin 与 stdout 都是终端。
+ * @param argv 参数列表
+ * @param tty 终端判定（测试可注入）
+ * @return 是否允许交互
+ */
+export function canPrompt(argv: string[] = process.argv.slice(2), tty = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY)) {
+  return !argv.includes("--no-interactive") && tty
+}
+/**
  * 扫描配置文件（替代 glob 的 `./**\/saconfig*.json`）
  * 语义对齐 glob 默认值：包含根目录、跳过 node_modules 与点开头目录、结果按字典序排序
  * @param dir 扫描根目录，默认当前工作目录

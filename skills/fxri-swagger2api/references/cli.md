@@ -32,6 +32,7 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 | `--config <path>` | 显式指定项目层配置 |
 | `--target <id>` | 多目标配置下只执行指定目标；未知目标退出码 2 |
 | `--profile <name>` | 选用配置内的命名预设 |
+| `--no-interactive` | 关闭交互提问；需要交互时报错并给出 `init --from-script` / `--config` 等非交互命令，退出码 2 |
 
 ## 诊断 JSON 与退出码
 
@@ -50,6 +51,7 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 
 - JSON 模式下 stdout 只有一份 JSON，人类日志在 stderr，可直接 `JSON.parse`
 - 退出码：`0` 通过 / 预览完成；`1` 生成或校验失败；`2` 参数或配置错误（缺参、目录不存在、目录不安全、跨配置输出重叠）
+- AI 与 CI 一律显式传 `--config <文件>`（需要跳过确认时再加 `-q`），不要依赖交互提问；`init`、`grouping` 在非终端环境以退出码 2 结束并给出等价命令
 
 ## 使用顺序
 

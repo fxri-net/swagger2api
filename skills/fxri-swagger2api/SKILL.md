@@ -3,7 +3,7 @@ name: fxri-swagger2api
 description: 首次为项目初始化 swagger2api 配置、迁移旧脚本配置或调整产物结构时加载：给出最小配置、先预览再落盘、说明分组产物与验收方式。日常生成、--check 与验收不加载。不用于一般 TypeScript / axios 用法或接口文档编写。
 license: MIT
 metadata:
-  version: "1.1.8"
+  version: "1.1.9"
   tier: optional
   author: fxri
   source: https://github.com/fxri-net/swagger2api
@@ -11,7 +11,7 @@ metadata:
 
 # swagger2api 接入
 
-> 本技能版本 1.1.8（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
+> 本技能版本 1.1.9（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
 
 ## 何时使用
 
@@ -42,6 +42,7 @@ metadata:
 - 不把本机绝对路径、令牌或私网地址写进配置与示例。
 - 不在未预览的情况下直接切换 `mode`，尤其是已有产物需要清理或迁移时。
 - 不自行给破坏性命令追加 `--yes`：`prune` 默认只列，删除必须先得到用户确认。
+- 不在 AI / CI 环境依赖交互提问：一律显式传 `--config <文件>`（需要跳过确认时加 `-q`）；`init`、`grouping` 非终端会以退出码 2 结束。
 
 ## 参考
 
