@@ -16,6 +16,9 @@ swagger2api --check
 
 # 首次接入：交互生成 swagger2api.json
 swagger2api init
+
+# 输出版本号（纯文本一行，便于 CI / AI 记录）
+swagger2api --version
 ```
 
 ## 子命令
@@ -66,6 +69,8 @@ swagger2api skill
 - 同一输出目录只允许一份配置：同目录其他 `swagger2api*.json` / `saconfig*.json` 的输出与本配置相同或互相嵌套时，以退出码 2 拒绝且不落盘
 - `--no-interactive`：强制关闭交互提问；与「非终端环境」同效，需要交互时直接报错并给出等价非交互命令（`init --from-script`、`--config <文件>` 等），退出码 2，不读 stdin、不猜配置
 - 未找到配置文件时直接报错并提示 `swagger2api init` 或 `--config <文件>`，不再隐式进入交互向导
+- `--timeout <ms>`：覆盖拉取超时（默认 `input.timeout`，未配置为 30000 毫秒）；地址不可达、连接超时与响应超时统一转成可读错误，提示可重试或改用本地快照，退出码 1
+- `--version`：输出版本号（纯文本一行）；诊断 JSON 的 `toolVersion` 与之一致
 - `--dry-run`：配合分组配置只输出报表——原始组名到文件 / 类 / 属性名的映射、重命名原因、未命中规则、桶与分片规划与预计新增文件，不写产物
 - `--json`：与 `--dry-run` 组合时输出结构化报表，便于脚本消费；多目标时按目标汇总为单个 `{ targets: [...] }`
 

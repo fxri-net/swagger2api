@@ -20,7 +20,7 @@ import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePay
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
-import { DIAGNOSTIC_SCHEMA_VERSION, canPrompt, readToolVersion, writeJson } from "./utils"
+import { DIAGNOSTIC_SCHEMA_VERSION, canPrompt, normalizeTimeout, readToolVersion, writeJson } from "./utils"
 import { collectGeneratedFilesOf } from "./utils/modular"
 
 /**
@@ -184,12 +184,23 @@ export function runConfigStatus() {
 }
 
 /**
- * 加载 swagger 文档（本地文件或 http(s) 地址）。
+ * 加载 swagger 文档（本地文件或 http(s) 地址），远端拉取带超时与可读错误。
  * @param input 地址或路径
+ * @param timeout 超时毫秒数
  * @return 文档对象
  */
-async function loadSpec(input: string) {
-  if (/^https?:\/\//i.test(input)) return (await axios.get(input)).data
+async function loadSpec(input: string, timeout: number) {
+  if (/^https?:\/\//i.test(input)) {
+    try {
+      return (await axios.get(input, { timeout })).data
+    } catch (error) {
+      const code = String((error as { code?: string }).code ?? "")
+      if (code === "ECONNABORTED" || code === "ETIMEDOUT" || /timeout/i.test((error as Error).message ?? "")) {
+        throw new Error(`拉取文档超时（> ${timeout} 毫秒）：${input}；可重试、加 --timeout <毫秒>，或改用本地快照`)
+      }
+      throw error
+    }
+  }
   return JSON.parse(fs.readFileSync(path.resolve(input), "utf8"))
 }
 
@@ -231,7 +242,8 @@ export async function runGrouping() {
   }
   let spec: Record<string, any>
   try {
-    spec = await loadSpec(input)
+    const timeout = normalizeTimeout(rc.input?.timeout ?? (rc as Record<string, any>).timeout, "input.timeout")
+    spec = await loadSpec(input, timeout)
   } catch (error) {
     console.error(`读取文档失败：${(error as Error).message}`)
     return 1
@@ -562,7 +574,8 @@ function printUsage() {
       "",
       "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
       "日常生成与 --check 不需要加载技能。",
-      "非交互环境（AI / CI）一律显式传 --config，不要依赖交互提问。"
+      "非交互环境（AI / CI）一律显式传 --config，不要依赖交互提问。",
+      "版本：swagger2api --version"
     ].join("\n")
   )
 }
@@ -646,6 +659,11 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   const argv = process.argv.slice(2)
   if (argv.includes("--help") || argv.includes("-h")) {
     printUsage()
+    return
+  }
+  if (argv.includes("--version") || argv.includes("-v")) {
+    // 纯文本一行，便于 CI 与 AI 在日志里记录实际使用的版本
+    console.log(readToolVersion())
     return
   }
   const [command, subcommand] = argv.filter((item) => !item.startsWith("-"))

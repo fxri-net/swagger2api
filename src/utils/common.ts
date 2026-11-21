@@ -126,6 +126,23 @@ export function readToolVersion() {
 export function writeJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
 }
+/** 拉取远端 Swagger 文档的默认超时（毫秒） */
+export const DEFAULT_FETCH_TIMEOUT = 30000
+
+/**
+ * 归一化拉取超时：只接受正整数毫秒，非法值告警后回落默认值。
+ * @param value 配置或命令行值
+ * @param source 来源说明（写入告警）
+ * @return 毫秒数
+ */
+export function normalizeTimeout(value: unknown, source = "input.timeout"): number {
+  if (value === undefined || value === null || value === "") return DEFAULT_FETCH_TIMEOUT
+  const parsed = Number(value)
+  if (Number.isFinite(parsed) && parsed > 0) return parsed
+  console.error(`⚠️ 已忽略 ${source}=${JSON.stringify(value)}：需要正整数毫秒，回落到 ${DEFAULT_FETCH_TIMEOUT}`)
+  return DEFAULT_FETCH_TIMEOUT
+}
+
 /**
  * 判断是否允许交互：显式 --no-interactive 优先，其次要求 stdin 与 stdout 都是终端。
  * @param argv 参数列表

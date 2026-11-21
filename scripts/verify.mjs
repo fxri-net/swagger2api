@@ -884,6 +884,62 @@ async function checkNonInteractive() {
 }
 
 /**
+ * 拉取超时与版本：慢响应以退出码 1 结束并给出可重试提示，--timeout 覆盖生效，--version 输出纯文本版本。
+ * @return {number} 退出码
+ */
+async function checkTimeoutAndVersion() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 拉取超时与版本：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-timeout-"))
+  const { createServer } = await import("node:http")
+  /** 故意不响应，模拟源站卡住 */
+  const server = createServer(() => {})
+  const sockets = new Set()
+  server.on("connection", (socket) => {
+    sockets.add(socket)
+    socket.on("close", () => sockets.delete(socket))
+  })
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address()
+  try {
+    const issues = []
+    // --version：纯文本一行，与 package.json 一致
+    const version = spawnSync(process.execPath, [cli, "--version"], { cwd: out, encoding: "utf8" })
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
+    if (version.status !== 0) issues.push("--version 未以退出码 0 结束")
+    if (version.stdout.trim() !== pkg.version) issues.push(`--version 输出与 package.json 不一致（${version.stdout.trim()}）`)
+
+    const config = join(out, "swagger2api.json")
+    writeFileSync(
+      config,
+      JSON.stringify({ input: { url: `http://127.0.0.1:${port}/spec.json`, timeout: 300 }, output: { dir: join(out, "api") } }, null, 2)
+    )
+    const slow = spawnSync(process.execPath, [cli, "-c", config, "-q"], { cwd: out, encoding: "utf8" })
+    if (slow.status !== 1) issues.push(`超时未以退出码 1 结束（实际 ${slow.status}）`)
+    const slowOutput = `${slow.stdout ?? ""}${slow.stderr ?? ""}`
+    if (!slowOutput.includes("超时")) issues.push("超时缺少可读提示")
+    if (!slowOutput.includes("可重试") || !slowOutput.includes("本地快照")) issues.push("超时提示缺少可执行的下一步")
+
+    // --timeout 覆盖配置值
+    const override = spawnSync(process.execPath, [cli, "-c", config, "-q", "--timeout", "150"], { cwd: out, encoding: "utf8" })
+    if (override.status !== 1) issues.push("--timeout 覆盖后未以退出码 1 结束")
+    if (!`${override.stdout ?? ""}${override.stderr ?? ""}`.includes("> 150 毫秒")) issues.push("--timeout 覆盖未生效")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 拉取超时与版本未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    sockets.forEach((socket) => socket.destroy())
+    server.close()
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 废弃目录清理命令：默认只列不删、--yes 才删、手写文件保留、高风险目录拒绝。
  * @return {number} 退出码
  */
@@ -1810,6 +1866,7 @@ const steps = [
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
+  { label: "拉取超时与版本（慢响应 / --timeout / --version）", run: checkTimeoutAndVersion },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

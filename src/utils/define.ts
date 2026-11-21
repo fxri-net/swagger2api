@@ -22,6 +22,8 @@ export interface ParamData {
   removePrefixIndex: string
   /** 移除使用--js参数时生成的d.ts文件 */
   removeDts: boolean
+  /** 拉取超时（毫秒，命令行覆盖配置） */
+  timeout?: string
   /** 移除空组件定义 */
   removeEmptyComponents: boolean
   /** 提取参数，将query参数中的指定对象字段提取为根部字段，只提取第一次命中的字段 */
@@ -64,6 +66,8 @@ export type Defines = {
     configDir?: string
     /** 类型检查策略：skip 保留 @ts-nocheck，enforce 剥离 */
     typeCheck?: "skip" | "enforce"
+    /** 拉取远端文档的超时（毫秒） */
+    timeout?: number
     /** 是否由 rc 配置驱动（不读写 saconfig） */
     rcDriven?: boolean
     /** rc 提供的文档地址 */

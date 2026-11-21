@@ -17,6 +17,7 @@ async function loadCommon(argv: string[]) {
 
 afterEach(() => {
   process.argv = originalArgv
+  vi.restoreAllMocks()
   vi.resetModules()
 })
 
@@ -62,5 +63,26 @@ describe("交互判定", () => {
   it("--no-interactive 在终端下也关闭交互", async () => {
     const { canPrompt } = await loadCommon([])
     expect(canPrompt(["--no-interactive"], true)).toBe(false)
+  })
+})
+
+describe("拉取超时解析", () => {
+  it("缺省用默认值，数字与数字字符串都接受", async () => {
+    const { normalizeTimeout, DEFAULT_FETCH_TIMEOUT } = await loadCommon([])
+    expect(normalizeTimeout(undefined)).toBe(DEFAULT_FETCH_TIMEOUT)
+    expect(normalizeTimeout("5000")).toBe(5000)
+    expect(normalizeTimeout(1500)).toBe(1500)
+  })
+
+  it("非法值告警并回落默认", async () => {
+    const { normalizeTimeout, DEFAULT_FETCH_TIMEOUT } = await loadCommon([])
+    const errors: string[] = []
+    vi.spyOn(console, "error").mockImplementation((...value: unknown[]) => {
+      errors.push(value.join(" "))
+    })
+    expect(normalizeTimeout("abc")).toBe(DEFAULT_FETCH_TIMEOUT)
+    expect(normalizeTimeout(0)).toBe(DEFAULT_FETCH_TIMEOUT)
+    expect(normalizeTimeout(-1)).toBe(DEFAULT_FETCH_TIMEOUT)
+    expect(errors.filter((line) => line.includes("已忽略")).length).toBe(3)
   })
 })

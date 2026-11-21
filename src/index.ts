@@ -5,7 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, DIAGNOSTIC_SCHEMA_VERSION, canPrompt, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles, writeJson } from "./utils"
+import { Defines, DEFAULT_FETCH_TIMEOUT, DIAGNOSTIC_SCHEMA_VERSION, canPrompt, getDirname, getPArray, getPKey, getPValue, isUrl, normalizeTimeout, readToolVersion, saveFile, scanConfigFiles, writeJson } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
@@ -153,6 +153,7 @@ async function onLoadParam() {
     removeParam: getPKey(["--remove-param", "-rp"]),
     removePrefixIndex: getPValue(["--remove-prefix-index", "-rpi"]),
     removeDts: getPKey(["--remove-dts", "-rd"]),
+    timeout: getPValue("--timeout"),
     removeEmptyComponents: getPKey(["--remove-empty-components", "-rec"]) ?? true,
     extractRequestQuery: getPValue(["--extract-request-query", "-erq"]),
     extractResponseRaw: getPKey(["--extract-response-raw", "-err"]),
@@ -196,6 +197,8 @@ async function onLoadParam() {
   // 多目标逐目标复位用：留存命令行基线，rc 覆盖在其副本上进行
   datas.baseParam = structuredClone(datas.param)
   datas.baseConfig = structuredClone(datas.config)
+  // 拉取超时：命令行显式值优先，rc 配置在 applyRcConfig 中补齐
+  datas.timeout = normalizeTimeout(datas.param.timeout, "--timeout")
   // 应用 rc 配置（命令行显式参数优先）
   onApplyRc()
 }
@@ -249,8 +252,10 @@ function applyRcConfig(rc: Record<string, any>) {
   if (!hasFlag(["--unwrap-response-data"]) && types.unwrapData !== undefined) config.unwrapResponseData = Boolean(types.unwrapData)
   if (!hasFlag(["--extract-request-params"]) && types.extractParams !== undefined) config.extractRequestParams = Boolean(types.extractParams)
   if (!hasFlag(["--clean-output"]) && output.clean !== undefined) config.cleanOutput = Boolean(output.clean)
+  // 拉取超时：命令行显式值优先，其次 input.timeout，非法值告警后回落默认
+  datas.timeout = normalizeTimeout(hasFlag(["--timeout"]) ? datas.param.timeout : input.timeout, hasFlag(["--timeout"]) ? "--timeout" : "input.timeout")
   if (!hasFlag(["--modular"]) && output.mode === "grouped") config.modular = true
-  // 分组模式默认按清单清理旧产物，业务配置不需要再写 prune
+  // 分组模式默认按横幅清理旧产物，业务配置不需要再写 prune
   if (!hasFlag(["--prune-output"])) config.pruneOutput = output.prune === undefined ? Boolean(config.modular) : Boolean(output.prune)
   if (!hasFlag(["--module-name-index"]) && grouping.pathDepth !== undefined) config.moduleNameIndex = Number(grouping.pathDepth)
   if (Object.keys(grouping).length) config.grouping = grouping
@@ -400,14 +405,35 @@ async function onInputParam() {
   datas.docFile = createDocFile()
 }
 /**
+ * 拉取远端 Swagger 文档：带显式超时，并把超时与网络错误转成可读提示。
+ * @param url 文档地址
+ * @return 文档对象
+ */
+async function fetchSpec(url: string) {
+  const timeout = datas.timeout ?? DEFAULT_FETCH_TIMEOUT
+  try {
+    return (await axios.get(url, { timeout })).data
+  } catch (error) {
+    const code = String((error as { code?: string }).code ?? "")
+    const message = (error as Error).message ?? ""
+    if (code === "ECONNABORTED" || code === "ETIMEDOUT" || /timeout/i.test(message)) {
+      throw new Error(`拉取 Swagger 文档超时（> ${timeout} 毫秒）：${url}；可重试、加 --timeout <毫秒>，或改用本地快照（input.file）`)
+    }
+    if (["ECONNREFUSED", "ENOTFOUND", "ECONNRESET", "EAI_AGAIN", "EHOSTUNREACH"].includes(code)) {
+      throw new Error(`无法连接 Swagger 源（${code}）：${url}；可重试或改用本地快照（input.file）`)
+    }
+    throw error
+  }
+}
+
+/**
  * 读取并生成单个文档（URL 或本地文件）。
  * @param input 地址或路径
  * @return 无
  */
 async function onLoadDocInput(input: string) {
   if (isUrl(input)) {
-    const response = await axios.get(input)
-    await onGenerateApi(response.data)
+    await onGenerateApi(await fetchSpec(input))
     return
   }
   await onGenerateApi(JSON.parse(fs.readFileSync(path.resolve(input), "utf8")))

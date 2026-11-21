@@ -242,6 +242,7 @@ const FLAT_KEYS = [
   "name",
   "mode",
   "typeCheck",
+  "timeout",
   "responses",
   "query",
   "extractResponseRaw",
@@ -268,7 +269,9 @@ export function normalizeConfig(config: Record<string, any> | null): Record<stri
     ...(typeof config.url === "string" ? { url: config.url } : {}),
     ...(typeof config.file === "string" ? { file: config.file } : {})
   }
-  // 输出：字符串即目录；分组模式默认开启清单清理
+  // 拉取超时：扁平写法与嵌套 input.timeout 同义
+  if (config.timeout !== undefined) result.input.timeout = config.timeout
+  // 输出：字符串即目录；分组模式默认开启横幅清理
   const output: Record<string, any> = {
     ...(config.output && typeof config.output === "object" ? config.output : {}),
     ...(typeof config.output === "string" ? { dir: config.output } : {})
