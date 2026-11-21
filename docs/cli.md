@@ -49,11 +49,15 @@ swagger2api inspect --dir ./src/api/base
 # 清理废弃目录中的生成物（默认只列不删，--yes 才执行）
 swagger2api prune --dir ./src/api/old
 
+# 输出能力清单（命令 / 配置项 / 退出码 / 技能参考索引）
+swagger2api capabilities --json
+
 # 输出包内 AI 技能入口（--print 全文，--json 结构化定位）
 swagger2api skill
 ```
 
-- `skill` 只读输出包内技能入口路径、全文或 `{ entry, referencesDir, version }`；不安装、不写文件、不维护状态
+- `skill` 只读输出包内技能入口路径、全文或 `{ entry, referencesDir, version, references }`；不安装、不写文件、不维护状态
+- `capabilities --json` 只读输出命令、配置项、退出码与技能参考索引，命令清单与 `--help` 同源；能力 ID 为稳定契约，改名须保留别名
 - 首次接入、迁移旧配置或调整产物结构时用 `pnpm exec swagger2api skill --print` 激活；日常生成与 `--check` 不需要加载
 
 - `grouping` 向导会预览「原始组名 → 模块名」，并对兜底名、保留名冲突与重名组询问是否改名，结果写入 `grouping.names`；手工名非法或冲突时拒绝写入

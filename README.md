@@ -47,6 +47,25 @@ request.getUsers().then((res) => console.log(res))
 
 完整步骤见 [快速开始](./docs/getting-started.md)。
 
+## 🛠 常用命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `swagger2api` | 按最近的配置生成接口产物 |
+| `swagger2api --dry-run --json` | 只输出分组、桶与分片报表，不写产物 |
+| `swagger2api --check --json` | 校验产物是否与配置一致（缺失 / 不一致 / 多余） |
+| `swagger2api init` | 交互生成配置，或 `--from-script` 从既有脚本迁移 |
+| `swagger2api grouping` | 查看分组分布并写入分组配置 |
+| `swagger2api config status` | 查看配置分层、环境变量覆盖与生效结果 |
+| `swagger2api surface --out/--compare` | 记录接口面基线或与基线比对 |
+| `swagger2api inspect --dir <目录>` | 只读审计产物布局（模块体量 / 分片余量 / 固定产物） |
+| `swagger2api prune --dir <目录> --yes` | 清理废弃目录中的生成物（默认只列） |
+| `swagger2api skill --json` | 定位包内 AI 技能入口与参考索引 |
+| `swagger2api capabilities --json` | 输出命令、配置项、退出码与技能参考 |
+| `swagger2api --version` | 输出版本号 |
+
+完整参数与退出码见[能力总览](./docs/capabilities.md)与 [CLI 参考](./docs/cli.md)。
+
 ## ✨ 能力矩阵
 
 | 能力 | 适用场景 | 文档 |
@@ -70,6 +89,7 @@ request.getUsers().then((res) => console.log(res))
 | [快速开始](./docs/getting-started.md) | 第一次接触，想 30 秒跑起来 |
 | [完整攻略](./docs/guide.md) | 日常使用：三种模式、响应提取、配置文件 |
 | [CLI 参考](./docs/cli.md) | 查命令、参数、默认值 |
+| [能力总览](./docs/capabilities.md) | 查命令清单、结构化输出与退出码 |
 | [常见问题](./docs/faq.md) | 遇到问题先来这里找 |
 | [完整文档站](https://fxri-net.github.io/swagger2api/) | 在线阅读体验 |
 

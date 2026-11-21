@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { dispatch, runSkill } from "../commands"
+import { dispatch, runCapabilities, runSkill } from "../commands"
 
 const originalArgv = process.argv
 
@@ -99,6 +99,29 @@ describe("skill 定位命令", () => {
     })
     expect(generated).toBe(false)
     expect(stdout.join("\n")).toContain("swagger2api skill")
+  })
+})
+
+describe("能力清单", () => {
+  it("--json 输出命令、配置项、退出码与技能参考索引", () => {
+    const result = capture(() => runCapabilities(["--json"]))
+    expect(result.code).toBe(0)
+    const payload = JSON.parse(result.stdout) as {
+      schemaVersion: number
+      toolVersion: string
+      commands: Array<{ id: string; examples: string[] }>
+      configKeys: unknown[]
+      exitCodes: Array<{ code: number }>
+      skill: { references: Array<{ file: string }> }
+    }
+    expect(payload.schemaVersion).toBe(1)
+    expect(payload.toolVersion).toBeTruthy()
+    expect(payload.commands.length).toBeGreaterThan(0)
+    expect(payload.commands.every((item) => item.examples.length > 0)).toBe(true)
+    const ids = payload.commands.map((item) => item.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(payload.exitCodes.map((item) => item.code)).toEqual([0, 1, 2])
+    expect(payload.skill.references.length).toBeGreaterThan(0)
   })
 })
 

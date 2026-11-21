@@ -884,6 +884,79 @@ async function checkNonInteractive() {
 }
 
 /**
+ * 能力清单漂移门禁：命令注册表与 --help、技能能力地图、docs 能力总览、README 命令表保持一致。
+ * @return {number} 退出码
+ */
+async function checkCapabilityDrift() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 能力清单漂移：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const result = spawnSync(process.execPath, [cli, "capabilities", "--json"], { cwd: root, encoding: "utf8" })
+  if (result.status !== 0) {
+    console.error("✖ 能力清单漂移：capabilities --json 执行失败")
+    console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+    return 1
+  }
+  let payload
+  try {
+    payload = JSON.parse(result.stdout)
+  } catch (error) {
+    console.error(`✖ 能力清单漂移：capabilities --json 无法解析（${error.message}）`)
+    return 1
+  }
+  const issues = []
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
+  if (payload.schemaVersion !== 1) issues.push("capabilities 缺少 schemaVersion")
+  if (payload.toolVersion !== pkg.version) issues.push("capabilities 的 toolVersion 与 package.json 不一致")
+  const commands = payload.commands ?? []
+  if (!commands.length) issues.push("capabilities 未输出命令清单")
+  const ids = new Set()
+  for (const item of commands) {
+    if (!item.id || ids.has(item.id)) issues.push(`能力 ID 缺失或重复：${item.id}`)
+    ids.add(item.id)
+    if (!String(item.name ?? "").startsWith("swagger2api")) issues.push(`命令名格式错误：${item.id}`)
+    if (!item.purpose) issues.push(`命令缺少用途：${item.id}`)
+    if (typeof item.readOnly !== "boolean" || typeof item.destructive !== "boolean") issues.push(`命令缺少只读 / 破坏性标记：${item.id}`)
+    if (!item.examples?.length) issues.push(`命令缺少示例：${item.id}`)
+    for (const example of item.examples ?? []) {
+      if (!example.startsWith("swagger2api")) issues.push(`示例不是完整命令：${item.id} → ${example}`)
+    }
+    // 破坏性标记必须与示例里的 --yes 一致，避免 AI 误判操作风险
+    if ((item.examples ?? []).some((example) => example.includes("--yes")) !== Boolean(item.destructive)) {
+      issues.push(`破坏性标记与示例不一致：${item.id}`)
+    }
+  }
+  // 四视图一致：--help 文本、技能能力地图、docs 能力总览、README 命令表
+  const helpText = spawnSync(process.execPath, [cli, "--help"], { cwd: root, encoding: "utf8" }).stdout ?? ""
+  const skill = readFileSync(join(root, "skills", "fxri-swagger2api", "SKILL.md"), "utf8")
+  const docs = readFileSync(join(root, "docs", "capabilities.md"), "utf8")
+  const readme = readFileSync(join(root, "README.md"), "utf8")
+  for (const item of commands) {
+    const token = item.name.split(" ")[1] ?? ""
+    if (token && !helpText.includes(token)) issues.push(`--help 缺少命令入口：${item.name}`)
+    if (!skill.includes(`\`${item.id}\``)) issues.push(`技能能力地图缺少：${item.id}`)
+    if (!docs.includes(`\`${item.id}\``)) issues.push(`docs 能力总览缺少：${item.id}`)
+    if (!readme.includes(item.name)) issues.push(`README 命令表缺少：${item.name}`)
+  }
+  // 技能参考索引与 references 目录一一对应
+  const refDir = join(root, "skills", "fxri-swagger2api", "references")
+  const actual = readdirSync(refDir).filter((name) => name.endsWith(".md")).sort()
+  const listed = (payload.skill?.references ?? []).map((item) => item.file).sort()
+  if (actual.join(",") !== listed.join(",")) issues.push(`技能参考索引与 references 目录不一致：${listed.join(",")} vs ${actual.join(",")}`)
+  for (const item of listed) if (!existsSync(join(refDir, item))) issues.push(`技能参考文件不存在：${item}`)
+  if (!(payload.configKeys ?? []).length) issues.push("capabilities 缺少配置项")
+  if ((payload.exitCodes ?? []).map((item) => item.code).join(",") !== "0,1,2") issues.push("capabilities 退出码不是 0/1/2")
+  const skillVersion = /^[ \t]+version:[ \t]*"?([^"\r\n]+?)"?[ \t]*$/m.exec(skill)?.[1] ?? ""
+  if (payload.skill?.version !== skillVersion) issues.push("capabilities 技能版本与 SKILL.md 不一致")
+  if (issues.length === 0) return 0
+  console.error(`\n✖ 能力清单漂移未通过：${issues.length} 项`)
+  for (const issue of issues) console.error(`  - ${issue}`)
+  return 1
+}
+
+/**
  * 拉取超时与版本：慢响应以退出码 1 结束并给出可重试提示，--timeout 覆盖生效，--version 输出纯文本版本。
  * @return {number} 退出码
  */
@@ -1867,6 +1940,7 @@ const steps = [
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
   { label: "拉取超时与版本（慢响应 / --timeout / --version）", run: checkTimeoutAndVersion },
+  { label: "能力清单漂移（注册表 / 帮助 / 技能地图 / docs / README）", run: checkCapabilityDrift },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },

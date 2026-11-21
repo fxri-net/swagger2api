@@ -21,6 +21,7 @@ import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
 import { DIAGNOSTIC_SCHEMA_VERSION, canPrompt, normalizeTimeout, readToolVersion, writeJson } from "./utils"
+import { COMMAND_CAPABILITIES, CONFIG_KEYS, EXIT_CODES, SKILL_REFERENCES } from "./utils/capabilities"
 import { collectGeneratedFilesOf } from "./utils/modular"
 
 /**
@@ -563,6 +564,7 @@ function printUsage() {
       "用法：",
       "  swagger2api                         按最近的 swagger2api.json 生成",
       "  swagger2api --target <id>           多目标配置下只生成指定目标",
+      "  swagger2api --dry-run [--json]      只输出分组报表，不写产物",
       "  swagger2api --check                 校验产物与配置是否一致",
       "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",
       "  swagger2api grouping                查看分组分布并写入分组配置",
@@ -570,7 +572,9 @@ function printUsage() {
       "  swagger2api surface [选项]          提取接口面或与基线比对",
       "  swagger2api inspect --dir <目录>    只读审计产物布局（模块体量 / 固定产物 / 小文件）",
       "  swagger2api prune --dir <目录>      清理废弃目录中的生成物（默认只列，--yes 才删）",
+      "  swagger2api capabilities [--json]   输出能力清单（命令 / 配置项 / 退出码）",
       "  swagger2api skill [--print|--json]  输出包内 AI 技能入口",
+      "  swagger2api --version               输出版本号",
       "",
       "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
       "日常生成与 --check 不需要加载技能。",
@@ -643,10 +647,38 @@ export function runSkill(argv = process.argv.slice(2)) {
     return 0
   }
   if (json) {
-    writeJson(info)
+    writeJson({ ...info, references: SKILL_REFERENCES })
     return 0
   }
   console.log(info.entry)
+  return 0
+}
+
+/**
+ * 执行 capabilities：只读输出能力清单，供 AI 在不熟悉版本时自描述。
+ * @param argv 参数列表（测试可注入）
+ * @return 退出码
+ */
+export function runCapabilities(argv = process.argv.slice(2)) {
+  if (argv.includes("--json")) {
+    const info = resolveSkillInfo(resolvePackageRoot())
+    writeJson({
+      schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+      toolVersion: readToolVersion(),
+      commands: COMMAND_CAPABILITIES,
+      configKeys: CONFIG_KEYS,
+      exitCodes: EXIT_CODES,
+      skill: { entry: info.entry, version: info.version, references: SKILL_REFERENCES }
+    })
+    return 0
+  }
+  console.log("能力清单（--json 输出结构化内容）：")
+  COMMAND_CAPABILITIES.forEach((item) => {
+    const mode = item.readOnly ? "只读" : item.destructive ? "破坏性" : "写入"
+    console.log(`  ${item.id.padEnd(13)} ${mode}  ${item.name.padEnd(32)} ${item.purpose}`)
+  })
+  console.log(`退出码：${EXIT_CODES.map((item) => `${item.code}=${item.description}`).join("；")}`)
+  console.log("结构化输出：swagger2api capabilities --json")
   return 0
 }
 
@@ -693,6 +725,10 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   if (command === "skill") {
     process.exitCode = runSkill()
+    return
+  }
+  if (command === "capabilities") {
+    process.exitCode = runCapabilities()
     return
   }
   await runGenerate()

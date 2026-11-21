@@ -9,7 +9,8 @@
       "text": "参考",
       "items": [
         { "text": "CLI 参考", "link": "/cli" },
-        { "text": "配置参考", "link": "/config" }
+        { "text": "配置参考", "link": "/config" },
+        { "text": "能力总览", "link": "/capabilities" }
       ]
     },
     {
@@ -36,7 +37,8 @@
       "text": "参考",
       "items": [
         { "text": "CLI 参考", "link": "/cli" },
-        { "text": "配置参考", "link": "/config" }
+        { "text": "配置参考", "link": "/config" },
+        { "text": "能力总览", "link": "/capabilities" }
       ]
     },
     {
