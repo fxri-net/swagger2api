@@ -1,5 +1,63 @@
 # Swagger 转 API
 
+## 1.3.1
+
+> 2026-11-21 发布
+
+### ✨ 新增功能
+
+- 项目层默认配置文件改为 `swagger2api.json`，本地层 `swagger2api.local.json`，全局层 `~/.swagger2api.json`；旧名继续可用
+- 同目录新旧配置并存时新名优先并告警，`init` / `grouping` 默认写入新名
+- 契约按业务文件拆分，单归属进 `types/<业务文件>.ts`，多归属与未使用进 `types/shared.ts`
+- `types/index` 改为显式导出 barrel，内部声明只在本文件导出、不进入公开面
+- `grouping.collapse` 合并折叠键相同的组，复现单文件产物「同名属性即同组」的语义
+- `output.prune`（`--prune-output`）按上一轮生成清单清理已消失的模块，不触碰手写文件与清单外产物
+- `grouping.split` 自适应分桶与命名空间分片，按接口体量压缩模块文件数
+- 分片门面以实例合并与类型合并保持 `api.<命名空间>.<方法>` 调用形态不变
+- `--dry-run --json` 报表输出桶与分片规划，拆分结果可先预览
+- 扁平 `swagger2api.json` 配置，业务仓只写项目口径，分组阈值与桶名由工具默认
+- `--check` 生成到临时目录并与现有产物逐文件比对，不写真实目录
+- `verify` 校验技能打包与定位（`files` / `skill` 命令 / npm 包内容），并调用全局 toolkit `skills lint`
+- 包内技能 `skills/fxri-swagger2api/`，覆盖首次接入、旧配置迁移与产物结构判断
+- `swagger2api skill` / `--print` / `--json` 只读定位技能入口，不写文件、不维护状态
+- 契约出口固定为 `types/index`，聚合入口按 `export * from "./types"` 导出
+- 旧版 `data-contracts` / `http-client` 残留会在生成成功后自动清理
+
+### 🔧 功能调整
+
+- 装箱后小于下限的桶与相邻桶合并（优先前一桶，且不超过上限），消除大命名空间夹出的碎片文件
+- 手动 `--modular` 也按本轮生成文件写入清单，连续生成清理已消失模块
+- `--check` 覆盖手动模式，能发现缺失与过期产物
+- 分组产物底座改名，`http-client` 改为 `client`，`data-contracts` 改为 `types/` 目录
+
+### ⚡ 优化改进
+
+- `init` 的 `.gitignore` 片段新增本地配置忽略项，已有片段按需补齐
+- JS 模式的运行时枚举随归属文件落盘，出口同步 re-export
+- `typescript` 提升为运行时依赖，用于按声明解析契约引用
+- 生成清单移入系统缓存且不再记录工具名与版本，产物目录保持干净
+- toolkit 低于 1.17.6 或不可用时降级为本仓硬断言，并在 stderr 提示安装或升级
+- `files` 白名单纳入 `skills` 并声明 `agentSkills`，技能随 npm 包发布
+- 产物清单、按清单清理与手写护栏支持 `types/` 嵌套路径
+
+### 🐛 问题修复
+
+- 分组模块的共享请求器改为公开字段，两个组的类型交叉不再坍缩为 `never`
+- 补分组对外面门禁的交叉类型断言，避免同类回归
+- 分组产物的聚合入口补齐 `AxiosResponse`、`FullRequestParams`、`RequestParams`、`ContentType`、`HttpClient` 导出，包桶引用与单文件产物一致
+- JS 模式分组模块声明补齐 `AxiosResponse` 导入，`AxiosParse` 推导不再退化为 `unknown`
+- 分组模块改为注入聚合请求器，替换 `api.instance` 与 `setSecurityData` 会对所有组同时生效
+- 组名撞上 `instance`、`request` 等聚合成员时改用追加序号，避免覆盖运行期能力
+- `--replace-tags` 值不足时忽略该参数并告警，不再用空串清空 JSDoc 标签
+- 目标模块名已被手写文件占用时终止生成并提示，不再静默覆盖
+- 临时文档改落系统临时目录，`output.clean` 与收尾清理不再报 ENOENT
+- JS 输出的聚合入口不再带泛型与可选参数语法，避免 `.js` 文件出现 TypeScript 写法
+
+### 📝 文档更新
+
+- 指南新增「AI 技能：什么时候需要」，README 与 `--help` 露出 `skill` 命令
+- AGENTS 增加本仓库能力自举与规范真源说明
+
 ## 1.3.0
 
 > 2026-11-21 发布
