@@ -1035,6 +1035,46 @@ async function checkGroupedSplit() {
     if (Object.keys(before).join(",") !== Object.keys(after).join(",")) issues.push("连续两次生成的产物集合不一致")
     else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
 
+    // 契约缩水：整组接口被删除后，模块与嵌套契约都要清理，且随后 --check 通过
+    const shrinkDir = join(out, "shrink")
+    const shrinkSpec = join(out, "shrink-spec.json")
+    const shrinkSource = JSON.parse(readFileSync(join(root, "fixtures", "grouping-split.json"), "utf8"))
+    for (const pathKey of Object.keys(shrinkSource.paths)) if (pathKey.startsWith("/dg_admin/")) delete shrinkSource.paths[pathKey]
+    writeFileSync(shrinkSpec, JSON.stringify(shrinkSource, null, 2))
+    const shrinkConfig = (name, specFile) => {
+      const config = join(out, name)
+      writeFileSync(
+        config,
+        JSON.stringify(
+          {
+            input: { file: specFile },
+            output: { dir: shrinkDir, name: "index", mode: "grouped" },
+            client: { type: "axios" },
+            grouping: splitGrouping
+          },
+          null,
+          2,
+        ),
+      )
+      return config
+    }
+    const shrinkBefore = run(shrinkConfig("shrink-before.json", join(root, "fixtures", "grouping-split.json")))
+    const shrinkAfter = shrinkBefore.status === 0 ? run(shrinkConfig("shrink-after.json", shrinkSpec)) : shrinkBefore
+    if (shrinkBefore.status !== 0 || shrinkAfter.status !== 0) {
+      issues.push("契约缩水场景生成失败")
+      console.error(`${shrinkAfter.stdout ?? ""}${shrinkAfter.stderr ?? ""}`)
+    } else {
+      const leftovers = collectFiles(shrinkDir).filter((name) => /^(?:types\/)?DgAdmin/.test(name))
+      if (leftovers.length) issues.push(`契约缩水后残留：${leftovers.join(", ")}`)
+      const shrinkManifest = JSON.parse(readFileSync(manifestPath(shrinkDir), "utf8"))
+      if (shrinkManifest.files.some((name) => name.includes("DgAdmin"))) issues.push("契约缩水后清单仍记录已删除模块")
+      const shrinkCheck = spawnSync(process.execPath, [cli, "-c", shrinkConfig("shrink-check.json", shrinkSpec), "--check"], { cwd: out, encoding: "utf8" })
+      if (shrinkCheck.status !== 0) {
+        issues.push("契约缩水后 --check 未通过")
+        console.error(`${shrinkCheck.stdout ?? ""}${shrinkCheck.stderr ?? ""}`)
+      }
+    }
+
     // 类型探针：分片合并后仍可按命名空间调用，且替换 instance 会传导到分片
     writeFileSync(
       join(out, "probe.ts"),

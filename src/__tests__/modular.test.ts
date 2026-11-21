@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest"
-import { buildAggregateDeclarations, buildAggregateEntry, buildSplitFacade, buildSplitFacadeDeclarations } from "../utils/modular"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import { buildAggregateDeclarations, buildAggregateEntry, buildSplitFacade, buildSplitFacadeDeclarations, collectGeneratedFiles } from "../utils/modular"
 
 /** 模块列表：含与聚合类同名的模块，覆盖别名分支 */
 const modules = [
@@ -44,6 +47,45 @@ describe("分组聚合入口", () => {
     expect(code).toContain("dgAdmin = new DgAdmin(this)")
     const declarations = buildAggregateDeclarations(splitModules, "Api")
     expect(declarations).toContain('import { App, Misc } from "./App"')
+  })
+})
+
+describe("生成清单收集", () => {
+  /** 用例创建的临时目录，结束后清理 */
+  const roots: string[] = []
+
+  afterEach(() => {
+    while (roots.length) fs.rmSync(roots.pop() as string, { recursive: true, force: true })
+  })
+
+  it("只收录本轮命名可推导的产物，不把残留契约当成本轮产物", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "s2a-manifest-"))
+    roots.push(dir)
+    const write = (file: string) => {
+      fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+      fs.writeFileSync(path.join(dir, file), "")
+    }
+    for (const file of [
+      "index.js",
+      "index.d.ts",
+      "client.js",
+      "client.d.ts",
+      "DgAdmin.js",
+      "DgAdmin.d.ts",
+      "types/index.js",
+      "types/index.d.ts",
+      "types/DgAdmin.d.ts",
+      "types/shared.d.ts",
+      // 上一轮遗留：组已删除、分片已回填后残留
+      "types/Options.d.ts",
+      "types/DgAdminPart7.d.ts"
+    ]) {
+      write(file)
+    }
+    const files = collectGeneratedFiles(dir, [{ raw: "dg_admin", key: "dgadmin", fileName: "DgAdmin", className: "DgAdmin", property: "dgAdmin", reason: "", source: "auto" }], true)
+    expect(files).toEqual(expect.arrayContaining(["types/index.d.ts", "types/DgAdmin.d.ts", "types/shared.d.ts"]))
+    expect(files).not.toContain("types/Options.d.ts")
+    expect(files).not.toContain("types/DgAdminPart7.d.ts")
   })
 })
 

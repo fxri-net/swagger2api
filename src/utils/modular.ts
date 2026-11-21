@@ -95,6 +95,8 @@ export function readOutputManifest(file: string): OutputManifest | null {
 
 /**
  * 收集本轮实际生成的产物文件（含 JS 模式的声明文件）。
+ * 契约文件名与业务文件同源，按命名推导并校验存在；不扫描 types/ 目录，
+ * 避免把上一轮遗留（已删除的组 / 分片）的契约当成本轮产物写进清单。
  * @param dir 输出目录
  * @param entries 命名表
  * @param toJS 是否为 JS 输出
@@ -112,15 +114,10 @@ export function collectGeneratedFiles(dir: string, entries: GroupNameInfo[], toJ
     ...extraFiles
   ]
   const candidates = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
-  // 契约按业务文件拆分后数量不固定，types/ 子目录按实际落盘文件收集
-  const typesDir = path.join(dir, TYPES_DIR)
-  const nested = fs.existsSync(typesDir)
-    ? fs
-        .readdirSync(typesDir)
-        .filter((file) => file.endsWith(".ts") || file.endsWith(".js"))
-        .map((file) => `${TYPES_DIR}/${file}`)
-    : []
-  return [...new Set([...candidates, ...nested])].filter((file) => fs.existsSync(path.join(dir, file))).sort()
+  // 契约按业务文件拆分，文件名取自模块名；index 与 shared 为固定出口与共享契约
+  const contractBases = [...new Set(["index", "shared", ...names.map((name) => name.slice(name.lastIndexOf("/") + 1))])]
+  const contracts = contractBases.flatMap((base) => (toJS ? [`${TYPES_DIR}/${base}.d.ts`, `${TYPES_DIR}/${base}.js`] : [`${TYPES_DIR}/${base}.ts`]))
+  return [...new Set([...candidates, ...contracts])].filter((file) => fs.existsSync(path.join(dir, file))).sort()
 }
 
 /**
