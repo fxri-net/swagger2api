@@ -25,6 +25,13 @@ describe("分组聚合入口", () => {
     expect(code).toContain("api: ApiModule")
   })
 
+  it("JS 实现不输出 TypeScript 语法", () => {
+    const code = buildAggregateEntry(modules, "Api", "", true)
+    expect(code).not.toContain("<SecurityDataType")
+    expect(code).not.toContain("config?: any")
+    expect(code).toContain("export class Api extends HttpClient {")
+  })
+
   it("同源模块合并导入，分片门面单独导入", () => {
     const splitModules = [
       { base: "App", className: "App", property: "app", importFrom: "App" },
