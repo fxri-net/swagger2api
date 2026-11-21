@@ -6,6 +6,19 @@ outline: [2, 2]
 
 > 完整变更历史以根 `CHANGELOG.md` 为准，本页由 `toolkit changelog doc` 自动同步，请勿手改。
 
+## 1.3.2
+
+> 2026-11-21 发布
+
+### 🐛 问题修复
+
+- 支持 `defaults` + `targets` 多目标配置，一条命令生成或校验全部目标，`--target <id>` 只执行指定目标
+- 多目标生成前整体预校验 `id`、输入与输出目录，冲突时以退出码 2 结束且不写任何目标
+- 新增 `surface` 命令，提取产物中的 `@request` / `@name` 与导出类型，支持 `--out` 写基线、`--compare` 比对增删
+- 多目标按 `id` 分组，目标集合或格式版本变化按失败处理；`--requests-only` 只锁接口集合
+- 新增 `typeCheck`（扁平）/ `output.typeCheck`（嵌套）配置，`enforce` 时在写盘后剥离 `.ts` / `.js` / `.d.ts` 中的 `// @ts-nocheck`
+- `--check` 的临时产物走同一剥离处理后再比对，避免与真实产物误报不一致
+
 ## 1.3.1
 
 > 2026-11-21 发布
