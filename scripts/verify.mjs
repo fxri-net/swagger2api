@@ -1305,6 +1305,19 @@ async function checkGroupedSplit() {
     if (Object.keys(before).join(",") !== Object.keys(after).join(",")) issues.push("连续两次生成的产物集合不一致")
     else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
 
+    // 升级迁移：旧版（1.3.3 及以前）自写的聚合入口与门面不带横幅，重新生成不得判为手写冲突
+    const bannerLine = new RegExp(`^/\\* ## ${GENERATED_BANNER} ## \\*/\\r?\\n`, "m")
+    for (const file of ["index.ts", "DgAdmin.ts"]) {
+      writeFileSync(join(base, file), readFileSync(join(base, file), "utf8").replace(bannerLine, ""))
+    }
+    const legacyRun = run(writeConfig("base.json", base, splitGrouping))
+    if (legacyRun.status !== 0) {
+      issues.push("旧版无横幅产物被误判为手写文件")
+      console.error(`${legacyRun.stdout ?? ""}${legacyRun.stderr ?? ""}`)
+    } else if (!readFileSync(join(base, "index.ts"), "utf8").includes(GENERATED_BANNER)) {
+      issues.push("旧版产物未被重新生成覆盖")
+    }
+
     // 契约缩水：整组接口被删除后，模块与嵌套契约都要清理，且随后 --check 通过
     const shrinkDir = join(out, "shrink")
     const shrinkSpec = join(out, "shrink-spec.json")
