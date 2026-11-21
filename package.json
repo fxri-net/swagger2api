@@ -24,6 +24,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
@@ -31,6 +32,7 @@
     "NOTICE",
     "package.json"
   ],
+  "agentSkills": "./skills",
   "scripts": {
     "dev": "pnpm build:debug && node ./dist/cli.js",
     "build": "cross-env NODE_ENV=production tsup",

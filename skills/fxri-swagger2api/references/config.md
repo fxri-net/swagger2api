@@ -1,0 +1,40 @@
+# 配置决策
+
+> 由 `../SKILL.md` 按需加载。只列需要判断的字段；完整字段与层级规则见仓库 `docs/config.md`。
+
+## 最小配置
+
+```json
+{
+  "input": { "url": "https://example.com/v3/api-docs" },
+  "output": { "dir": "./src/api", "name": "index" },
+  "client": { "type": "axios" }
+}
+```
+
+本地文件用 `input.file`，相对路径按配置文件所在目录解析。
+
+## 决策项
+
+| 字段 | 取值 | 什么时候改 |
+| --- | --- | --- |
+| `output.mode` | `single`（默认）/ `grouped` | 接口多、单文件过大时切 `grouped` |
+| `client.type` | `fetch`（默认）/ `axios` | 项目已用 axios 或需要拦截器时选 `axios` |
+| `language.target` | `ts`（默认）/ `js` | 产物要与现有 JS 代码共存时选 `js`（同时生成声明） |
+| `types.responses` | 布尔 | 需要响应类型信息时开启 |
+| `types.extractQuery` | 字段名数组 | 后端把分页 / 筛选包在 query 对象里，需要提到根部时 |
+| `types.extractResponseRaw` | 布尔 | 需要在响应里保留原始 `raw` 时 |
+| `naming.pathPrefixIndex` | 非负整数 | 路径首段是网关前缀、不该进命名时去掉 |
+| `naming.tagRewrite` | `[匹配, 替换]` | 标签带环境前缀或需要统一命名时 |
+
+## 分层
+
+- 项目层 `swagger2api.json`：随仓库提交，团队共用。
+- 本地层：个人地址、令牌等放本地文件，加入忽略清单，不提交。
+- 环境变量可覆盖地址等敏感项；优先级与字段映射见 `docs/config.md`。
+
+## 判断顺序
+
+1. 先确认输入地址可访问、返回 OpenAPI / Swagger 文档。
+2. 再定 `mode`：不确定时先用 `single` 生成，确认调用形态后再评估是否分组。
+3. 最后按需加 `language`、`types`、`naming`；每加一项都跑一次 `--dry-run` 对比报表。

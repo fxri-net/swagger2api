@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import prompts from "prompts"
 import axios from "axios"
 import {
@@ -303,12 +304,107 @@ export async function runGrouping() {
 }
 
 /**
- * CLI 入口分发：默认生成，识别 init / config status / grouping。
+ * 打印简要用法：只列入口命令，完整参数见 docs/cli.md。
+ * @return 无
+ */
+function printUsage() {
+  console.log(
+    [
+      "用法：",
+      "  swagger2api                         按最近的 swagger2api.json 生成",
+      "  swagger2api --check                 校验产物与配置是否一致",
+      "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",
+      "  swagger2api grouping                查看分组分布并写入分组配置",
+      "  swagger2api config status           查看配置分层与生效结果",
+      "  swagger2api skill [--print|--json]  输出包内 AI 技能入口",
+      "",
+      "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
+      "日常生成与 --check 不需要加载技能。"
+    ].join("\n")
+  )
+}
+
+/**
+ * 包根目录：从模块位置向上找到 name 为 @fxri/swagger2api 的 package.json。
+ * 本地源码与 dist 产物两种位置都适用，不依赖当前工作目录。
+ * @return 包根绝对路径
+ */
+function resolvePackageRoot() {
+  let dir = path.dirname(fileURLToPath(import.meta.url))
+  for (;;) {
+    const file = path.join(dir, "package.json")
+    if (fs.existsSync(file)) {
+      try {
+        if (JSON.parse(fs.readFileSync(file, "utf8")).name === "@fxri/swagger2api") return dir
+      } catch {
+        // 非法 JSON 视为非目标包，继续向上
+      }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  throw new Error("未能定位 @fxri/swagger2api 包根目录")
+}
+
+/**
+ * 解析包内技能入口与版本。
+ * @param root 包根绝对路径
+ * @return 入口、references 目录与技能版本
+ */
+function resolveSkillInfo(root: string) {
+  const skillDir = path.join(root, "skills", "fxri-swagger2api")
+  const entry = path.join(skillDir, "SKILL.md")
+  const referencesDir = path.join(skillDir, "references")
+  let version = ""
+  if (fs.existsSync(entry)) {
+    const content = fs.readFileSync(entry, "utf8")
+    version = /^[ \t]+version:[ \t]*"?([^"\r\n]+?)"?[ \t]*$/m.exec(content)?.[1]?.trim() ?? ""
+  }
+  return { entry, referencesDir, version }
+}
+
+/**
+ * 执行 skill：只读输出包内技能入口，不写文件、不维护状态。
+ * @param argv 参数列表（测试可注入）
+ * @return 退出码
+ */
+export function runSkill(argv = process.argv.slice(2)) {
+  const print = argv.includes("--print")
+  const json = argv.includes("--json")
+  if (print && json) {
+    console.error("⚠️ --print 与 --json 不能同时使用")
+    return 1
+  }
+  const info = resolveSkillInfo(resolvePackageRoot())
+  if (!fs.existsSync(info.entry)) {
+    console.error(`⚠️ 包内未找到技能入口：${info.entry}`)
+    return 1
+  }
+  if (print) {
+    const content = fs.readFileSync(info.entry, "utf8")
+    process.stdout.write(content.endsWith("\n") ? content : `${content}\n`)
+    return 0
+  }
+  if (json) {
+    console.log(JSON.stringify(info, null, 2))
+    return 0
+  }
+  console.log(info.entry)
+  return 0
+}
+
+/**
+ * CLI 入口分发：默认生成，识别 init / config status / grouping / skill。
  * @param runGenerate 默认生成逻辑
  * @return 无
  */
 export async function dispatch(runGenerate: () => Promise<void>) {
   const argv = process.argv.slice(2)
+  if (argv.includes("--help") || argv.includes("-h")) {
+    printUsage()
+    return
+  }
   const [command, subcommand] = argv.filter((item) => !item.startsWith("-"))
   if (command === "init") {
     process.exitCode = await runInit()
@@ -320,6 +416,10 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   if (command === "config" && subcommand === "status") {
     process.exitCode = runConfigStatus()
+    return
+  }
+  if (command === "skill") {
+    process.exitCode = runSkill()
     return
   }
   await runGenerate()
