@@ -38,6 +38,10 @@ afterEach(() => {
 })
 
 describe("skill 定位命令", () => {
+  // 版本以技能入口两处声明的真源为准，递增版本时无需改测试
+  const skillEntry = join(process.cwd(), "skills", "fxri-swagger2api", "SKILL.md")
+  const skillVersion = /^[ \t]+version:[ \t]*"?([^"\r\n]+?)"?[ \t]*$/m.exec(readFileSync(skillEntry, "utf8"))?.[1] ?? ""
+
   it("默认输出存在的技能入口绝对路径", () => {
     const result = capture(() => runSkill([]))
     expect(result.code).toBe(0)
@@ -50,7 +54,7 @@ describe("skill 定位命令", () => {
     const result = capture(() => runSkill(["--print"]))
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("name: fxri-swagger2api")
-    expect(result.stdout).toContain("本技能版本 1.0.0")
+    expect(result.stdout).toContain(`本技能版本 ${skillVersion}`)
   })
 
   it("--json 输出入口、references 与版本", () => {
@@ -59,7 +63,7 @@ describe("skill 定位命令", () => {
     const payload = JSON.parse(result.log) as { entry: string; referencesDir: string; version: string }
     expect(existsSync(payload.entry)).toBe(true)
     expect(existsSync(payload.referencesDir)).toBe(true)
-    expect(payload.version).toBe("1.0.0")
+    expect(payload.version).toBe(skillVersion)
   })
 
   it("--print 与 --json 互斥", () => {

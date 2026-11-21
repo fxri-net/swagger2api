@@ -27,6 +27,30 @@
 - 分组模式的生成清单存放在系统临时目录缓存，不进入仓库与产物目录；`--check` 只校验产物是否与当前配置一致
 - `swagger2api init` 可交互生成这份配置；`swagger2api` 无参即按最近的配置生成
 
+## 多目标配置
+
+同一仓库有多个 Swagger 文档（如 `base` / `lc` / `mg`）时，用 `defaults` 写公共口径，`targets` 逐目标声明：
+
+```json
+{
+  "defaults": { "mode": "grouped", "client": "axios", "language": "ts" },
+  "targets": [
+    { "id": "base", "url": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
+    { "id": "lc", "url": "https://example.com/lc/v3/api-docs", "output": "./src/api/lc" }
+  ]
+}
+```
+
+- `id` 是目标标识，必须唯一；`name` 仍是生成入口文件名，默认 `index`
+- 目标项既可写扁平字段（`url` / `file` / `output` / `name` / `mode` 等），也可写嵌套字段（`input` / `output` 等）
+- 合并优先级：命令行 > 环境变量 > `profiles` > 目标项 > `defaults`；分层配置的本地层 > 项目层 > 全局层在读取时已完成合并，数组整体替换
+- 目标内相对路径按配置文件所在目录解析
+- 无参数执行全部目标；`--target <id>` 只执行一个；`--check` 校验全部目标
+- 生成前整体预校验：`id` 缺失或重名、输入缺失或本地文件不存在、输出目录相同或互相嵌套，任一问题直接以退出码 2 结束且不写任何目标
+- 某个目标运行期失败不中断其余目标，全部执行完后以退出码 1 结束并指出失败目标
+- 存在 `targets` 时 `--config` 只接受单个配置文件，配置扫描与多选交互关闭
+- 退出码：0 成功；1 生成 / 校验失败；2 用法或配置错误
+
 ## 分层配置（rc 文件，旧写法兼容）
 
 团队需要本地层覆盖或多套预设时，继续使用嵌套写法：

@@ -8,6 +8,7 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
+import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
 import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
@@ -105,6 +106,9 @@ async function onLoadParam() {
     sortTypes: getPKey("--sort-types"), // 排序字段和类型（默认：false）
     extractEnums: getPKey("--extract-enums") // 从内联接口提取所有枚举类型 将内容提取到 typescript 枚举构造中（默认：false）
   } as Parameters<typeof generateApi>["0"]
+  // 多目标逐目标复位用：留存命令行基线，rc 覆盖在其副本上进行
+  datas.baseParam = structuredClone(datas.param)
+  datas.baseConfig = structuredClone(datas.config)
   // 应用 rc 配置（命令行显式参数优先）
   onApplyRc()
 }
@@ -118,15 +122,11 @@ function hasFlag(names: string[]) {
   return names.some((name) => argv.includes(name))
 }
 /**
- * 应用 rc 配置：仅在命令行未显式给出时回落到配置值
+ * 把生效配置落到运行时：命令行显式参数始终优先。
+ * @param rc 归一化后的配置
  * @return 无
  */
-function onApplyRc() {
-  const flags = getConfigFlags()
-  const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
-  layers.warnings.forEach((warning) => console.error("⚠️", warning))
-  // 先归一化扁平配置，再套预设、再做一次归一化，兼容预设内继续使用扁平字段
-  const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
+function applyRcConfig(rc: Record<string, any>) {
   const input = rc.input ?? {}
   const output = rc.output ?? {}
   const types = rc.types ?? {}
@@ -135,7 +135,7 @@ function onApplyRc() {
   const rcUrl = input.url ?? input.file
   if (!rcUrl) return
   // 相对路径按配置文件所在目录解析，命令行从任意目录执行都能落对位置
-  const configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
+  const configDir = datas.configDir ?? process.cwd()
   // rc 提供输入地址即视为配置驱动：不扫描、不回写 saconfig
   datas.rcDriven = true
   datas.rcUrl = isUrl(rcUrl) ? rcUrl : path.resolve(configDir, rcUrl)
@@ -162,6 +162,56 @@ function onApplyRc() {
   if (!hasFlag(["--prune-output"])) config.pruneOutput = output.prune === undefined ? Boolean(config.modular) : Boolean(output.prune)
   if (!hasFlag(["--module-name-index"]) && grouping.pathDepth !== undefined) config.moduleNameIndex = Number(grouping.pathDepth)
   if (Object.keys(grouping).length) config.grouping = grouping
+}
+
+/**
+ * 应用 rc 配置：多目标先整体预校验再挑选目标，单目标沿用原流程。
+ * @return 无
+ */
+function onApplyRc() {
+  const flags = getConfigFlags()
+  const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
+  layers.warnings.forEach((warning) => console.error("⚠️", warning))
+  datas.configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
+  // 多目标：配置错误一次报完并以退出码 2 终止，不写任何目标，避免半批产物
+  if (hasTargets(layers.merged)) {
+    if (String(flags.configFile ?? "").includes(",")) {
+      console.error("失败：多目标配置只接受单个 --config 文件")
+      onExit("结束：--config 不接受多个文件", 2)
+    }
+    const picked = pickTargetFlag()
+    if (picked.errors.length > 0) {
+      picked.errors.forEach((error) => console.error("失败：", error))
+      onExit("结束：目标参数不合法", 2)
+    }
+    const plan = resolveTargets(layers.merged as Record<string, any>, { profile: flags.profile, configDir: datas.configDir })
+    plan.warnings.forEach((warning) => console.error("⚠️", warning))
+    if (plan.errors.length > 0) {
+      plan.errors.forEach((error) => console.error("失败：", error))
+      onExit(`结束：多目标配置有 ${plan.errors.length} 处问题，未生成任何目标`, 2)
+    }
+    if (picked.id && !plan.targets.some((target) => target.id === picked.id)) {
+      console.error(`失败：未知目标 ${picked.id}（可选：${plan.targets.map((target) => target.id).join("、")}）`)
+      onExit("结束：--target 未匹配任何目标", 2)
+    }
+    datas.targetMode = true
+    datas.rcDriven = true
+    datas.targets = picked.id ? plan.targets.filter((target) => target.id === picked.id) : plan.targets
+    return
+  }
+  // 单目标：--target 只在多目标配置下有意义，脚本残留时明确报错而非静默失效
+  const picked = pickTargetFlag()
+  if (picked.errors.length > 0) {
+    picked.errors.forEach((error) => console.error("失败：", error))
+    onExit("结束：目标参数不合法", 2)
+  }
+  if (picked.id) {
+    console.error("失败：当前配置没有 targets，--target 无法使用")
+    onExit("结束：--target 需要多目标配置", 2)
+  }
+  // 先归一化扁平配置，再套预设、再做一次归一化，兼容预设内继续使用扁平字段
+  const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
+  applyRcConfig(rc)
 }
 /** 加载配置 */
 async function onLoadConfig() {
@@ -223,26 +273,31 @@ async function onInputParam() {
   // 疏理文档
   datas.docFile = createDocFile()
 }
+/**
+ * 读取并生成单个文档（URL 或本地文件）。
+ * @param input 地址或路径
+ * @return 无
+ */
+async function onLoadDocInput(input: string) {
+  if (isUrl(input)) {
+    const response = await axios.get(input)
+    await onGenerateApi(response.data)
+    return
+  }
+  await onGenerateApi(JSON.parse(fs.readFileSync(path.resolve(input), "utf8")))
+}
 /** 加载文档 */
 async function onLoadDoc(index = 0) {
   // 疏理文件
   confs.file = confs.files[index]
   // 输入配置
   await onInputParam()
-  // 检查地址
-  if (isUrl(confs.param.url)) {
-    // 请求文档
-    await axios
-      .get(confs.param.url)
-      .then((res) => onGenerateApi(res.data))
-      .catch((err) => console.log("失败：", err))
-  } else {
-    try {
-      // 读取文档
-      await onGenerateApi(JSON.parse(fs.readFileSync(path.resolve(confs.param.url), "utf8")))
-    } catch (error) {
-      console.log("失败：", error)
-    }
+  // 检查地址：读取失败计入失败数，批量场景下继续处理其余文档
+  try {
+    await onLoadDocInput(confs.param.url as string)
+  } catch (error) {
+    failures += 1
+    console.error("失败：", error)
   }
   // 加载下一个文档
   if (confs.files[index + 1]) {
@@ -356,34 +411,34 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[], plan:
   const expected = names.flatMap((name) => (toJS ? [`${name}${ext}`, `${name}.d.ts`] : [`${name}${ext}`]))
   const add = expected.filter((file) => !files.includes(file))
   const orphans = findOrphanModules(files, entries, ext, names)
+  const report = {
+    groups: entries.map(({ raw, fileName, className, property, importFrom, reason, source }) => ({ raw, fileName, className, property, importFrom, reason, source })),
+    unmatchedRules,
+    add,
+    orphans,
+    split: plan
+      ? {
+          total: plan.total,
+          buckets: plan.buckets.map(({ fileName, category, routes, namespaces }) => ({ fileName, category, routes, namespaces })),
+          shards: plan.namespaces
+            .filter((item) => item.chunks.length > 0)
+            .map(({ raw, fileName, className, routes, chunks }) => ({
+              raw,
+              fileName,
+              className,
+              routes,
+              chunks: chunks.map(({ fileName: chunkFile, routes: chunkRoutes, categories }) => ({ fileName: chunkFile, routes: chunkRoutes, categories }))
+            }))
+        }
+      : undefined
+  }
   if (jsonOutput()) {
-    console.log(
-      JSON.stringify(
-        {
-          groups: entries.map(({ raw, fileName, className, property, importFrom, reason, source }) => ({ raw, fileName, className, property, importFrom, reason, source })),
-          unmatchedRules,
-          add,
-          orphans,
-          split: plan
-            ? {
-                total: plan.total,
-                buckets: plan.buckets.map(({ fileName, category, routes, namespaces }) => ({ fileName, category, routes, namespaces })),
-                shards: plan.namespaces
-                  .filter((item) => item.chunks.length > 0)
-                  .map(({ raw, fileName, className, routes, chunks }) => ({
-                    raw,
-                    fileName,
-                    className,
-                    routes,
-                    chunks: chunks.map(({ fileName: chunkFile, routes: chunkRoutes, categories }) => ({ fileName: chunkFile, routes: chunkRoutes, categories }))
-                  }))
-              }
-            : undefined
-        },
-        null,
-        2
-      )
-    )
+    // 多目标：逐目标报表由主流程汇总成单个 JSON，避免输出多份互不闭合的文档
+    if (datas.targetMode) {
+      ;(datas.groupReports ??= []).push({ id: datas.currentTarget ?? "", report })
+      return
+    }
+    console.log(JSON.stringify(report, null, 2))
     return
   }
   entries.forEach((entry) => console.log(`命名：${entry.raw} → ${entry.fileName}（类 ${entry.className}${entry.reason ? `，${entry.reason}` : ""}）`))
@@ -626,14 +681,57 @@ async function onGenerateApi(data: Defines["data"]) {
   // 保存配置（rc 驱动时不回写 saconfig）
   if (!datas.rcDriven) saveFile(confs.file, JSON.stringify(confs.param, null, 2))
 }
+/**
+ * 多目标：逐目标复位运行时后生成；单个失败不阻断其余目标，最终聚合退出码。
+ * @return 无
+ */
+async function onRunTargets() {
+  const targets = datas.targets ?? []
+  const summary: Array<{ id: string; ok: boolean; report?: Record<string, any> }> = []
+  let failed = 0
+  for (const target of targets) {
+    // 每个目标独立复位：参数、配置、统计与命名表互不串味
+    datas.param = structuredClone(datas.baseParam) as Defines["datas"]["param"]
+    datas.config = structuredClone(datas.baseConfig) as Defines["datas"]["config"]
+    datas.enum = {}
+    namingEntries = []
+    splitPlan = null
+    datas.groupReports = []
+    datas.currentTarget = target.id
+    applyRcConfig(target.config)
+    confs.file = `(targets:${target.id})`
+    confs.param = { url: datas.rcUrl, output: datas.rcOutput, name: datas.rcName }
+    datas.docFile = createDocFile()
+    console.log(`\n目标：${target.id}（${target.input} → ${target.outputDir}）`)
+    const before = failures
+    try {
+      await onLoadDocInput(target.input)
+    } catch (error) {
+      failures += 1
+      console.error(`失败：目标 ${target.id}：${(error as Error).message}`)
+    }
+    const ok = failures === before
+    if (!ok) failed += 1
+    summary.push({ id: target.id, ok, report: datas.groupReports?.[0]?.report })
+  }
+  // dry-run 的结构化报表按目标汇总成单个 JSON
+  if (dryRun() && jsonOutput()) console.log(JSON.stringify({ targets: summary }, null, 2))
+  if (failed > 0) onExit(`结束：${failed} 个目标失败（共 ${targets.length} 个），其余目标已完成`, 1)
+}
+
 /** 主线 */
 async function onMain() {
   // 加载参数
   await onLoadParam()
+  // 多目标：配置已在参数阶段整体预校验，直接逐目标执行
+  if (datas.targetMode) {
+    await onRunTargets()
+    return
+  }
   // 加载配置
   await onLoadConfig()
   // 加载文档
-  onLoadDoc()
+  await onLoadDoc()
 }
 // 导出方法
 export { onMain as generateApi }

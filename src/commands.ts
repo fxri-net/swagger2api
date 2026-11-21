@@ -312,6 +312,7 @@ function printUsage() {
     [
       "用法：",
       "  swagger2api                         按最近的 swagger2api.json 生成",
+      "  swagger2api --target <id>           多目标配置下只生成指定目标",
       "  swagger2api --check                 校验产物与配置是否一致",
       "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",
       "  swagger2api grouping                查看分组分布并写入分组配置",

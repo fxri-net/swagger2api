@@ -27,6 +27,24 @@
 | `naming.pathPrefixIndex` | 非负整数 | 路径首段是网关前缀、不该进命名时去掉 |
 | `naming.tagRewrite` | `[匹配, 替换]` | 标签带环境前缀或需要统一命名时 |
 
+## 多目标
+
+同一仓多个 Swagger 文档用一份配置，公共口径写 `defaults`：
+
+```json
+{
+  "defaults": { "mode": "grouped", "client": "axios" },
+  "targets": [
+    { "id": "base", "url": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
+    { "id": "lc", "url": "https://example.com/lc/v3/api-docs", "output": "./src/api/lc" }
+  ]
+}
+```
+
+- `id` 唯一，`name` 仍是入口文件名；目标项覆盖 `defaults`
+- 无参数跑全部，`--target <id>` 跑单个，`--check` 校验全部
+- 输出目录相同或互相嵌套会被拒绝（退出码 2，不落盘）；目标内相对路径按配置文件所在目录解析
+
 ## 分层
 
 - 项目层 `swagger2api.json`：随仓库提交，团队共用。
