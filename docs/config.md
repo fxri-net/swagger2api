@@ -18,8 +18,9 @@
 }
 ```
 
-- 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
+- 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`typeCheck`（`skip` / `enforce`）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
 - 只写项目自己的口径；分桶阈值、分片规则、清单、清理与产物校验由工具默认，不需要配置
+- `typeCheck: "enforce"` 让类型检查接管生成物：写盘后剥离 `.ts` / `.js` / `.d.ts` 中独立成行的 `// @ts-nocheck`，`--check` 也按剥离后的产物比对；默认 `skip` 保留该行
 - `mode: "grouped"` 自动按路径首段分组，并按体量分桶、对超大命名空间分片；对外仍是 `api.<命名空间>.<方法>`
 - 产物布局：`mode: "grouped"` 固定为 `index`（聚合入口）+ 业务模块文件 + `client`（客户端底座）+ `types/`（契约目录），契约统一从 `types/index` 导出；契约再按业务文件拆分为 `types/<业务文件>.ts` 与 `types/shared.ts`
 - 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留，无需手动清理
@@ -76,6 +77,7 @@
 ```
 
 - 环境变量：`FX_S2A_INPUT`、`FX_S2A_OUTPUT`、`FX_S2A_NAME`、`FX_S2A_CLIENT`、`FX_S2A_LANGUAGE`、`FX_S2A_CLEAN`
+- 类型检查：`output.typeCheck` 与扁平 `typeCheck` 同义，`skip`（默认）保留 `// @ts-nocheck`，`enforce` 在写盘后剥离
 - 多套预设：`profiles` 内的命名预设用 `--profile <name>` 选用
 - 排障：`swagger2api config status` 展示各层命中文件、生效字段与环境变量覆盖，`--json` 输出结构化结果
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
@@ -93,6 +95,7 @@
 | `url` | string | - | Swagger JSON 文件路径或 URL，未配置时交互提示默认值 `https://example.com/v3/api-docs` |
 | `output` | string | `'./src/api'` | 生成代码的输出目录，相对配置文件所在目录解析 |
 | `name` | string | `'index'` | 接口文件名称，默认后缀为ts |
+| `typeCheck` | `skip` / `enforce` | `'skip'` | 生成物是否保留 `// @ts-nocheck`；`enforce` 在写盘后剥离，`--check` 走同一处理 |
 | `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；有差异时非 0 退出 |
 | `--quick,-q` | boolean | `false` | 快速模式，直接使用配置文件参数，不再二次确认参数 |
 | `--config,-c` | string | `'saconfig.json'` | 填写配置文件路径，支持多选，用【,】分隔 |

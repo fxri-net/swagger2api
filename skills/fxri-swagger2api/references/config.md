@@ -21,6 +21,7 @@
 | `output.mode` | `single`（默认）/ `grouped` | 接口多、单文件过大时切 `grouped` |
 | `client.type` | `fetch`（默认）/ `axios` | 项目已用 axios 或需要拦截器时选 `axios` |
 | `language.target` | `ts`（默认）/ `js` | 产物要与现有 JS 代码共存时选 `js`（同时生成声明） |
+| `output.typeCheck` | `skip`（默认）/ `enforce` | 需要项目类型检查覆盖生成物时选 `enforce`（工具剥离 `@ts-nocheck`） |
 | `types.responses` | 布尔 | 需要响应类型信息时开启 |
 | `types.extractQuery` | 字段名数组 | 后端把分页 / 筛选包在 query 对象里，需要提到根部时 |
 | `types.extractResponseRaw` | 布尔 | 需要在响应里保留原始 `raw` 时 |

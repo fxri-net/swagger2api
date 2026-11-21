@@ -9,6 +9,7 @@ import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, sc
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
+import { stripTsNoCheck } from "./utils/postprocess"
 import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
@@ -141,6 +142,11 @@ function applyRcConfig(rc: Record<string, any>) {
   datas.rcUrl = isUrl(rcUrl) ? rcUrl : path.resolve(configDir, rcUrl)
   datas.rcOutput = path.resolve(configDir, output.dir ?? "./src/api")
   datas.rcName = output.name ?? "index"
+  // 类型检查策略：仅支持 skip / enforce，非法值告警后回落 skip
+  if (output.typeCheck !== undefined && output.typeCheck !== "skip" && output.typeCheck !== "enforce") {
+    console.error(`⚠️ 已忽略 output.typeCheck=${JSON.stringify(output.typeCheck)}：仅支持 skip / enforce，回落到 skip`)
+  }
+  datas.typeCheck = output.typeCheck === "enforce" ? "enforce" : "skip"
   const param = datas.param
   param.quick = true
   if (!hasFlag(["--remove-prefix-index", "-rpi"]) && naming.pathPrefixIndex !== undefined) param.removePrefixIndex = String(naming.pathPrefixIndex)
@@ -665,6 +671,11 @@ async function onGenerateApi(data: Defines["data"]) {
       removed.forEach((file) => console.log("清理：", path.resolve(dir, file)))
       if (!checkMode()) writeOutputManifest(manifestPathFor(dir), files)
     }
+  }
+  // 类型检查策略：写盘完成后剥离 @ts-nocheck；--check 的临时产物走同一处理再比对
+  if (datas.typeCheck === "enforce") {
+    const dir = path.resolve(confs.param.output)
+    stripTsNoCheck(dir).forEach((file) => console.log("处理：", path.resolve(dir, file)))
   }
   if (datas.config.toJS) {
     console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))

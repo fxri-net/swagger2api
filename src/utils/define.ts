@@ -62,6 +62,8 @@ export type Defines = {
     enum: { [key: string]: number }
     /** 配置目录（目标内相对路径的解析基准） */
     configDir?: string
+    /** 类型检查策略：skip 保留 @ts-nocheck，enforce 剥离 */
+    typeCheck?: "skip" | "enforce"
     /** 是否由 rc 配置驱动（不读写 saconfig） */
     rcDriven?: boolean
     /** rc 提供的文档地址 */

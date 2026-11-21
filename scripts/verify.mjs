@@ -1348,6 +1348,72 @@ async function checkFlatConfig() {
 }
 
 /**
+ * 类型检查策略：enforce 剥离生成物的 @ts-nocheck 且 --check 通过，默认 skip 保持原产物。
+ * @return {number} 退出码
+ */
+async function checkTypeCheckPolicy() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 类型检查策略：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-typecheck-"))
+  const issues = []
+  try {
+    const spec = join(root, "fixtures", "swagger.json")
+    const writeConfig = (name, extra) => {
+      const config = join(out, `${name}.json`)
+      writeFileSync(config, JSON.stringify({ file: spec, output: `./${name}`, name: "index", ...extra }, null, 2))
+      return config
+    }
+    const run = (config, extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
+    const fail = (label, result) => {
+      console.error(`✖ 类型检查策略：${label}失败`)
+      console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+    }
+
+    // enforce：生成后无 @ts-nocheck，且 --check 与真实产物一致
+    const enforce = writeConfig("enforce", { typeCheck: "enforce" })
+    const enforcedRun = run(enforce)
+    if (enforcedRun.status !== 0) {
+      fail("enforce 生成", enforcedRun)
+      return 1
+    }
+    if (readFileSync(join(out, "enforce", "index.ts"), "utf8").includes("@ts-nocheck")) issues.push("enforce 产物仍含 @ts-nocheck")
+    const checkOk = run(enforce, ["--check"])
+    if (checkOk.status !== 0) {
+      issues.push("enforce 时 --check 未通过")
+      console.error(`${checkOk.stdout ?? ""}${checkOk.stderr ?? ""}`)
+    }
+
+    // 默认 skip：保留生成器写入的注释
+    const skip = writeConfig("skip", {})
+    const skippedRun = run(skip)
+    if (skippedRun.status !== 0) {
+      fail("默认生成", skippedRun)
+      return 1
+    }
+    if (!readFileSync(join(out, "skip", "index.ts"), "utf8").includes("// @ts-nocheck")) issues.push("默认 skip 未保留 @ts-nocheck")
+
+    // JS 模式的声明文件同样处理
+    const js = writeConfig("js", { typeCheck: "enforce", language: "js" })
+    const jsRun = run(js)
+    if (jsRun.status !== 0) {
+      fail("JS 模式生成", jsRun)
+      return 1
+    }
+    if (readFileSync(join(out, "js", "index.d.ts"), "utf8").includes("@ts-nocheck")) issues.push("enforce 未处理 JS 声明文件")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 类型检查策略未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -1412,6 +1478,7 @@ const steps = [
   { label: "分桶合并（中间小桶并入相邻桶）", run: checkSplitSmallBuckets },
   { label: "手动模块化清单（清理 / --check）", run: checkManualModularPrune },
   { label: "扁平配置与产物校验（缓存清单 / --check）", run: checkFlatConfig },
+  { label: "类型检查策略（enforce / skip / --check）", run: checkTypeCheckPolicy },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "产物清理与可复现（清单清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },

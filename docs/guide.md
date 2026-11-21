@@ -114,9 +114,9 @@ client.instance.interceptors.response.use(
 - **激活方式**：`pnpm exec swagger2api skill --print` 输出包内技能入口全文；`swagger2api skill` 输出入口路径，`skill --json`
   输出 `{ entry, referencesDir, version }`。技能随 npm 包发布，升级依赖即升级技能；不安装、不写项目文件、不维护状态。
 - **最短路径**：读技能 → 写最小 `swagger2api.json` → `--dry-run --json` 预览 → 生成 → `--check` 与项目类型检查。
-- **配置决策项**：`mode` / `client` / `language` / `responses` / `query` / `pathPrefixIndex` / `tagRewrite`；
+- **配置决策项**：`mode` / `client` / `language` / `typeCheck` / `responses` / `query` / `pathPrefixIndex` / `tagRewrite`；
   先定输入与输出，其余按默认，逐项加完各跑一次预览。
-- **既有边界**：生成物沿用 `// @ts-nocheck`，类型错误不进入下游检查；需要更强约束时在项目侧加类型探针，不手改生成物。
+- **既有边界**：生成物默认沿用 `// @ts-nocheck`，类型错误不进入下游检查；需要类型检查接管时用 `typeCheck: "enforce"`，由工具剥离后再校验，不手改生成物。
 - **规范来源**：技能结构与版本递增的机械真源是全局 `@fxri/toolkit` 的 `skills lint` / `skills bump`；本仓只保留打包与定位硬断言。
 
 ## 配置文件

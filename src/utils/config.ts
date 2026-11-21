@@ -241,6 +241,7 @@ const FLAT_KEYS = [
   "file",
   "name",
   "mode",
+  "typeCheck",
   "responses",
   "query",
   "extractResponseRaw",
@@ -275,6 +276,8 @@ export function normalizeConfig(config: Record<string, any> | null): Record<stri
   output.name = config.name ?? output.name ?? "index"
   output.mode = config.mode ?? output.mode ?? "single"
   output.prune = output.prune ?? (output.mode === "grouped")
+  // 类型检查策略：扁平写法与嵌套 output.typeCheck 同义
+  if (config.typeCheck !== undefined) output.typeCheck = config.typeCheck
   result.output = output
   // 客户端与语言支持字符串简写
   result.client = typeof config.client === "string" ? { type: config.client } : { ...(config.client ?? {}) }

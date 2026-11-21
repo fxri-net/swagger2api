@@ -188,6 +188,7 @@ describe("扁平配置归一化", () => {
       url: "https://example.com/api-docs",
       output: "./src/api/base",
       mode: "grouped",
+      typeCheck: "enforce",
       client: "axios",
       language: "js",
       responses: true,
@@ -199,7 +200,7 @@ describe("扁平配置归一化", () => {
       tagRewrite: ["[a-z_]+(.+)", ""]
     })
     expect(config.input.url).toBe("https://example.com/api-docs")
-    expect(config.output).toMatchObject({ dir: "./src/api/base", name: "index", mode: "grouped", prune: true })
+    expect(config.output).toMatchObject({ dir: "./src/api/base", name: "index", mode: "grouped", prune: true, typeCheck: "enforce" })
     expect(config.client).toEqual({ type: "axios" })
     expect(config.language).toEqual({ target: "js" })
     expect(config.types).toMatchObject({ responses: true, extractQuery: "param,arg0", extractResponseRaw: true })
