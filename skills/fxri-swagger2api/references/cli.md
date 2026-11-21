@@ -33,6 +33,24 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 | `--target <id>` | 多目标配置下只执行指定目标；未知目标退出码 2 |
 | `--profile <name>` | 选用配置内的命名预设 |
 
+## 诊断 JSON 与退出码
+
+`--check --json`、`inspect --json`、`prune --json` 共用一份契约：
+
+| 字段 | 说明 |
+| --- | --- |
+| `schemaVersion` | 结构版本，当前 `1`；更高版本时降级到 `--help` 与本文件 |
+| `toolVersion` | 工具版本 |
+| `command` | `check` / `inspect` / `prune` / `generate` |
+| `ok` | 是否通过 |
+| `errorCode` | `E_CHECK_FAILED` / `E_LAYOUT_ISSUES` / `E_DIR_NOT_FOUND` / `E_UNSAFE_DIR` / `E_ARGS_MISSING` / `E_CONFIG_CONFLICT`，成功为 `null` |
+| `missing` / `mismatched` / `extra` | check 的三类清单 |
+| `files` | prune 的生成物清单 |
+| `actions` | 建议的下一步命令，可直接复制；带 `--yes` 的须用户确认 |
+
+- JSON 模式下 stdout 只有一份 JSON，人类日志在 stderr，可直接 `JSON.parse`
+- 退出码：`0` 通过 / 预览完成；`1` 生成或校验失败；`2` 参数或配置错误（缺参、目录不存在、目录不安全、跨配置输出重叠）
+
 ## 使用顺序
 
 1. 改配置后先 `--dry-run --json`，重点看命名映射、桶与分片规划、预计新增文件。

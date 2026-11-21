@@ -1440,18 +1440,20 @@ async function checkFlatConfig() {
       console.error(`${ok.stdout ?? ""}${ok.stderr ?? ""}`)
     }
 
-    // --check --json：stdout 可解析，字段固定，供 AI 与 CI 直接消费
+    // --check --json：stdout 只有一份 JSON，字段固定，供 AI 与 CI 直接消费
     const jsonOk = run(["--check", "--json"])
     if (jsonOk.status !== 0) {
       issues.push("--check --json 对一致产物判失败")
       console.error(`${jsonOk.stdout ?? ""}${jsonOk.stderr ?? ""}`)
     } else {
       try {
-        const summary = JSON.parse(jsonOk.stdout.slice(jsonOk.stdout.indexOf("{")))
+        const summary = JSON.parse(jsonOk.stdout)
         if (summary.schemaVersion !== 1) issues.push("--check --json 缺少 schemaVersion")
         if (!summary.toolVersion) issues.push("--check --json 缺少 toolVersion")
+        if (summary.command !== "check") issues.push("--check --json 缺少 command")
         if (summary.ok !== true) issues.push("--check --json 结论错误")
-        for (const key of ["missing", "mismatched", "extra"]) {
+        if (summary.errorCode !== null) issues.push("--check --json 成功时 errorCode 应为 null")
+        for (const key of ["missing", "mismatched", "extra", "actions"]) {
           if (!Array.isArray(summary[key])) issues.push(`--check --json 缺少 ${key} 列表`)
         }
       } catch (error) {
@@ -1465,6 +1467,18 @@ async function checkFlatConfig() {
     if (tampered.status === 0) issues.push("--check 未发现产物篡改")
     if (!`${tampered.stdout ?? ""}${tampered.stderr ?? ""}`.includes("产物不一致")) issues.push("--check 缺少差异提示")
     if (!readFileSync(join(api, "Modules.ts"), "utf8").includes("// tampered")) issues.push("--check 改写了真实产物")
+
+    // 差异时的 --json：纯 JSON、稳定错误码与可执行动作
+    const tamperedJson = run(["--check", "--json"])
+    if (tamperedJson.status !== 1) issues.push(`--check --json 差异时未以退出码 1 结束（实际 ${tamperedJson.status}）`)
+    try {
+      const summary = JSON.parse(tamperedJson.stdout)
+      if (summary.ok !== false || summary.errorCode !== "E_CHECK_FAILED") issues.push("--check --json 差异时错误码不正确")
+      if (!summary.mismatched.includes("Modules.ts")) issues.push("--check --json 未列出不一致文件")
+      if (!summary.actions?.length) issues.push("--check --json 差异时缺少 actions")
+    } catch (error) {
+      issues.push(`--check --json 差异输出无法解析：${error.message}`)
+    }
 
     // 删除后必须报缺失
     rmSync(join(api, "Modules.ts"))
@@ -1488,6 +1502,18 @@ async function checkFlatConfig() {
     const conflict = spawnSync(process.execPath, [cli], { cwd: out, encoding: "utf8" })
     if (conflict.status !== 2) issues.push(`跨配置输出重叠未以退出码 2 拒绝（实际 ${conflict.status}）`)
     if (!`${conflict.stdout ?? ""}${conflict.stderr ?? ""}`.includes("重叠")) issues.push("跨配置输出重叠缺少提示")
+    // JSON 模式下同一冲突给稳定错误码与可执行动作
+    const conflictJson = spawnSync(process.execPath, [cli, "--json"], { cwd: out, encoding: "utf8" })
+    if (conflictJson.status !== 2) issues.push("跨配置冲突 --json 未以退出码 2 结束")
+    else {
+      try {
+        const summary = JSON.parse(conflictJson.stdout)
+        if (summary.errorCode !== "E_CONFIG_CONFLICT") issues.push("跨配置冲突缺少稳定错误码")
+        if (!summary.actions?.length) issues.push("跨配置冲突缺少 actions")
+      } catch (error) {
+        issues.push(`跨配置冲突 --json 无法解析：${error.message}`)
+      }
+    }
 
     if (issues.length === 0) return 0
     console.error(`\n✖ 扁平配置与产物校验未通过：${issues.length} 项`)

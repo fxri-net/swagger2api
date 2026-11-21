@@ -5,7 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, DIAGNOSTIC_SCHEMA_VERSION, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles } from "./utils"
+import { Defines, DIAGNOSTIC_SCHEMA_VERSION, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles, writeJson } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
@@ -94,6 +94,27 @@ function groupedLeftoverHint(dir: string, toJS: boolean) {
     .filter((base) => !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
   if (modules.length === 0) return null
   return `检测到输出目录含分组模式产物（client + types/ + ${modules.length} 个模块文件），单文件模式不会自动删除旧产物；确认后执行 swagger2api prune --dir "${dir}" --yes 清理，或设置 output.clean 整目录重建`
+}
+
+/**
+ * 输出跨配置输出目录冲突：JSON 模式给出稳定错误码与可直接执行的下一步。
+ * @param conflicts 冲突说明
+ * @return 无
+ */
+function onConfigConflict(conflicts: string[]) {
+  if (!jsonOutput()) {
+    conflicts.forEach((conflict) => console.error("失败：", conflict))
+    return
+  }
+  writeJson({
+    schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+    toolVersion: readToolVersion(),
+    command: "generate",
+    ok: false,
+    errorCode: "E_CONFIG_CONFLICT",
+    message: conflicts.join("；"),
+    actions: ["swagger2api config status # 查看生效配置与环境变量覆盖", "swagger2api --dry-run --json # 预览本次目标与产物"]
+  })
 }
 
 /**
@@ -265,7 +286,7 @@ function onApplyRc() {
       outputDirs: (datas.targets ?? []).map((target) => path.resolve(target.outputDir))
     })
     if (conflicts.length > 0) {
-      conflicts.forEach((conflict) => console.error("失败：", conflict))
+      onConfigConflict(conflicts)
       onExit("结束：配置输出目录冲突，未生成任何目标", 2)
     }
     return
@@ -287,7 +308,7 @@ function onApplyRc() {
   // 同目录其他配置若与本配置输出重叠，两边的横幅清理会互删产物
   const conflicts = findOutputDirConflicts({ configDir: datas.configDir as string, currentFile: layers.project.file, outputDirs: [datas.rcOutput] })
   if (conflicts.length > 0) {
-    conflicts.forEach((conflict) => console.error("失败：", conflict))
+    onConfigConflict(conflicts)
     onExit("结束：配置输出目录冲突，未生成任何产物", 2)
   }
 }
@@ -477,30 +498,35 @@ function collectCheckResult(targetDir: string, generatedDir: string): CheckResul
 }
 
 /**
- * 输出校验结果：文本模式逐类列出并以稳定结论行收尾，JSON 模式输出结构化结论。
+ * 输出校验结果：文本模式逐类列出并以稳定结论行收尾，JSON 模式输出结构化结论与下一步。
  * @param result 校验结果
+ * @param targetDir 真实产物目录（动作建议用）
  * @param generatedDir 临时生成目录
  * @param split 生效的分组 split 配置，用于布局判据
  * @return 无
  */
-function onCheckOutput(result: CheckResult, generatedDir: string, split?: unknown) {
+function onCheckOutput(result: CheckResult, targetDir: string, generatedDir: string, split?: unknown) {
   const total = result.missing.length + result.mismatched.length + result.extra.length
+  const actions: string[] = []
+  const configFile = getConfigFlags().configFile
+  const configArg = configFile ? ` --config "${path.resolve(configFile)}"` : ""
+  if (result.missing.length || result.mismatched.length) actions.push(`swagger2api${configArg} # 重新生成后再校验`)
+  if (result.extra.length) {
+    actions.push(`swagger2api prune --dir "${targetDir}" # 预览多余产物`)
+    actions.push(`swagger2api prune --dir "${targetDir}" --yes # 删除前需用户确认`)
+  }
   if (jsonOutput()) {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
-          toolVersion: readToolVersion(),
-          mode: "check",
-          ok: total === 0,
-          missing: result.missing,
-          mismatched: result.mismatched,
-          extra: result.extra
-        },
-        null,
-        2
-      )
-    )
+    writeJson({
+      schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+      toolVersion: readToolVersion(),
+      command: "check",
+      ok: total === 0,
+      errorCode: total === 0 ? null : "E_CHECK_FAILED",
+      missing: result.missing,
+      mismatched: result.mismatched,
+      extra: result.extra,
+      actions
+    })
   } else if (total > 0) {
     console.error(`\n✖ 产物校验未通过：${total} 项`)
     result.missing.forEach((file) => console.error(`  - 缺少产物：${file}`))
@@ -569,7 +595,7 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[], plan:
       ;(datas.groupReports ??= []).push({ id: datas.currentTarget ?? "", report })
       return
     }
-    console.log(JSON.stringify(report, null, 2))
+    writeJson(report)
     return
   }
   entries.forEach((entry) => console.log(`命名：${entry.raw} → ${entry.fileName}（类 ${entry.className}${entry.reason ? `，${entry.reason}` : ""}）`))
@@ -812,7 +838,7 @@ async function onGenerateApi(data: Defines["data"]) {
     console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))
   }
   // 产物校验：临时目录与现有产物逐文件比对
-  if (checkDir) onCheckOutput(collectCheckResult(targetDir, checkDir), checkDir, datas.config.grouping?.split)
+  if (checkDir) onCheckOutput(collectCheckResult(targetDir, checkDir), targetDir, checkDir, datas.config.grouping?.split)
   // 删除临时文档
   if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
   // 移除使用--js参数时生成的d.ts文件（校验模式不动真实目录）
@@ -857,7 +883,7 @@ async function onRunTargets() {
     summary.push({ id: target.id, ok, report: datas.groupReports?.[0]?.report })
   }
   // dry-run 的结构化报表按目标汇总成单个 JSON
-  if (dryRun() && jsonOutput()) console.log(JSON.stringify({ targets: summary }, null, 2))
+  if (dryRun() && jsonOutput()) writeJson({ targets: summary })
   if (failed > 0) onExit(`结束：${failed} 个目标失败（共 ${targets.length} 个），其余目标已完成`, 1)
 }
 

@@ -20,8 +20,26 @@ import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePay
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
-import { DIAGNOSTIC_SCHEMA_VERSION, readToolVersion } from "./utils"
+import { DIAGNOSTIC_SCHEMA_VERSION, readToolVersion, writeJson } from "./utils"
 import { collectGeneratedFilesOf } from "./utils/modular"
+
+/**
+ * 输出诊断命令的失败结果：JSON 模式给出稳定错误码与可执行下一步，否则打印人类可读错误。
+ * @param argv 参数列表
+ * @param command 命令标识
+ * @param errorCode 稳定错误码
+ * @param message 错误说明
+ * @param actions 建议的下一步命令
+ * @return 退出码 2
+ */
+function diagnosticError(argv: string[], command: string, errorCode: string, message: string, actions: string[] = []) {
+  if (argv.includes("--json")) {
+    writeJson({ schemaVersion: DIAGNOSTIC_SCHEMA_VERSION, toolVersion: readToolVersion(), command, ok: false, errorCode, message, actions })
+  } else {
+    console.error(`失败：${message}`)
+  }
+  return 2
+}
 
 /** .gitignore 片段标识：认领本工具写入的注释行，重跑时据此改写 */
 const GITIGNORE_MARKER = "# @fxri/swagger2api"
@@ -155,7 +173,7 @@ export function runConfigStatus() {
     warnings: layers.warnings
   }
   if (process.argv.includes("--json")) {
-    console.log(JSON.stringify(payload, null, 2))
+    writeJson(payload)
   } else {
     payload.layers.forEach((line) => console.log(line))
     payload.envOverrides.length ? console.log(`环境变量：${payload.envOverrides.join("；")}`) : console.log("环境变量：无")
@@ -405,7 +423,7 @@ export async function runSurface(argv = process.argv.slice(2)) {
     return 0
   }
   if (argv.includes("--json")) {
-    console.log(JSON.stringify(payload, null, 2))
+    writeJson(payload)
     return 0
   }
   entries.forEach((entry) => {
@@ -426,20 +444,28 @@ export function runInspect(argv = process.argv.slice(2)) {
     return index === -1 ? undefined : argv[index + 1]
   }
   const dir = valueOf("--dir")
-  if (!dir) {
-    console.error("失败：inspect 需要 --dir <产物目录>")
-    return 2
-  }
+  if (!dir) return diagnosticError(argv, "inspect", "E_ARGS_MISSING", "inspect 需要 --dir <产物目录>", ["swagger2api inspect --dir ./src/api"])
   const thresholds = resolveInspectThresholds({ projectFile: valueOf("--config") })
+  const target = path.resolve(dir)
   let report
   try {
-    report = inspectLayout(path.resolve(dir), thresholds)
+    report = inspectLayout(target, thresholds)
   } catch (error) {
-    console.error(`失败：${(error as Error).message}`)
-    return 1
+    return diagnosticError(argv, "inspect", "E_DIR_NOT_FOUND", (error as Error).message, [`swagger2api inspect --dir "${dir}" --json # 确认目录存在后重试`])
   }
+  const actions = report.issues.length
+    ? ["swagger2api --dry-run --json # 预览分桶与分片规划", `swagger2api inspect --dir "${target}" --strict # 让布局异常直接失败`]
+    : []
   if (argv.includes("--json")) {
-    console.log(JSON.stringify(report, null, 2))
+    writeJson({
+      schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+      toolVersion: readToolVersion(),
+      command: "inspect",
+      ok: report.issues.length === 0,
+      errorCode: report.issues.length ? "E_LAYOUT_ISSUES" : null,
+      actions,
+      ...report
+    })
   } else {
     formatInspectReport(report).forEach((line) => console.log(line))
   }
@@ -480,39 +506,29 @@ export function runPrune(argv = process.argv.slice(2)) {
     return index === -1 ? undefined : argv[index + 1]
   }
   const dir = valueOf("--dir")
-  if (!dir) {
-    console.error("失败：prune 需要 --dir <产物目录>")
-    return 2
-  }
+  if (!dir) return diagnosticError(argv, "prune", "E_ARGS_MISSING", "prune 需要 --dir <产物目录>", ["swagger2api prune --dir ./src/api --json # 先预览"])
   const target = path.resolve(dir)
   if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
-    console.error(`失败：目录不存在：${target}`)
-    return 2
+    return diagnosticError(argv, "prune", "E_DIR_NOT_FOUND", `目录不存在：${target}`, [`swagger2api prune --dir "${target}" --json # 确认目录存在后重试`])
   }
   const blocked = pruneBlockedReason(target)
-  if (blocked) {
-    console.error(`失败：${blocked}`)
-    return 2
-  }
+  if (blocked) return diagnosticError(argv, "prune", "E_UNSAFE_DIR", blocked, ["swagger2api prune --dir ./src/api/old --json # 指定具体产物目录后再预览"])
   const execute = argv.includes("--yes")
   const files = collectGeneratedFilesOf(target)
   // 先列后删：默认语义即预览，必须显式 --yes 才落删
   if (execute) for (const file of files) fs.rmSync(path.join(target, file))
   if (argv.includes("--json")) {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
-          toolVersion: readToolVersion(),
-          mode: "prune",
-          dir: target,
-          dryRun: !execute,
-          files
-        },
-        null,
-        2
-      )
-    )
+    writeJson({
+      schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+      toolVersion: readToolVersion(),
+      command: "prune",
+      ok: true,
+      errorCode: null,
+      dir: target,
+      dryRun: !execute,
+      files,
+      actions: !execute && files.length ? [`swagger2api prune --dir "${target}" --yes # 删除前需用户确认`] : []
+    })
     return 0
   }
   if (files.length === 0) {
@@ -612,7 +628,7 @@ export function runSkill(argv = process.argv.slice(2)) {
     return 0
   }
   if (json) {
-    console.log(JSON.stringify(info, null, 2))
+    writeJson(info)
     return 0
   }
   console.log(info.entry)

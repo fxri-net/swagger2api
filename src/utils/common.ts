@@ -119,6 +119,14 @@ export function readToolVersion() {
   return toolVersion
 }
 /**
+ * 输出结构化 JSON：固定写 stdout，不受 JSON 模式下人类日志重定向影响。
+ * @param payload 可序列化对象
+ * @return 无
+ */
+export function writeJson(payload: unknown) {
+  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+}
+/**
  * 扫描配置文件（替代 glob 的 `./**\/saconfig*.json`）
  * 语义对齐 glob 默认值：包含根目录、跳过 node_modules 与点开头目录、结果按字典序排序
  * @param dir 扫描根目录，默认当前工作目录

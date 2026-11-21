@@ -59,7 +59,7 @@ swagger2api skill
 - `--target <id>`：多目标配置下只执行指定目标；未知目标或没有 `targets` 的配置以退出码 2 结束
 - `--modular`：按组拆分为多文件并生成聚合入口
 - `--check`：生成到临时目录后与现有产物逐文件比对，按「缺失 / 内容不一致 / 多余」三类报出并以稳定结论行收尾；多余产物按生成横幅识别；不写真实目录；多目标时逐个校验，任一失败以退出码 1 结束
-- `--check --json`：输出结构化结果（`schemaVersion`、`toolVersion`、`ok`、`missing` / `mismatched` / `extra`），便于 AI 与 CI 直接解析
+- `--check --json`：输出结构化结果（`schemaVersion`、`toolVersion`、`ok`、`errorCode`、`missing` / `mismatched` / `extra`、`actions`），便于 AI 与 CI 直接解析
 - 配置项 `typeCheck`（`skip` 默认 / `enforce`）：`enforce` 时生成后剥离 `.ts` / `.js` / `.d.ts` 中的 `// @ts-nocheck`，`--check` 按剥离后的产物比对
 - `--prune-output`：分组模式默认开启；按生成横幅清理输出目录中本轮不再生成的旧产物，手写文件（不含横幅）不受影响；开关关闭时只报告多余产物、不删除
 - 输出目录安全护栏：分组生成不会在仓库根、配置目录或其祖先目录上执行横幅清理，命中时报错并跳过删除
@@ -116,7 +116,32 @@ swagger2api prune --dir ./src/api/old --json
 - 用于配置已删除的 target、目录搬家后遗留的整个产物目录；当前输出目录内的失效产物由生成时的 `output.prune` 自动处理
 - 只删除文件头前 1KB 含生成横幅的文件，手写文件与 `.gitignore` 等非生成物不动；默认 `--dry-run` 语义，必须显式 `--yes` 才删除
 - 拒绝不存在的目录、软链接目录、仓库根（含 `.git`）与当前目录的祖先、含项目配置文件的目录，命中时以退出码 2 结束
-- `--json` 输出 `{ schemaVersion, toolVersion, mode, dir, dryRun, files }`，便于脚本按同一契约解析
+- `--json` 输出 `{ schemaVersion, toolVersion, command, ok, errorCode, dir, dryRun, files, actions }`，便于脚本按同一契约解析
+
+## 结构化输出与退出码
+
+诊断类命令（`--check`、`inspect`、`prune`）的 `--json` 共用一份契约，AI 决策与 CI 摘要消费同一份输出：
+
+| 字段 | 说明 |
+| --- | --- |
+| `schemaVersion` | 结构版本，当前 `1`；遇到更高版本时降级到 `--help` 与静态文档 |
+| `toolVersion` | 实际使用的工具版本 |
+| `command` | `check` / `inspect` / `prune` / `generate` |
+| `ok` | 是否通过 |
+| `errorCode` | 稳定错误码，成功为 `null` |
+| `missing` / `mismatched` / `extra` | `check` 的缺失 / 内容不一致 / 多余三类清单 |
+| `files` | `prune` 的生成物清单 |
+| `message` | 失败说明（失败时存在） |
+| `actions` | 建议的下一步命令，可直接复制；带 `--yes` 的条目须用户确认后执行 |
+
+- JSON 模式下 stdout 只输出一份 JSON，人类可读日志一律走 stderr；输出为 UTF-8 无 BOM，可直接 `JSON.parse`
+- 错误码：`E_CHECK_FAILED`（产物与配置不一致）、`E_LAYOUT_ISSUES`（布局审计异常）、`E_DIR_NOT_FOUND`（目录不存在）、`E_UNSAFE_DIR`（清理目标不安全）、`E_ARGS_MISSING`（缺少必需参数）、`E_CONFIG_CONFLICT`（同目录配置输出重叠）
+
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | 成功：生成完成、校验通过或预览完成 |
+| `1` | 生成或校验失败：拉取失败、产物缺失 / 不一致 / 多余、布局异常（`--strict`） |
+| `2` | 用法或配置错误：缺少参数、目录不存在、清理目标不安全、跨配置输出重叠 |
 
 ## 配置选项
 
