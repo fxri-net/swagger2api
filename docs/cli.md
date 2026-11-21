@@ -43,6 +43,9 @@ swagger2api surface --compare .swagger2api/surface.json
 # 只读审计产物布局（模块体量 / 固定产物 / 小文件）
 swagger2api inspect --dir ./src/api/base
 
+# 清理废弃目录中的生成物（默认只列不删，--yes 才执行）
+swagger2api prune --dir ./src/api/old
+
 # 输出包内 AI 技能入口（--print 全文，--json 结构化定位）
 swagger2api skill
 ```
@@ -96,6 +99,24 @@ swagger2api inspect --dir ./src/api/base --strict
 - 报告每个模块文件的请求数、类数与字节数；分片门面（`Object.assign(this, new XxxPartN(http))`）识别为正常，分片余量偏小只提示
 - 异常项（小组独立成文件、单文件超过上限、缺少 `index` / `client` / `types`）在 `--strict` 下以退出码 1 结束
 - `--config <path>` 显式指定项目层配置，用于阈值覆写的仓库；`--check` 通过后复用同一判据输出「布局审计」提示，不改变既有退出码
+
+## 废弃产物清理
+
+```bash
+# 预览：列出目录中带生成横幅的文件，不删除
+swagger2api prune --dir ./src/api/old
+
+# 执行删除（只删生成物，手写文件保留）
+swagger2api prune --dir ./src/api/old --yes
+
+# 结构化清单，供 AI 与 CI 消费
+swagger2api prune --dir ./src/api/old --json
+```
+
+- 用于配置已删除的 target、目录搬家后遗留的整个产物目录；当前输出目录内的失效产物由生成时的 `output.prune` 自动处理
+- 只删除文件头前 1KB 含生成横幅的文件，手写文件与 `.gitignore` 等非生成物不动；默认 `--dry-run` 语义，必须显式 `--yes` 才删除
+- 拒绝不存在的目录、软链接目录、仓库根（含 `.git`）与当前目录的祖先、含项目配置文件的目录，命中时以退出码 2 结束
+- `--json` 输出 `{ schemaVersion, toolVersion, mode, dir, dryRun, files }`，便于脚本按同一契约解析
 
 ## 配置选项
 

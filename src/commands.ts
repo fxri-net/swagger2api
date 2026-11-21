@@ -20,6 +20,8 @@ import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePay
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
+import { DIAGNOSTIC_SCHEMA_VERSION, readToolVersion } from "./utils"
+import { collectGeneratedFilesOf } from "./utils/modular"
 
 /** .gitignore 片段标识：认领本工具写入的注释行，重跑时据此改写 */
 const GITIGNORE_MARKER = "# @fxri/swagger2api"
@@ -449,6 +451,80 @@ export function runInspect(argv = process.argv.slice(2)) {
 }
 
 /**
+ * prune 目标校验：仓库根、当前目录的祖先、配置目录与软链接目录一律拒绝。
+ * @param target 目标目录绝对路径
+ * @return 拒绝原因；安全时返回 null
+ */
+function pruneBlockedReason(target: string) {
+  const cwd = path.resolve(process.cwd())
+  const rel = path.relative(target, cwd)
+  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return `目录 ${target} 是仓库根或当前目录的祖先，拒绝清理`
+  if (fs.lstatSync(target).isSymbolicLink()) return `目录 ${target} 是软链接，拒绝清理（请直接指定真实产物目录）`
+  // 仓库根与配置目录可能混放手写文件与多份产物，只允许指定具体产物目录
+  if (fs.existsSync(path.join(target, ".git"))) return `目录 ${target} 是仓库根，拒绝清理`
+  const names = fs.readdirSync(target)
+  if (names.some((name) => /^(?:swagger2api(?:\.[^./\\]+)?|saconfig.*)\.json$/i.test(name))) {
+    return `目录 ${target} 是配置目录，拒绝清理；请指定具体产物目录`
+  }
+  return null
+}
+
+/**
+ * 执行 prune：只读优先地清理废弃产物目录中的生成物，默认只列不删。
+ * @param argv 参数列表（测试可注入）
+ * @return 退出码
+ */
+export function runPrune(argv = process.argv.slice(2)) {
+  const valueOf = (name: string) => {
+    const index = argv.indexOf(name)
+    return index === -1 ? undefined : argv[index + 1]
+  }
+  const dir = valueOf("--dir")
+  if (!dir) {
+    console.error("失败：prune 需要 --dir <产物目录>")
+    return 2
+  }
+  const target = path.resolve(dir)
+  if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
+    console.error(`失败：目录不存在：${target}`)
+    return 2
+  }
+  const blocked = pruneBlockedReason(target)
+  if (blocked) {
+    console.error(`失败：${blocked}`)
+    return 2
+  }
+  const execute = argv.includes("--yes")
+  const files = collectGeneratedFilesOf(target)
+  // 先列后删：默认语义即预览，必须显式 --yes 才落删
+  if (execute) for (const file of files) fs.rmSync(path.join(target, file))
+  if (argv.includes("--json")) {
+    console.log(
+      JSON.stringify(
+        {
+          schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+          toolVersion: readToolVersion(),
+          mode: "prune",
+          dir: target,
+          dryRun: !execute,
+          files
+        },
+        null,
+        2
+      )
+    )
+    return 0
+  }
+  if (files.length === 0) {
+    console.log(`未发现生成物：${target}`)
+    return 0
+  }
+  files.forEach((file) => console.log(`${execute ? "已删除" : "待删除"}：${path.resolve(target, file)}`))
+  console.log(execute ? `prune 完成：删除 ${files.length} 个生成物` : `prune 预览：${files.length} 个生成物待删除（加 --yes 执行）`)
+  return 0
+}
+
+/**
  * 打印简要用法：只列入口命令，完整参数见 docs/cli.md。
  * @return 无
  */
@@ -464,6 +540,7 @@ function printUsage() {
       "  swagger2api config status           查看配置分层与生效结果",
       "  swagger2api surface [选项]          提取接口面或与基线比对",
       "  swagger2api inspect --dir <目录>    只读审计产物布局（模块体量 / 固定产物 / 小文件）",
+      "  swagger2api prune --dir <目录>      清理废弃目录中的生成物（默认只列，--yes 才删）",
       "  swagger2api skill [--print|--json]  输出包内 AI 技能入口",
       "",
       "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
@@ -572,6 +649,10 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   if (command === "inspect") {
     process.exitCode = runInspect()
+    return
+  }
+  if (command === "prune") {
+    process.exitCode = runPrune()
     return
   }
   if (command === "skill") {

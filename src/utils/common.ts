@@ -89,6 +89,8 @@ export function getDirname() {
 }
 /** 工具版本缓存 */
 let toolVersion: string | null = null
+/** 诊断类命令 JSON 的格式版本：字段结构变化时递增 */
+export const DIAGNOSTIC_SCHEMA_VERSION = 1
 /**
  * 读取工具版本：从模块所在目录向上查找包根 package.json。
  * @return 版本号；未找到返回空串

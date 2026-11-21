@@ -15,6 +15,7 @@ swagger2api config status       # 查看配置分层与生效结果
 swagger2api surface --out .swagger2api/surface.json   # 写接口面基线
 swagger2api surface --compare .swagger2api/surface.json # 与基线比对接口与类型增删
 swagger2api inspect --dir ./src/api/base   # 只读审计产物布局（模块体量 / 固定产物 / 小文件）
+swagger2api prune --dir ./src/api/old      # 清理废弃目录中的生成物（默认只列，--yes 才删）
 swagger2api skill               # 输出包内技能入口绝对路径
 swagger2api skill --print       # 输出技能入口全文
 swagger2api skill --json        # 输出入口、references 目录与技能版本
@@ -38,5 +39,6 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 2. 确认后生成；产物结构有变化时先确认旧产物会按横幅清理（分组默认开启，单文件模式只告警）。
 3. 最后用 `--check` 验收（可加 `--json`），不要在 `--check` 模式下期待写盘。
 4. 离线产物或手改产物用 `swagger2api inspect --dir <目录>` 校验布局：小组并桶、分片余量与固定产物；`--strict` 可让异常直接失败。
+5. 配置删掉 target 或目录搬家后，用 `swagger2api prune --dir <目录>` 收尾：默认只列带生成横幅的文件，确认后加 `--yes`；不要用 `--clean-output` 清理混放手写文件的目录。
 
 完整参数与边界见仓库 `docs/cli.md`。

@@ -5,7 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles } from "./utils"
+import { Defines, DIAGNOSTIC_SCHEMA_VERSION, getDirname, getPArray, getPKey, getPValue, isUrl, readToolVersion, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
@@ -52,8 +52,6 @@ const dryRun = () => process.argv.includes("--dry-run")
 const jsonOutput = () => process.argv.includes("--json")
 /** 是否只校验产物是否与当前配置一致 */
 const checkMode = () => process.argv.includes("--check")
-/** 诊断 JSON 的格式版本：字段结构变化时递增 */
-const DIAGNOSTIC_SCHEMA_VERSION = 1
 
 /**
  * 判断 child 是否位于 parent 之内（含相同）。
@@ -95,7 +93,7 @@ function groupedLeftoverHint(dir: string, toJS: boolean) {
     .map((entry) => entry.name.slice(0, -ext.length))
     .filter((base) => !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
   if (modules.length === 0) return null
-  return `检测到输出目录含分组模式产物（client + types/ + ${modules.length} 个模块文件），单文件模式不会自动删除旧产物；确认后可设置 output.clean 整目录重建，或手动删除旧分组产物`
+  return `检测到输出目录含分组模式产物（client + types/ + ${modules.length} 个模块文件），单文件模式不会自动删除旧产物；确认后执行 swagger2api prune --dir "${dir}" --yes 清理，或设置 output.clean 整目录重建`
 }
 
 /**

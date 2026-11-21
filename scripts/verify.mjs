@@ -822,6 +822,67 @@ async function checkGroupedPrune() {
 }
 
 /**
+ * 废弃目录清理命令：默认只列不删、--yes 才删、手写文件保留、高风险目录拒绝。
+ * @return {number} 退出码
+ */
+async function checkPruneCommand() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 清理命令：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-prune-cmd-"))
+  try {
+    const api = join(out, "api")
+    mkdirSync(join(api, "types"), { recursive: true })
+    writeFileSync(join(api, "App.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
+    writeFileSync(join(api, "types", "index.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
+    writeFileSync(join(api, "hand.ts"), "// 手写适配\n")
+    writeFileSync(join(api, ".gitignore"), "node_modules\n")
+    const issues = []
+    const run = (args) => spawnSync(process.execPath, [cli, "prune", ...args], { cwd: out, encoding: "utf8" })
+
+    const preview = run(["--dir", api, "--json"])
+    if (preview.status !== 0) issues.push(`prune 预览失败：${preview.stderr ?? ""}`)
+    else {
+      try {
+        const summary = JSON.parse(preview.stdout)
+        if (summary.schemaVersion !== 1 || !summary.toolVersion) issues.push("prune --json 缺少契约字段")
+        if (summary.dryRun !== true) issues.push("prune 预览未标记 dryRun")
+        if (!Array.isArray(summary.files) || summary.files.length !== 2) issues.push("prune 预览未列出全部生成物")
+        if (summary.files?.includes("hand.ts")) issues.push("prune 把手写文件当作生成物")
+      } catch (error) {
+        issues.push(`prune --json 无法解析：${error.message}`)
+      }
+    }
+    if (!existsSync(join(api, "App.ts"))) issues.push("prune 预览删除了文件")
+
+    const applied = run(["--dir", api, "--yes"])
+    if (applied.status !== 0) issues.push("prune --yes 执行失败")
+    if (existsSync(join(api, "App.ts")) || existsSync(join(api, "types", "index.ts"))) issues.push("prune --yes 未删除生成物")
+    if (!existsSync(join(api, "hand.ts")) || !existsSync(join(api, ".gitignore"))) issues.push("prune 删除了非生成物")
+
+    if (run([]).status !== 2) issues.push("prune 缺少 --dir 未以退出码 2 结束")
+    if (run(["--dir", join(out, "missing")]).status !== 2) issues.push("prune 未拒绝不存在的目录")
+    if (run(["--dir", out]).status !== 2) issues.push("prune 未拒绝当前目录")
+    const repo = join(out, "repo")
+    mkdirSync(join(repo, ".git"), { recursive: true })
+    if (run(["--dir", repo]).status !== 2) issues.push("prune 未拒绝仓库根")
+    const configDir = join(out, "cfg")
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, "swagger2api.json"), "{}")
+    if (run(["--dir", configDir]).status !== 2) issues.push("prune 未拒绝配置目录")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 清理命令未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 分组产物对外面：聚合入口导出面、模块声明类型链、共享客户端与类型推导。
  * 以「仓内桶文件 + declare.ts 增强」的真实形态断言 AxiosParse 推导不退化为 unknown。
  * @return {number} 退出码
@@ -1659,6 +1720,7 @@ const steps = [
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
+  { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },
   { label: "更新日志同步核验", run: checkChangelogSync, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "文档站主题一致性", run: checkDocsTheme, skip: runtimeOnly ? "运行时回归模式" : "" },
