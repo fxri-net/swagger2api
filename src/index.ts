@@ -8,7 +8,7 @@ import { generateApi } from "swagger-typescript-api"
 import { Defines, getDirname, getPArray, getPKey, getPValue, isUrl, saveFile, scanConfigFiles } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
-import { collectGeneratedFiles, collectModules, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
 import { CLIENT_BASE, TYPES_DIR, findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
@@ -536,7 +536,7 @@ async function onGenerateApi(data: Defines["data"]) {
   }
   // 生成接口
   console.log("执行：", confs.file)
-  await generateApi({
+  const generated = await generateApi({
     fileName: `${confs.param.name}.ts`, // 输出类型的 API 文件名称（默认："Api.ts"）
     output: path.resolve(confs.param.output), // TypeScript API 文件的输出路径（默认："./"）
     input: datas.docFile, // 路径/链接到Swagger方案
@@ -577,8 +577,21 @@ async function onGenerateApi(data: Defines["data"]) {
       }
       orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.prune）：", file))
     } else {
-      // 未使用命名表的手动模块化：不维护清单，按目录扫描业务文件后同样拆分契约
-      const modules = collectModules(dir, toJS ? ".js" : ".ts").map((item) => item.base)
+      // 手动模块化没有命名表：按本轮实际生成的文件确定模块集合，先按清单清掉旧产物再补写聚合入口
+      const generatedFiles = ((generated as { files?: Array<{ fileName?: string; fileExtension?: string }> }).files ?? [])
+        .map((file) => `${String(file.fileName ?? "").replace(/\\/g, "/")}${file.fileExtension ?? ""}`)
+        .filter((name) => Boolean(name) && !name.startsWith("."))
+      const modules = generatedFiles
+        .filter((name) => !name.includes("/") && !name.endsWith(".d.ts"))
+        .map((name) => name.slice(0, name.lastIndexOf(".")))
+        .filter((base) => Boolean(base) && !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
+      if (!checkMode()) {
+        const previous = readOutputManifest(manifestPathFor(dir))
+        // 清单内、本轮不再生成的文件都属于上一轮产物，直接清理，避免聚合入口继续引用幽灵模块
+        pruneOutput(dir, previous, generatedFiles.length > 0 ? generatedFiles : collectGeneratedFiles(dir, [], toJS)).forEach((file) =>
+          console.log("清理：", path.resolve(dir, file))
+        )
+      }
       const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS, knownFiles: null })
       if (contracts.errors.length > 0) {
         contracts.errors.forEach((error) => console.error("失败：", error))
@@ -586,6 +599,7 @@ async function onGenerateApi(data: Defines["data"]) {
         return
       }
       writeAggregateEntry(dir, apiClassName, toJS)
+      if (!checkMode()) writeOutputManifest(manifestPathFor(dir), collectGeneratedFiles(dir, [], toJS, modules))
     }
     // 升级退场：旧版固定产物已不再生成，成功落盘后删除残留（校验模式不动真实目录）
     if (!checkMode()) removeLegacyOutput(dir, toJS).forEach((file) => console.log("清理：", path.resolve(dir, file)))

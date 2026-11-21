@@ -1064,6 +1064,79 @@ async function checkSplitSmallBuckets() {
 }
 
 /**
+ * 手动模块化清单：连续生成时清理已消失模块，`--check` 能发现缺失与过期产物。
+ * @return {number} 退出码
+ */
+async function checkManualModularPrune() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 手动模块化清单：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-manual-modular-"))
+  const api = join(out, "api")
+  try {
+    const spec = JSON.parse(readFileSync(join(root, "fixtures", "grouping-split.json"), "utf8"))
+    const writeConfig = (name) => {
+      const input = join(out, `${name}.json`)
+      writeFileSync(input, JSON.stringify(spec))
+      const config = join(out, "swagger2api.json")
+      writeFileSync(config, JSON.stringify({ input: { file: input }, output: { dir: api, name: "index" } }, null, 2))
+      return config
+    }
+    const run = (config, extra = []) => spawnSync(process.execPath, [cli, "-c", config, "--modular", ...extra], { cwd: out, encoding: "utf8" })
+
+    const first = run(writeConfig("full"))
+    if (first.status !== 0) {
+      console.error("✖ 手动模块化清单：首次生成失败")
+      console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
+      return 1
+    }
+    if (!existsSync(join(api, "Misc.ts"))) {
+      console.error("✖ 手动模块化清单：首次生成缺少 Misc.ts")
+      return 1
+    }
+
+    delete spec.paths["/misc/ping"]
+    const second = run(writeConfig("trimmed"))
+    if (second.status !== 0) {
+      console.error("✖ 手动模块化清单：二次生成失败")
+      console.error(`${second.stdout ?? ""}${second.stderr ?? ""}`)
+      return 1
+    }
+    if (existsSync(join(api, "Misc.ts"))) {
+      console.error("✖ 手动模块化清单：已消失的模块未被清理")
+      return 1
+    }
+    const aggregate = readFileSync(join(api, "index.ts"), "utf8")
+    if (aggregate.includes("Misc")) {
+      console.error("✖ 手动模块化清单：聚合入口仍引用已清理模块")
+      return 1
+    }
+    if (existsSync(join(api, ".swagger2api.manifest.json"))) {
+      console.error("✖ 手动模块化清单：清单仍写入产物目录")
+      return 1
+    }
+
+    const checkOk = run(writeConfig("trimmed"), ["--check"])
+    if (checkOk.status !== 0) {
+      console.error("✖ 手动模块化清单：--check 未通过")
+      console.error(`${checkOk.stdout ?? ""}${checkOk.stderr ?? ""}`)
+      return 1
+    }
+    rmSync(join(api, "App.ts"))
+    const checkBroken = run(writeConfig("trimmed"), ["--check"])
+    if (checkBroken.status === 0 || !`${checkBroken.stdout ?? ""}${checkBroken.stderr ?? ""}`.includes("缺少产物")) {
+      console.error("✖ 手动模块化清单：--check 未发现缺失产物")
+      return 1
+    }
+    return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 扁平配置与产物校验：一份 swagger2api.json 驱动分组生成，清单落缓存，--check 能发现篡改与缺失。
  * @return {number} 退出码
  */
@@ -1241,6 +1314,7 @@ const steps = [
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },
   { label: "分桶合并（中间小桶并入相邻桶）", run: checkSplitSmallBuckets },
+  { label: "手动模块化清单（清理 / --check）", run: checkManualModularPrune },
   { label: "扁平配置与产物校验（缓存清单 / --check）", run: checkFlatConfig },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
