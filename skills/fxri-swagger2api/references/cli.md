@@ -14,6 +14,7 @@ swagger2api grouping            # 查看分组分布并写入分组配置
 swagger2api config status       # 查看配置分层与生效结果
 swagger2api surface --out .swagger2api/surface.json   # 写接口面基线
 swagger2api surface --compare .swagger2api/surface.json # 与基线比对接口与类型增删
+swagger2api inspect --dir ./src/api/base   # 只读审计产物布局（模块体量 / 固定产物 / 小文件）
 swagger2api skill               # 输出包内技能入口绝对路径
 swagger2api skill --print       # 输出技能入口全文
 swagger2api skill --json        # 输出入口、references 目录与技能版本
@@ -36,5 +37,6 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 1. 改配置后先 `--dry-run --json`，重点看命名映射、桶与分片规划、预计新增文件。
 2. 确认后生成；产物结构有变化时先清理旧产物或确认清单已覆盖。
 3. 最后用 `--check` 验收，不要在 `--check` 模式下期待写盘。
+4. 离线产物或手改产物用 `swagger2api inspect --dir <目录>` 校验布局：小组并桶、分片余量与固定产物；`--strict` 可让异常直接失败。
 
 完整参数与边界见仓库 `docs/cli.md`。

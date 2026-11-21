@@ -83,7 +83,7 @@
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
 - 合并同名组：`grouping.collapse` 为 `true` 时，折叠键相同的组（如 `opt` 与 `opt_`）合并为同一组，复现单文件产物「同名属性即同组」的语义；默认 `false` 时各自独立并追加序号
 - 自适应分桶：`mode: "grouped"` 默认启用（`grouping.split` 未配置即为 `true`）。总量 ≤ `minRoutes`（默认 150）时只生成一个 `Modules` 模块文件；否则按命名空间码点顺序装箱，单桶达到 `targetRoutes`（默认 300）后开新桶；装箱后小于 `minBucketRoutes`（默认 60）的桶与相邻桶合并（优先前一桶且不超过 `maxRoutes`）；单个命名空间超过 `maxRoutes`（默认 450）时按子分类分片，分片由门面类合并实例与类型；桶名取桶内首个命名空间，单桶固定 `Modules`。对外始终是 `api.<命名空间>.<方法>`
-- `grouping.split` 三种形态：不配置即采用上述默认阈值；写对象可按需覆写 `minRoutes` / `targetRoutes` / `maxRoutes` / `minBucketRoutes` / `fallback`（默认 `misc`）/ `categories`，未写的项仍取默认；写 `false` 关闭自适应分桶，一个命名空间一个模块文件，仅作回滚逃生口。业务仓通常保持默认，确需固定文件数或调整桶大小时再覆写
+- `grouping.split` 三种形态：不配置即采用上述默认阈值；写对象可按需覆写 `minRoutes` / `targetRoutes` / `maxRoutes` / `minBucketRoutes` / `fallback`（默认 `misc`）/ `categories`，未写的项仍取默认；写 `false` 关闭自适应分桶，一个命名空间一个模块文件，仅作回滚逃生口。业务仓通常保持默认，确需固定文件数或调整桶大小时再覆写。离线产物可用 `swagger2api inspect --dir <目录>` 按同一判据审计（见 [CLI 参考](./cli)）
 - 保留名：`index`、`types`、`client`、`shared` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名，命中后自动追加序号，避免覆盖生成能力或运行期成员
 - 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按上一轮生成清单清理，不触碰手写适配文件与清单外产物；手动 `--modular` 同样维护清单并清理已消失模块。清单存放在系统临时目录缓存，不进入仓库
 - 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`

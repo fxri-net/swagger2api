@@ -11,6 +11,7 @@ import { applyEnvOverrides, applyProfile, getConfigFlags, loadConfigLayers, norm
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
 import { stripTsNoCheck } from "./utils/postprocess"
 import { collectGeneratedFiles, findHandwrittenConflicts, manifestPathFor, pruneOutput, readOutputManifest, removeLegacyOutput, toModuleEntries, verifyGroupedOutput, writeAggregateEntry, writeOutputManifest, writeSplitFacades, type OutputManifest } from "./utils/modular"
+import { inspectLayout, inspectThresholdsOf } from "./utils/inspect"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
 import { CLIENT_BASE, TYPES_DIR, findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
@@ -372,9 +373,10 @@ function collectRelativeFiles(dir: string, base = dir): string[] {
  * 产物校验：临时目录的生成结果与现有产物逐文件比对，并检查清单中已消失的文件。
  * @param targetDir 现有产物目录
  * @param generatedDir 临时生成目录
+ * @param split 生效的分组 split 配置，用于布局判据
  * @return 无；差异计入 failures
  */
-function onCheckOutput(targetDir: string, generatedDir: string) {
+function onCheckOutput(targetDir: string, generatedDir: string, split?: unknown) {
   const expected = collectRelativeFiles(generatedDir)
   const issues: string[] = []
   for (const file of expected) {
@@ -400,6 +402,13 @@ function onCheckOutput(targetDir: string, generatedDir: string) {
     return
   }
   console.log("校验：产物与当前配置一致")
+  // 布局审计：与 inspect 同一判据，只提示不改变退出码
+  const report = inspectLayout(generatedDir, inspectThresholdsOf(split))
+  if (report.issues.length || report.hints.length) {
+    console.log("布局审计：")
+    report.issues.forEach((issue) => console.log(`  ✖ ${issue}`))
+    report.hints.forEach((hint) => console.log(`  · ${hint}`))
+  }
 }
 
 /**
@@ -681,7 +690,7 @@ async function onGenerateApi(data: Defines["data"]) {
     console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))
   }
   // 产物校验：临时目录与现有产物逐文件比对
-  if (checkDir) onCheckOutput(targetDir, checkDir)
+  if (checkDir) onCheckOutput(targetDir, checkDir, datas.config.grouping?.split)
   // 删除临时文档
   if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
   // 移除使用--js参数时生成的d.ts文件（校验模式不动真实目录）

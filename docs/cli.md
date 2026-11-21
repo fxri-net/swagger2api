@@ -40,6 +40,9 @@ swagger2api grouping
 swagger2api surface --out .swagger2api/surface.json
 swagger2api surface --compare .swagger2api/surface.json
 
+# 只读审计产物布局（模块体量 / 固定产物 / 小文件）
+swagger2api inspect --dir ./src/api/base
+
 # 输出包内 AI 技能入口（--print 全文，--json 结构化定位）
 swagger2api skill
 ```
@@ -72,6 +75,24 @@ swagger2api surface --compare .swagger2api/surface.json
 - 多目标按目标 `id` 分组；目标集合变化（新增 / 缺失）与格式版本不一致都按失败处理
 - `--target <id>` 只提取或比对单个目标；`--requests-only` 只锁接口集合，忽略方法名与类型名，适合跨工具版本迁移
 - `--json` 输出结构化接口面；`--out` 与 `--compare` 可同时使用（先写再比）
+
+## 产物布局审计
+
+```bash
+# 默认输出文本报表
+swagger2api inspect --dir ./src/api/base
+
+# 结构化输出，便于脚本消费
+swagger2api inspect --dir ./src/api/base --json
+
+# 存在布局异常时以非 0 退出，供 CI 与技能调用
+swagger2api inspect --dir ./src/api/base --strict
+```
+
+- 只读扫描产物目录，不联网、不读生成清单；判据取生效配置的 `grouping.split`（未配置用默认 150 / 300 / 450 / 60），`split: false` 时跳过布局判据
+- 报告每个模块文件的请求数、类数与字节数；分片门面（`Object.assign(this, new XxxPartN(http))`）识别为正常，分片余量偏小只提示
+- 异常项（小组独立成文件、单文件超过上限、缺少 `index` / `client` / `types`）在 `--strict` 下以退出码 1 结束
+- `--config <path>` 显式指定项目层配置，用于阈值覆写的仓库；`--check` 通过后复用同一判据输出「布局审计」提示，不改变既有退出码
 
 ## 配置选项
 

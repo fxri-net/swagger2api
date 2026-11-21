@@ -17,6 +17,7 @@ import {
 } from "./utils/config"
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
 import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePayload } from "./utils/surface"
+import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
 
@@ -413,6 +414,41 @@ export async function runSurface(argv = process.argv.slice(2)) {
 }
 
 /**
+ * 执行 inspect：只读审计产物目录的模块布局。
+ * @param argv 参数列表（测试可注入）
+ * @return 退出码
+ */
+export function runInspect(argv = process.argv.slice(2)) {
+  const valueOf = (name: string) => {
+    const index = argv.indexOf(name)
+    return index === -1 ? undefined : argv[index + 1]
+  }
+  const dir = valueOf("--dir")
+  if (!dir) {
+    console.error("失败：inspect 需要 --dir <产物目录>")
+    return 2
+  }
+  const thresholds = resolveInspectThresholds({ projectFile: valueOf("--config") })
+  let report
+  try {
+    report = inspectLayout(path.resolve(dir), thresholds)
+  } catch (error) {
+    console.error(`失败：${(error as Error).message}`)
+    return 1
+  }
+  if (argv.includes("--json")) {
+    console.log(JSON.stringify(report, null, 2))
+  } else {
+    formatInspectReport(report).forEach((line) => console.log(line))
+  }
+  if (report.issues.length && argv.includes("--strict")) {
+    console.error(`✖ 布局异常 ${report.issues.length} 项`)
+    return 1
+  }
+  return 0
+}
+
+/**
  * 打印简要用法：只列入口命令，完整参数见 docs/cli.md。
  * @return 无
  */
@@ -427,6 +463,7 @@ function printUsage() {
       "  swagger2api grouping                查看分组分布并写入分组配置",
       "  swagger2api config status           查看配置分层与生效结果",
       "  swagger2api surface [选项]          提取接口面或与基线比对",
+      "  swagger2api inspect --dir <目录>    只读审计产物布局（模块体量 / 固定产物 / 小文件）",
       "  swagger2api skill [--print|--json]  输出包内 AI 技能入口",
       "",
       "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
@@ -531,6 +568,10 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   if (command === "surface") {
     process.exitCode = await runSurface()
+    return
+  }
+  if (command === "inspect") {
+    process.exitCode = runInspect()
     return
   }
   if (command === "skill") {
