@@ -12,6 +12,8 @@ swagger2api init                # 交互生成 swagger2api.json
 swagger2api init --from-script package.json # 从既有 npm script 迁移参数
 swagger2api grouping            # 查看分组分布并写入分组配置
 swagger2api config status       # 查看配置分层与生效结果
+swagger2api surface --out .swagger2api/surface.json   # 写接口面基线
+swagger2api surface --compare .swagger2api/surface.json # 与基线比对接口与类型增删
 swagger2api skill               # 输出包内技能入口绝对路径
 swagger2api skill --print       # 输出技能入口全文
 swagger2api skill --json        # 输出入口、references 目录与技能版本

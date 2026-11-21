@@ -52,13 +52,15 @@ request.getUsers().then((res) => console.log(res))
 | 能力 | 适用场景 | 文档 |
 | --- | --- | --- |
 | 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [快速开始](./docs/getting-started.md) |
-| 多文档配置 | 自动扫描 `./**/saconfig*.json`，多项目接口配置集中管理 | [完整攻略](./docs/guide.md#多文档配置) |
+| 多文档配置 | 一份 `swagger2api.json` 用 `targets` 声明多个文档，或扫描 `saconfig*.json` 集中管理 | [配置参考 · 多目标配置](./docs/config.md#多目标配置) |
 | 快速模式 | 配置齐全时跳过二次确认，搭配脚本一行命令静默更新 | [完整攻略](./docs/guide.md#快速模式) |
 | 分层配置与向导 | `swagger2api.json` 项目 / 个人 / 全局三层合并（旧名 `.swagger2apirc.json` 兼容），`init` 向导建设配置，`config status` 排障 | [配置参考](./docs/config.md) |
 | 分组输出 | 大文档按规则 / tag / 路径段拆分为多文件，聚合入口保持单一出口 | [完整攻略](./docs/guide.md#分组输出) |
 | 唯一 operationId | 接口地址 + 请求方法拼接唯一 ID，可选 get 转 query 作区分 | [完整攻略](./docs/guide.md#唯一-operationid-拼接规则) |
 | 灵活裁剪 | 移除路径参数 / 前缀索引、替换标签、移除空组件定义 | [配置参考](./docs/config.md) |
 | 响应提取 | AxiosResponse 转移到 raw 字段，根部字段自行声明 | [完整攻略](./docs/guide.md#提取响应--extract-response-raw-err) |
+| 类型检查接管 | 需要项目类型检查覆盖生成物时剥离 `// @ts-nocheck` | [配置参考](./docs/config.md) |
+| 接口面基线 | 提取产物的接口与类型，跨工具版本迁移时比对增删 | [CLI 参考](./docs/cli.md) |
 | STA 参数透传 | swagger-typescript-api 原生参数全量可用 | [CLI 参考](./docs/cli.md) |
 
 ## 📚 文档
@@ -83,7 +85,9 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 ## 📁 多文档配置
 
-默认配置文件为 `saconfig.json`；工具会扫描项目下所有 `saconfig*.json`（如 `saconfig.admin.json`、`config/saconfig.json`），多文件时提供选择列表。搭配快速模式与加载全部配置参数，`package.json` 一行脚本即可静默更新所有项目的接口代码：
+同一仓库有多个 Swagger 文档时，推荐一份 `swagger2api.json` 用 `defaults` + `targets` 声明：无参数即生成全部目标，`--check` 校验全部目标，详见[配置参考 · 多目标配置](./docs/config.md#多目标配置)。
+
+以下为早期的 saconfig 扫描方式：默认配置文件为 `saconfig.json`；工具会扫描项目下所有 `saconfig*.json`（如 `saconfig.admin.json`、`config/saconfig.json`），多文件时提供选择列表。搭配快速模式与加载全部配置参数，`package.json` 一行脚本即可静默更新所有项目的接口代码：
 
 ```json
 {

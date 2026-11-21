@@ -36,6 +36,10 @@ swagger2api config status
 # 查看分组分布并写入分组配置（交互式；非交互终端只输出报表）
 swagger2api grouping
 
+# 提取接口面并写基线 / 与基线比对
+swagger2api surface --out .swagger2api/surface.json
+swagger2api surface --compare .swagger2api/surface.json
+
 # 输出包内 AI 技能入口（--print 全文，--json 结构化定位）
 swagger2api skill
 ```
@@ -53,6 +57,21 @@ swagger2api skill
 - `--prune-output`：分组模式默认开启；按上一轮生成清单清理已消失的模块文件，不触碰手写文件；清单存放在系统临时目录缓存，与清空整目录的 `--clean-output` 不同
 - `--dry-run`：配合分组配置只输出报表——原始组名到文件 / 类 / 属性名的映射、重命名原因、未命中规则、桶与分片规划与预计新增文件，不写产物
 - `--json`：与 `--dry-run` 组合时输出结构化报表，便于脚本消费；多目标时按目标汇总为单个 `{ targets: [...] }`
+
+## 接口面基线
+
+```bash
+# 写基线（建议放 .swagger2api/surface.json，默认不提交）
+swagger2api surface --out .swagger2api/surface.json
+
+# 与基线比对：一致退出 0，有增删退出 1 并列出 +/- 条目
+swagger2api surface --compare .swagger2api/surface.json
+```
+
+- 从产物目录的 `.ts` / `.d.ts` / `.js` 提取 `@request`、`@name` 与导出类型，排序去重，结构带 `formatVersion`
+- 多目标按目标 `id` 分组；目标集合变化（新增 / 缺失）与格式版本不一致都按失败处理
+- `--target <id>` 只提取或比对单个目标；`--requests-only` 只锁接口集合，忽略方法名与类型名，适合跨工具版本迁移
+- `--json` 输出结构化接口面；`--out` 与 `--compare` 可同时使用（先写再比）
 
 ## 配置选项
 

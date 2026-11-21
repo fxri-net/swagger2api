@@ -1414,6 +1414,92 @@ async function checkTypeCheckPolicy() {
 }
 
 /**
+ * 接口面基线：提取请求与类型、写基线、与基线比对，多目标按 id 分组校验目标集合。
+ * @return {number} 退出码
+ */
+async function checkSurfaceCommand() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 接口面基线：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-surface-"))
+  const issues = []
+  const run = (args, cwd = out) => spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8" })
+  try {
+    const spec = join(root, "fixtures", "swagger.json")
+    const single = join(out, "single.json")
+    writeFileSync(single, JSON.stringify({ file: spec, output: "./api", name: "index" }, null, 2))
+    const generated = run(["-c", single])
+    if (generated.status !== 0) {
+      console.error("✖ 接口面基线：生成失败")
+      console.error(`${generated.stdout ?? ""}${generated.stderr ?? ""}`)
+      return 1
+    }
+
+    // 写基线：单目标直接平铺，带格式版本
+    const baseline = join(out, ".swagger2api", "surface.json")
+    const written = run(["surface", "-c", single, "--out", baseline])
+    if (written.status !== 0) {
+      console.error("✖ 接口面基线：写基线失败")
+      console.error(`${written.stdout ?? ""}${written.stderr ?? ""}`)
+      return 1
+    }
+    const payload = JSON.parse(readFileSync(baseline, "utf8"))
+    if (payload.formatVersion !== 1) issues.push("基线缺少格式版本")
+    if (!Array.isArray(payload.requests) || payload.requests.length !== 3) issues.push("基线接口数量不符")
+    if (!Array.isArray(payload.types) || payload.types.length === 0) issues.push("基线未提取导出类型")
+
+    // 一致时通过，缺失基线时报错
+    if (run(["surface", "-c", single, "--compare", baseline]).status !== 0) issues.push("基线一致时比对未通过")
+    const missing = run(["surface", "-c", single, "--compare", join(out, "missing.json")])
+    if (missing.status === 0 || !`${missing.stdout ?? ""}${missing.stderr ?? ""}`.includes("基线文件不存在")) issues.push("缺失基线未报错")
+
+    // 改名只影响 @name：默认比对失败，--requests-only 通过
+    const entry = join(out, "api", "index.ts")
+    writeFileSync(entry, readFileSync(entry, "utf8").replace(/@name ([A-Za-z]+)/, (_, name) => `@name ${name}Renamed`))
+    const renamed = run(["surface", "-c", single, "--compare", baseline])
+    if (renamed.status === 0 || !`${renamed.stdout ?? ""}`.includes("+ 接口")) issues.push("改名后默认比对未标出接口变化")
+    if (run(["surface", "-c", single, "--compare", baseline, "--requests-only"]).status !== 0) issues.push("--requests-only 未忽略方法名变化")
+
+    // 结构化输出与多目标分组
+    const jsonRun = run(["surface", "-c", single, "--json"])
+    if (jsonRun.status !== 0 || JSON.parse(jsonRun.stdout).formatVersion !== 1) issues.push("--json 结构不符")
+    const multi = join(out, "multi.json")
+    writeFileSync(
+      multi,
+      JSON.stringify(
+        {
+          targets: [
+            { id: "base", file: spec, output: "./multi/base" },
+            { id: "lc", file: spec, output: "./multi/lc" }
+          ]
+        },
+        null,
+        2
+      )
+    )
+    if (run(["-c", multi]).status !== 0) issues.push("多目标生成失败")
+    const multiBaseline = join(out, "multi-surface.json")
+    if (run(["surface", "-c", multi, "--out", multiBaseline]).status !== 0) issues.push("多目标写基线失败")
+    else {
+      const grouped = JSON.parse(readFileSync(multiBaseline, "utf8"))
+      if (!grouped.targets?.base || !grouped.targets?.lc) issues.push("多目标基线未按 id 分组")
+    }
+    const partial = run(["surface", "-c", multi, "--target", "base", "--compare", multiBaseline])
+    if (partial.status === 0 || !`${partial.stderr ?? ""}`.includes("缺失目标：lc")) issues.push("目标集合变化未报错")
+    if (run(["surface", "-c", multi, "--target", "nope"]).status !== 2) issues.push("未知目标未以退出码 2 结束")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 接口面基线未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * git 只读调用：成功返回行数组，失败返回 null（调用方按「可能触及」保守处理）。
  * @param {string[]} args git 参数
  * @return {string[] | null} 输出行或 null
@@ -1479,6 +1565,7 @@ const steps = [
   { label: "手动模块化清单（清理 / --check）", run: checkManualModularPrune },
   { label: "扁平配置与产物校验（缓存清单 / --check）", run: checkFlatConfig },
   { label: "类型检查策略（enforce / skip / --check）", run: checkTypeCheckPolicy },
+  { label: "接口面基线（提取 / 比对 / 多目标）", run: checkSurfaceCommand },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "产物清理与可复现（清单清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },

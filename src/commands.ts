@@ -12,8 +12,11 @@ import {
   describeLayers,
   getConfigFlags,
   loadConfigLayers,
-  mergeShallow
+  mergeShallow,
+  normalizeConfig
 } from "./utils/config"
+import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
+import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePayload } from "./utils/surface"
 import { migrateFromPackage } from "./utils/migrate"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
 
@@ -303,6 +306,112 @@ export async function runGrouping() {
   return 0
 }
 
+/** 接口面目标 */
+interface SurfaceTarget {
+  /** 目标 id（单目标为空） */
+  id?: string
+  /** 产物目录绝对路径 */
+  dir: string
+}
+
+/**
+ * 解析接口面命令的目标：多目标配置按 targets，单目标按 output.dir。
+ * @param argv 参数列表
+ * @return 目标与错误
+ */
+function resolveSurfaceTargets(argv: string[]) {
+  const flags = getConfigFlags(argv)
+  const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
+  layers.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+  const configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
+  const picked = pickTargetFlag(argv)
+  if (picked.errors.length > 0) return { targets: [] as SurfaceTarget[], errors: picked.errors }
+  if (hasTargets(layers.merged)) {
+    if (String(flags.configFile ?? "").includes(",")) return { targets: [] as SurfaceTarget[], errors: ["多目标配置只接受单个 --config 文件"] }
+    const plan = resolveTargets(layers.merged as Record<string, any>, { profile: flags.profile, configDir })
+    plan.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+    if (plan.errors.length > 0) return { targets: [] as SurfaceTarget[], errors: plan.errors }
+    if (picked.id && !plan.targets.some((target) => target.id === picked.id)) {
+      return { targets: [] as SurfaceTarget[], errors: [`未知目标 ${picked.id}（可选：${plan.targets.map((target) => target.id).join("、")}）`] }
+    }
+    const selected = picked.id ? plan.targets.filter((target) => target.id === picked.id) : plan.targets
+    return { targets: selected.map((target) => ({ id: target.id, dir: target.outputDir })), errors: [] as string[] }
+  }
+  if (picked.id) return { targets: [] as SurfaceTarget[], errors: ["当前配置没有 targets，--target 无法使用"] }
+  const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
+  const output = rc.output
+  const dir = typeof output === "string" ? output : output?.dir ?? "./src/api"
+  return { targets: [{ dir: path.resolve(configDir, dir) }], errors: [] as string[] }
+}
+
+/**
+ * 执行 surface：提取接口面、写基线或与基线比对。
+ * @param argv 参数列表（测试可注入）
+ * @return 退出码
+ */
+export async function runSurface(argv = process.argv.slice(2)) {
+  const valueOf = (name: string) => {
+    const index = argv.indexOf(name)
+    return index === -1 ? undefined : argv[index + 1]
+  }
+  const requestsOnly = argv.includes("--requests-only")
+  const { targets, errors } = resolveSurfaceTargets(argv)
+  if (errors.length > 0) {
+    errors.forEach((error) => console.error("失败：", error))
+    return 2
+  }
+  const missing = targets.filter((target) => !fs.existsSync(target.dir))
+  if (missing.length > 0) {
+    missing.forEach((target) => console.error(`失败：产物目录不存在：${target.dir}（先执行生成）`))
+    return 1
+  }
+  const entries = targets.map((target) => ({ ...target, surface: collectSurface(target.dir, { requestsOnly }) }))
+  const payload: SurfacePayload =
+    entries.length === 1 && !entries[0].id
+      ? { formatVersion: SURFACE_FORMAT_VERSION, ...entries[0].surface }
+      : { formatVersion: SURFACE_FORMAT_VERSION, targets: Object.fromEntries(entries.map((entry) => [entry.id as string, entry.surface])) }
+  const out = valueOf("--out")
+  if (out) {
+    const file = path.resolve(out)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, `${JSON.stringify(payload, null, 2)}\n`)
+    console.log(`已写入：${file}`)
+  }
+  const compare = valueOf("--compare")
+  if (compare) {
+    const file = path.resolve(compare)
+    if (!fs.existsSync(file)) {
+      console.error(`失败：基线文件不存在：${file}`)
+      return 1
+    }
+    let baseline: SurfacePayload
+    try {
+      baseline = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch (error) {
+      console.error(`失败：基线解析失败：${(error as Error).message}`)
+      return 1
+    }
+    const diff = compareSurface(payload, baseline, { requestsOnly })
+    if (diff.errors.length > 0 || diff.lines.length > 0) {
+      diff.errors.forEach((error) => console.error(`✖ ${error}`))
+      diff.lines.forEach((line) => console.log(line))
+      console.error(`✖ 接口面与基线不一致：${diff.errors.length} 项结构变化，${diff.lines.length} 项增删`)
+      return 1
+    }
+    console.log("校验：接口面与基线一致")
+    return 0
+  }
+  if (argv.includes("--json")) {
+    console.log(JSON.stringify(payload, null, 2))
+    return 0
+  }
+  entries.forEach((entry) => {
+    const label = entry.id ? `接口面[${entry.id}]：` : "接口面："
+    console.log(`${label}${entry.surface.requests.length} 个接口 / ${entry.surface.types.length} 个类型 → ${entry.dir}`)
+  })
+  return 0
+}
+
 /**
  * 打印简要用法：只列入口命令，完整参数见 docs/cli.md。
  * @return 无
@@ -317,6 +426,7 @@ function printUsage() {
       "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",
       "  swagger2api grouping                查看分组分布并写入分组配置",
       "  swagger2api config status           查看配置分层与生效结果",
+      "  swagger2api surface [选项]          提取接口面或与基线比对",
       "  swagger2api skill [--print|--json]  输出包内 AI 技能入口",
       "",
       "首次接入或迁移配置时读取技能：pnpm exec swagger2api skill --print",
@@ -417,6 +527,10 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   if (command === "config" && subcommand === "status") {
     process.exitCode = runConfigStatus()
+    return
+  }
+  if (command === "surface") {
+    process.exitCode = await runSurface()
     return
   }
   if (command === "skill") {
