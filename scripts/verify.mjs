@@ -1014,6 +1014,56 @@ async function checkGroupedSplit() {
 }
 
 /**
+ * 分桶合并：中间小桶并入相邻桶，不出现碎片文件。
+ * 走 `--dry-run --json` 读取 split 报表，不落盘。
+ * @return {number} 退出码
+ */
+async function checkSplitSmallBuckets() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 分桶合并：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-small-bucket-"))
+  try {
+    const config = join(out, "swagger2api.json")
+    writeFileSync(
+      config,
+      JSON.stringify(
+        {
+          input: { file: join(root, "fixtures", "grouping-small-bucket.json") },
+          output: { dir: join(out, "api"), name: "index", mode: "grouped" },
+          grouping: { strategy: ["path"], pathDepth: 0, split: { minRoutes: 1, targetRoutes: 10, maxRoutes: 15, minBucketRoutes: 2 } }
+        },
+        null,
+        2
+      )
+    )
+    const result = spawnSync(process.execPath, [cli, "-c", config, "--dry-run", "--json"], { cwd: out, encoding: "utf8" })
+    if (result.status !== 0) {
+      console.error("✖ 分桶合并：报表失败")
+      console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+      return 1
+    }
+    // 分组日志先行，从首个 { 起截取结构化报表
+    const report = JSON.parse(result.stdout.slice(result.stdout.indexOf("{")))
+    const buckets = report.split?.buckets ?? []
+    const routes = buckets.map((bucket) => bucket.routes)
+    if (routes.join(",") !== "11,13,10,3") {
+      console.error(`✖ 分桶合并：桶体量与预期不符（${routes.join(",")}）`)
+      return 1
+    }
+    if (buckets.some((bucket) => bucket.routes < 2)) {
+      console.error("✖ 分桶合并：仍存在碎片桶")
+      return 1
+    }
+    return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 扁平配置与产物校验：一份 swagger2api.json 驱动分组生成，清单落缓存，--check 能发现篡改与缺失。
  * @return {number} 退出码
  */
@@ -1190,6 +1240,7 @@ const steps = [
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },
+  { label: "分桶合并（中间小桶并入相邻桶）", run: checkSplitSmallBuckets },
   { label: "扁平配置与产物校验（缓存清单 / --check）", run: checkFlatConfig },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },

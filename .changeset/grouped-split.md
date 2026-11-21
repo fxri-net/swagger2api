@@ -1,5 +1,5 @@
 ---
-"@fxri/swagger2api": minor
+"@fxri/swagger2api": patch
 ---
 
 - 新增：`grouping.split` 自适应分桶与命名空间分片，按接口体量压缩模块文件数

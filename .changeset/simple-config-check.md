@@ -1,5 +1,5 @@
 ---
-"@fxri/swagger2api": minor
+"@fxri/swagger2api": patch
 ---
 
 - 新增：扁平 `swagger2api.json` 配置，业务仓只写项目口径，分组阈值与桶名由工具默认

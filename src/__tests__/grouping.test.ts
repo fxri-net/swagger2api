@@ -56,6 +56,21 @@ function makeSplitSpec() {
   return spec
 }
 
+/**
+ * 构造指定路由数的命名空间夹具，用于分桶合并断言
+ * @param sizes 命名空间与路由数
+ * @return 文档对象
+ */
+function makeSizedSpec(sizes: Array<[string, number]>) {
+  const spec: Record<string, any> = { paths: {} }
+  sizes.forEach(([name, count]) => {
+    for (let index = 0; index < count; index += 1) {
+      spec.paths[`/${name}/item${index}`] = { get: { tags: [name], operationId: `${name}_${index}` } }
+    }
+  })
+  return spec
+}
+
 describe("自适应分桶与分片", () => {
   it("未配置 split 时保持一命名空间一文件", () => {
     const result = applyGrouping(makeSplitSpec(), { strategy: ["path"], pathDepth: 0 })
@@ -117,6 +132,35 @@ describe("自适应分桶与分片", () => {
   it("启用 split 时忽略旧阈值并告警", () => {
     const result = applyGrouping(makeSplitSpec(), { strategy: ["path"], pathDepth: 0, minRoutes: 2, split: { minRoutes: 100 } })
     expect(result.warnings.some((warning) => warning.includes("忽略 grouping.minRoutes"))).toBe(true)
+  })
+
+  it("中间小桶优先并入前一桶，不产生碎片文件", () => {
+    const spec = makeSizedSpec([["above_company", 10], ["home_page", 1], ["inc", 13], ["industry", 10], ["st_common", 3]])
+    const result = applyGrouping(spec, {
+      strategy: ["path"],
+      pathDepth: 0,
+      split: { minRoutes: 1, targetRoutes: 10, maxRoutes: 15, minBucketRoutes: 2 }
+    })
+    expect(result.split?.buckets.map((bucket) => [bucket.routes, bucket.namespaces])).toEqual([
+      [11, ["above_company", "home_page"]],
+      [13, ["inc"]],
+      [10, ["industry"]],
+      [3, ["st_common"]]
+    ])
+    expect(result.split?.buckets.every((bucket) => bucket.routes >= 2)).toBe(true)
+  })
+
+  it("前一桶放不下时并入后一桶", () => {
+    const spec = makeSizedSpec([["a_huge", 450], ["b_home", 1], ["c_inc", 300]])
+    const result = applyGrouping(spec, {
+      strategy: ["path"],
+      pathDepth: 0,
+      split: { minRoutes: 1, targetRoutes: 300, maxRoutes: 450, minBucketRoutes: 60 }
+    })
+    expect(result.split?.buckets.map((bucket) => [bucket.routes, bucket.namespaces])).toEqual([
+      [450, ["a_huge"]],
+      [301, ["b_home", "c_inc"]]
+    ])
   })
 })
 

@@ -569,7 +569,41 @@ function reserveBucketName(candidate: string, occupied: Set<string>) {
 }
 
 /**
- * 按分类装箱并命名桶：顺序装箱、目标路由数封顶、尾桶过小并入前一桶。
+ * 合并过小的桶：小桶优先并入前一桶，前一桶放不下再并入后一桶，均不得超过上限。
+ * 大命名空间独立成桶后留下的碎片桶由此消除，桶内顺序保持不变。
+ * @param groups 装箱结果（会被原地修改）
+ * @param config 归一化后的分片配置
+ * @return 无
+ */
+function mergeSmallBuckets(groups: Array<{ plans: SplitNamespacePlan[]; routes: number }>, config: NormalizedSplitConfig) {
+  let index = 0
+  while (groups.length > 1 && index < groups.length) {
+    const group = groups[index]
+    if (group.routes >= config.minBucketRoutes) {
+      index += 1
+      continue
+    }
+    const previous = groups[index - 1]
+    if (previous && previous.routes + group.routes <= config.maxRoutes) {
+      previous.plans.push(...group.plans)
+      previous.routes += group.routes
+      groups.splice(index, 1)
+      index = Math.max(index - 1, 0)
+      continue
+    }
+    const next = groups[index + 1]
+    if (next && next.routes + group.routes <= config.maxRoutes) {
+      next.plans.unshift(...group.plans)
+      next.routes += group.routes
+      groups.splice(index, 1)
+      continue
+    }
+    index += 1
+  }
+}
+
+/**
+ * 按分类装箱并命名桶：顺序装箱、目标路由数封顶、过小的桶与相邻桶合并。
  * @param plans 待装箱的命名空间（已按码点排序）
  * @param categoryName 分类名；为空时用首个命名空间名占位
  * @param config 归一化后的分片配置
@@ -590,12 +624,7 @@ function packCategory(plans: SplitNamespacePlan[], categoryName: string, config:
     routes += plan.routes
   }
   if (current.length) groups.push({ plans: current, routes })
-  if (groups.length > 1 && groups[groups.length - 1].routes < config.minBucketRoutes) {
-    const tail = groups.pop() as { plans: SplitNamespacePlan[]; routes: number }
-    const previous = groups[groups.length - 1]
-    previous.plans.push(...tail.plans)
-    previous.routes += tail.routes
-  }
+  mergeSmallBuckets(groups, config)
 
   return groups.map((group) => {
     // 未配置分类且只有一个桶时用固定名，避免以首个命名空间占位造成误解
