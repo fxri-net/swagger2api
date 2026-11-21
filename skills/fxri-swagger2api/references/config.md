@@ -27,6 +27,7 @@
 | `types.extractResponseRaw` | 布尔 | 需要在响应里保留原始 `raw` 时 |
 | `naming.pathPrefixIndex` | 非负整数 | 路径首段是网关前缀、不该进命名时去掉 |
 | `naming.tagRewrite` | `[匹配, 替换]` | 标签带环境前缀或需要统一命名时 |
+| `grouping.split` | 默认（自适应分桶）/ 对象覆写阈值 / `false` | 通常保持默认；需要固定模块文件数或调整桶大小时覆写，`false` 仅作逃生口（一个命名空间一个文件） |
 
 ## 多目标
 

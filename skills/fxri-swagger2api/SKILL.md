@@ -3,7 +3,7 @@ name: fxri-swagger2api
 description: 首次为项目初始化 swagger2api 配置、迁移旧脚本配置或调整产物结构时加载：给出最小配置、先预览再落盘、说明分组产物与验收方式。日常生成、--check 与验收不加载。不用于一般 TypeScript / axios 用法或接口文档编写。
 license: MIT
 metadata:
-  version: "1.1.2"
+  version: "1.1.3"
   tier: optional
   author: fxri
   source: https://github.com/fxri-net/swagger2api
@@ -11,7 +11,7 @@ metadata:
 
 # swagger2api 接入
 
-> 本技能版本 1.1.2（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
+> 本技能版本 1.1.3（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
 
 ## 何时使用
 
