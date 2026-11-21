@@ -14,7 +14,7 @@
 - `index.ts`：聚合入口，按命名空间挂载模块实例，共享同一个请求实例。
 - `client.ts`：客户端底座。
 - `types/index.ts`：契约出口；契约按业务文件拆到 `types/<业务文件>.ts`，共享或未归类进 `types/shared.ts`。
-- 业务模块文件：命名空间只决定调用面，文件按体量装箱——总量 ≤ `minRoutes` 时只出一个模块文件；否则按命名空间码点序装箱，小于 `minBucketRoutes` 的桶并入相邻桶，单个命名空间超过 `maxRoutes` 才按子分类分片并由门面类合并实例与类型。阈值默认值与覆写方式以 `docs/config.md` 为准，业务仓可用 `grouping.split` 覆写。
+- 业务模块文件：命名空间只决定调用面，文件按体量装箱——总量 ≤ `minRoutes` 时只出一个模块文件；否则按命名空间码点序装箱，小于 `minBucketRoutes` 的桶并入相邻桶，单个命名空间超过 `maxRoutes` 才按子分类分片，尾片小于 `minBucketRoutes` 且回填后不超过 `maxRoutes` 时并入前一片，由门面类合并实例与类型。阈值默认值与覆写方式以 `docs/config.md` 为准，业务仓可用 `grouping.split` 覆写。
 
 调用形态仍为 `api.<命名空间>.<方法>`；替换 `api.instance` 或调用 `setSecurityData` 会对所有组生效。
 

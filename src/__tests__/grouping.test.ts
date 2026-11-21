@@ -116,6 +116,41 @@ describe("自适应分桶与分片", () => {
     expect(result.moduleClassNames?.dgAdminPart1).toBe("DgAdminPart1")
   })
 
+  it("分片尾片小于下限时回填上一片", () => {
+    const spec = makeSizedSpec([])
+    ;["a", "a", "a", "b", "c"].forEach((segment, index) => {
+      spec.paths[`/dg_admin/v3/${segment}/item${index}`] = { get: { tags: ["dg_admin"], operationId: `dg_admin_${segment}_${index}` } }
+    })
+    const result = applyGrouping(spec, {
+      strategy: ["path"],
+      pathDepth: 0,
+      split: { minRoutes: 1, targetRoutes: 2, maxRoutes: 3, minBucketRoutes: 2 }
+    })
+    const shard = result.split?.namespaces.find((plan) => plan.raw === "dg_admin")
+    expect(shard?.chunks.map((chunk) => [chunk.fileName, chunk.routes])).toEqual([
+      ["DgAdminPart1", 2],
+      ["DgAdminPart2", 3]
+    ])
+  })
+
+  it("回填后超过上限时保留尾片", () => {
+    const spec = makeSizedSpec([])
+    ;["a", "a", "a", "b", "c"].forEach((segment, index) => {
+      spec.paths[`/dg_admin/v3/${segment}/item${index}`] = { get: { tags: ["dg_admin"], operationId: `dg_admin_${segment}_${index}` } }
+    })
+    const result = applyGrouping(spec, {
+      strategy: ["path"],
+      pathDepth: 0,
+      split: { minRoutes: 1, targetRoutes: 2, maxRoutes: 2, minBucketRoutes: 2 }
+    })
+    const shard = result.split?.namespaces.find((plan) => plan.raw === "dg_admin")
+    expect(shard?.chunks.map((chunk) => [chunk.fileName, chunk.routes])).toEqual([
+      ["DgAdminPart1", 2],
+      ["DgAdminPart2", 2],
+      ["DgAdminPart3", 1]
+    ])
+  })
+
   it("分类规则决定桶名，未命中归入兜底并告警", () => {
     const result = applyGrouping(makeSplitSpec(), {
       strategy: ["path"],

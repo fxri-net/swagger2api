@@ -517,6 +517,17 @@ function planChunks(namespace: SplitNamespacePlan, list: RouteAssignment[], path
   }
   if (current.items.length) groups.push(current)
 
+  // 余量回填：尾片小于下限且并入前一片后不超过上限时合并，避免碎片分片（桶层的同口径合并由 mergeSmallBuckets 负责）
+  if (groups.length > 1) {
+    const tail = groups[groups.length - 1]
+    const prev = groups[groups.length - 2]
+    if (tail.items.length < config.minBucketRoutes && prev.items.length + tail.items.length <= config.maxRoutes) {
+      prev.items.push(...tail.items)
+      tail.categories.forEach((category) => prev.categories.add(category))
+      groups.pop()
+    }
+  }
+
   return groups.map((group, index) => {
     let part = index + 1
     let fileName = `${namespace.className}Part${part}`
