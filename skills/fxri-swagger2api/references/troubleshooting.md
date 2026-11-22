@@ -15,6 +15,7 @@
 | 布局异常（模块过小 / 超上限） | `swagger2api inspect --dir "<目录>" --json` | `issues` 清单，`errorCode: "E_LAYOUT_ISSUES"` | 先 `--dry-run --json` 预览分桶与分片，再重新生成 |
 | 配置读不到或被环境变量覆盖 | `swagger2api config status --json` | `layers` / `envOverrides` / `effective` | 按 `warnings` 修正，或显式传 `--config` |
 | 配置目录不安全导致清理被拒 | 生成时的 stderr | `E_UNSAFE_DIR` 或「拒绝按横幅清理」 | 把输出目录改成具体产物目录，不在仓库根生成 |
+| 文档生成前被拒绝（缺 `paths` / 空文档 / Swagger 2.0） | 生成时的 stderr，或 `--json` | `E_SPEC_INVALID` / `E_NO_ENDPOINTS` 与可读原因 | 修正文档结构；Swagger 2.0 先转 OpenAPI 3 |
 
 ## JSON 字段
 
@@ -30,7 +31,7 @@
 | `message` | 失败说明 |
 | `actions` | 建议的下一步命令，可直接复制 |
 
-错误码：`E_CHECK_FAILED`、`E_LAYOUT_ISSUES`、`E_DIR_NOT_FOUND`、`E_UNSAFE_DIR`、`E_ARGS_MISSING`、`E_CONFIG_CONFLICT`。
+错误码：`E_CHECK_FAILED`、`E_LAYOUT_ISSUES`、`E_DIR_NOT_FOUND`、`E_UNSAFE_DIR`、`E_ARGS_MISSING`、`E_CONFIG_CONFLICT`、`E_SPEC_INVALID`、`E_NO_ENDPOINTS`。
 
 ## 典型失败输出
 

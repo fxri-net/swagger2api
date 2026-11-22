@@ -27,6 +27,14 @@ node18 线使用 `swagger-typescript-api@13.0.28`：13.1 起改用 biome WASM �
 
 开启分组输出：`output.mode = "grouped"`（或 `--modular`），按 tag / 路径段 / 显式规则拆成多文件，同时生成一个聚合入口，调用形态仍是 `api.<组>.<方法>`。先用 `swagger2api grouping` 看标签与路径分布并写入分组配置，`--dry-run` 可先预览分组结果。详见[完整攻略 · 分组输出](./guide#分组输出)。
 
+### 支持 Swagger 2.0 文档吗？
+
+不支持。生成器只接受 OpenAPI 3；检测到 `swagger: "2.0"` 会直接报错并提示先转换，不会生成半成品。
+
+### 文档没有接口或没有数据模型会怎样？
+
+`paths` 为空时直接报「文档没有接口」并以退出码 1 结束；没有 `components.schemas` 时照常生成，`types/index` 为空出口（`export {}`），聚合入口的 `export * from "./types"` 仍然可用。
+
 ### 全局装还是项目里装？
 
 个人多项目使用推荐全局装；团队项目推荐项目依赖，版本随仓库锁定，成员与 CI 环境自动一致。对比见[快速开始 · 安装](./getting-started#安装)。

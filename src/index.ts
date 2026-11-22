@@ -27,6 +27,7 @@ import { resolveBannerLanguage, rewriteGeneratedBanners } from "./utils/banner"
 import { inspectLayout, inspectThresholdsOf } from "./utils/inspect"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
+import { normalizeSpecShape } from "./utils/spec-shape"
 import { CLIENT_BASE, TYPES_DIR, findOrphanModules, isReservedProperty, slugifyGroupName, toClassName, toClassNames, toNamespaceName, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
@@ -117,6 +118,24 @@ function onConfigConflict(conflicts: string[]) {
     message: conflicts.join("；"),
     actions: ["swagger2api config status # 查看生效配置与环境变量覆盖", "swagger2api --dry-run --json # 预览本次目标与产物"]
   })
+}
+
+/**
+ * 生成失败：文本模式打印可读结论，JSON 模式输出稳定错误码与下一步。
+ * 多目标模式不逐目标写 JSON，避免破坏整体汇总结构。
+ * @param code 稳定错误码
+ * @param message 失败原因
+ * @param actions 可执行下一步
+ * @return 无
+ */
+function onGenerateFailure(code: string, message: string, actions: string[] = []) {
+  failures += 1
+  if (jsonOutput() && !datas.targetMode) {
+    writeJson({ schemaVersion: DIAGNOSTIC_SCHEMA_VERSION, toolVersion: readToolVersion(), command: "generate", ok: false, errorCode: code, message, actions })
+    return
+  }
+  console.error("失败：", message)
+  actions.forEach((action) => console.error(`  - ${action}`))
 }
 
 /**
@@ -722,8 +741,16 @@ function createSingleNamespaceHook(paths: Record<string, any>) {
 
 /** 生成接口 */
 async function onGenerateApi(data: Defines["data"]) {
-  // 检查格式
-  if (typeof data?.paths != "object") return console.log("失败：缺少paths字段")
+  // 输入形态归一：缺字段、空文档与 Swagger 2.0 都在生成前给出可读结论
+  const shape = normalizeSpecShape(data)
+  shape.warnings.forEach((warning) => console.error("⚠️", warning))
+  if ("error" in shape) {
+    onGenerateFailure(shape.error.code, shape.error.message, shape.error.actions)
+    return
+  }
+  data = shape.data as Defines["data"]
+  // 横幅语言：缺省中文，非法值告警后回落
+  const bannerLanguage = resolveBannerLanguage(datas.config as Record<string, any>)
   // 安全守卫：解析外部引用、转义代码字面量、校验标识符字段
   const guard = await guardSpec(data, { baseUrl: isUrl(confs.param.url) ? confs.param.url : undefined })
   if (guard.errors.length > 0) {
@@ -854,8 +881,6 @@ async function onGenerateApi(data: Defines["data"]) {
     ...{ param: datas.param }
   })
   console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
-  // 横幅语言：缺省中文，非法值告警后回落
-  const bannerLanguage = resolveBannerLanguage(datas.config as Record<string, any>)
   // 模块化输出：分组模式按命名表校验并挂载；未分组时沿用目录扫描
   if (datas.config.modular) {
     const dir = path.resolve(confs.param.output)
@@ -874,7 +899,7 @@ async function onGenerateApi(data: Defines["data"]) {
       // 分片门面由本工具补写，必须先于产物校验与聚合入口
       if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS, bannerLanguage)
       // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
-      const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS })
+      const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS, language: bannerLanguage })
       if (contracts.errors.length > 0) {
         contracts.errors.forEach((error) => console.error("失败：", error))
         failures += 1
@@ -916,7 +941,7 @@ async function onGenerateApi(data: Defines["data"]) {
         // keep 内的文件本轮会重建，留旧产物会让聚合入口继续引用幽灵模块
         pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
       }
-      const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS })
+      const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS, language: bannerLanguage })
       if (contracts.errors.length > 0) {
         contracts.errors.forEach((error) => console.error("失败：", error))
         failures += 1

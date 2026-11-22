@@ -1,0 +1,13 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "null nodes", "version": "1.0" },
+  "paths": {
+    "/bad": null,
+    "/good/list": {
+      "get": {
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": null
+}

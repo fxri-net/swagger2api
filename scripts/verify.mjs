@@ -1396,6 +1396,103 @@ async function checkContractCollision() {
 }
 
 /**
+ * 文档形态：缺字段、空文档与 Swagger 2.0 给出可读结论；无契约文档可生成并 --check 通过。
+ * @return {number} 退出码
+ */
+async function checkSpecShape() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 文档形态：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-spec-shape-"))
+  const issues = []
+  const writeConfig = (name, spec, extra = {}) => {
+    const config = join(out, `${name}.json`)
+    writeFileSync(config, JSON.stringify({ file: spec, output: `./${name}`, name: "index", ...extra }, null, 2))
+    return config
+  }
+  const run = (config, extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
+  const output = (result) => `${result.stdout ?? ""}${result.stderr ?? ""}`
+  try {
+    // 缺少 paths：可读错误 + 退出码 1；--json 给稳定错误码
+    const noPaths = writeConfig("no-paths", join(root, "fixtures", "spec-no-paths.json"), { mode: "grouped" })
+    const noPathsRun = run(noPaths)
+    if (noPathsRun.status !== 1 || !output(noPathsRun).includes("缺少 paths")) issues.push("缺少 paths 未以可读错误终止")
+    if (output(noPathsRun).includes("TypeError")) issues.push("缺少 paths 输出了原始堆栈")
+    const noPathsJson = run(noPaths, ["--json"])
+    try {
+      if (JSON.parse(noPathsJson.stdout).errorCode !== "E_SPEC_INVALID") issues.push("缺少 paths 的 JSON 错误码不正确")
+    } catch {
+      issues.push("缺少 paths 的 --json 输出无法解析")
+    }
+
+    // Swagger 2.0：提示先转 OpenAPI 3
+    const swagger2 = writeConfig("swagger2", join(root, "fixtures", "spec-swagger2.json"), { mode: "grouped" })
+    const swagger2Run = run(swagger2)
+    if (swagger2Run.status !== 1 || !output(swagger2Run).includes("OpenAPI 3")) issues.push("Swagger 2.0 未给出转换提示")
+    if (output(swagger2Run).includes("TypeError")) issues.push("Swagger 2.0 输出了原始堆栈")
+
+    // 空 paths：明确「没有接口」
+    const empty = writeConfig("empty", join(root, "fixtures", "spec-empty-paths.json"), { mode: "grouped" })
+    const emptyRun = run(empty)
+    if (emptyRun.status !== 1 || !output(emptyRun).includes("没有接口")) issues.push("空 paths 未给出「没有接口」结论")
+    const emptyJson = run(empty, ["--json"])
+    try {
+      if (JSON.parse(emptyJson.stdout).errorCode !== "E_NO_ENDPOINTS") issues.push("空 paths 的 JSON 错误码不正确")
+    } catch {
+      issues.push("空 paths 的 --json 输出无法解析")
+    }
+
+    // null 路径项与 null components：跳过并告警，其余接口正常生成
+    const nulls = writeConfig("nulls", join(root, "fixtures", "spec-null-nodes.json"), { mode: "grouped" })
+    const nullsRun = run(nulls)
+    if (nullsRun.status !== 0) issues.push(`null 节点文档生成失败：${output(nullsRun)}`)
+    else {
+      if (!output(nullsRun).includes("已跳过非法路径项：/bad")) issues.push("非法路径项缺少跳过告警")
+      if (!existsSync(join(out, "nulls", "Modules.ts"))) issues.push("null 节点文档未生成模块文件")
+      if (run(nulls, ["--check"]).status !== 0) issues.push("null 节点文档 --check 未通过")
+    }
+
+    // 无契约：TS 分组补写空出口，--check 通过
+    const noSchemas = writeConfig("no-schemas", join(root, "fixtures", "spec-no-schemas.json"), { mode: "grouped" })
+    const noSchemasRun = run(noSchemas)
+    if (noSchemasRun.status !== 0) issues.push(`无契约文档生成失败：${output(noSchemasRun)}`)
+    else {
+      const barrel = join(out, "no-schemas", "types", "index.ts")
+      if (!existsSync(barrel)) issues.push("无契约文档未补写 types/index.ts")
+      else {
+        const source = readFileSync(barrel, "utf8")
+        if (!source.includes(GENERATED_BANNER_ZH) || !source.includes("export {}")) issues.push("空契约出口缺少横幅或导出")
+      }
+      if (run(noSchemas, ["--check"]).status !== 0) issues.push("无契约文档 --check 未通过")
+    }
+
+    // 无契约：JS 分组同时补写实现与声明出口
+    const noSchemasJs = writeConfig("no-schemas-js", join(root, "fixtures", "spec-no-schemas.json"), { mode: "grouped", language: "js" })
+    const noSchemasJsRun = run(noSchemasJs)
+    if (noSchemasJsRun.status !== 0) issues.push(`无契约 JS 文档生成失败：${output(noSchemasJsRun)}`)
+    else {
+      for (const file of ["types/index.js", "types/index.d.ts"]) if (!existsSync(join(out, "no-schemas-js", file))) issues.push(`无契约 JS 文档缺少 ${file}`)
+      if (run(noSchemasJs, ["--check"]).status !== 0) issues.push("无契约 JS 文档 --check 未通过")
+    }
+
+    // 无契约：单文件模式不生成 types 目录也能通过
+    const noSchemasSingle = writeConfig("no-schemas-single", join(root, "fixtures", "spec-no-schemas.json"))
+    const singleRun = run(noSchemasSingle)
+    if (singleRun.status !== 0) issues.push(`无契约单文件生成失败：${output(singleRun)}`)
+    else if (run(noSchemasSingle, ["--check"]).status !== 0) issues.push("无契约单文件 --check 未通过")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 文档形态未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 自适应分桶与分片：桶内多类、分片门面、聚合导入、横幅归属与关闭开关回滚。
  * 生成后编译类型探针，断言分片合并后的调用形态与单文件产物一致。
  * @return {number} 退出码
@@ -2135,6 +2232,7 @@ const steps = [
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "保留名护栏（驼峰聚合成员 / 单文件命名空间）", run: checkReservedNaming },
   { label: "契约冲突（类名避让 / 根出口显式导出）", run: checkContractCollision },
+  { label: "文档形态（缺字段 / 空文档 / 无契约）", run: checkSpecShape },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },

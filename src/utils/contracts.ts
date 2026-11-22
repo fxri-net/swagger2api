@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import ts from "typescript"
+import { generatedHeader, type BannerLanguage } from "./banner"
 import { isGeneratedFile } from "./modular"
 import { SHARED_BASE, TYPES_DIR } from "./naming"
 
@@ -355,15 +356,35 @@ function readText(file: string) {
 }
 
 /**
+ * 无契约文档：补写空出口，保证聚合入口的 types 导出成立。
+ * 出口与普通 barrel 同属本轮产物，按既有口径覆盖写入。
+ * @param options 输出目录、输出形态与横幅语言
+ * @return 写入结果
+ */
+function writeEmptyContractBarrel(options: { dir: string; toJS: boolean; language?: BannerLanguage }): ContractSplitResult {
+  const header = generatedHeader(options.language ?? "zh").join("\n")
+  const files = options.toJS ? ["index.js", "index.d.ts"] : ["index.ts"]
+  const written: string[] = []
+  for (const file of files) {
+    const relative = `${TYPES_DIR}/${file}`
+    fs.mkdirSync(path.dirname(path.join(options.dir, relative)), { recursive: true })
+    fs.writeFileSync(path.join(options.dir, relative), `${header}\n\nexport {}\n`)
+    written.push(relative)
+  }
+  return { written, errors: [] }
+}
+
+/**
  * 按业务文件拆分契约：生成 types/<业务文件> 与 types/shared，并把 types/index 改为 barrel。
- * @param options 输出目录、业务文件名与输出形态
+ * 文档没有任何契约时补写空出口，不阻断生成。
+ * @param options 输出目录、业务文件名、输出形态与横幅语言
  * @return 写入结果与错误
  */
-export function splitContractOutput(options: { dir: string; moduleFiles: string[]; toJS: boolean }): ContractSplitResult {
+export function splitContractOutput(options: { dir: string; moduleFiles: string[]; toJS: boolean; language?: BannerLanguage }): ContractSplitResult {
   const typesDir = path.join(options.dir, TYPES_DIR)
   const entryFile = options.toJS ? "index.d.ts" : "index.ts"
   const source = readText(path.join(typesDir, entryFile))
-  if (!source) return { written: [], errors: [`缺少契约出口：${TYPES_DIR}/${entryFile}`] }
+  if (!source) return writeEmptyContractBarrel(options)
   const contract = parseContractSource(source, `${TYPES_ENTRY}${path.extname(entryFile)}`)
   const modules = options.moduleFiles
     .map((file) => ({ file, source: readText(path.join(options.dir, `${file}${options.toJS ? ".d.ts" : ".ts"}`)) }))

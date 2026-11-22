@@ -1,0 +1,6 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "empty paths", "version": "1.0" },
+  "paths": {},
+  "components": { "schemas": { "Item": { "type": "string" } } }
+}

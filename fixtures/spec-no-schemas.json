@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "no schemas", "version": "1.0" },
+  "paths": {
+    "/alpha/list": {
+      "get": {
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer" }
+    }
+  }
+}

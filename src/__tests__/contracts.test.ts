@@ -1,5 +1,9 @@
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { describe, expect, it } from "vitest"
-import { buildContractFiles, buildRuntimeFiles, collectContractImports, parseContractSource, planContractOwnership } from "../utils/contracts"
+import { GENERATED_BANNER_ZH } from "../utils/banner"
+import { buildContractFiles, buildRuntimeFiles, collectContractImports, parseContractSource, planContractOwnership, splitContractOutput } from "../utils/contracts"
 
 /** 契约样例：含跨声明引用、内部声明、运行时枚举与未使用声明 */
 const contract = [
@@ -105,5 +109,55 @@ describe("契约拆分", () => {
     expect(files.get("Modules")).toContain('Status["A"] = "a"')
     expect(files.get("Modules")).not.toContain("Other")
     expect(files.get("shared")).toContain("export var Other")
+  })
+})
+
+describe("无契约产物", () => {
+  /** 创建用例目录，结束后清理 */
+  const makeDir = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "s2a-empty-contract-"))
+    return dir
+  }
+
+  it("TS 模式补写带横幅的空出口", () => {
+    const dir = makeDir()
+    try {
+      const result = splitContractOutput({ dir, moduleFiles: ["Modules"], toJS: false })
+      expect(result.errors).toEqual([])
+      expect(result.written).toEqual(["types/index.ts"])
+      const source = fs.readFileSync(path.join(dir, "types", "index.ts"), "utf8")
+      expect(source).toContain(GENERATED_BANNER_ZH)
+      expect(source).toContain("export {}")
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("JS 模式同时补写实现与声明出口", () => {
+    const dir = makeDir()
+    try {
+      const result = splitContractOutput({ dir, moduleFiles: ["Modules"], toJS: true, language: "en" })
+      expect(result.errors).toEqual([])
+      expect(result.written.sort()).toEqual(["types/index.d.ts", "types/index.js"])
+      const source = fs.readFileSync(path.join(dir, "types", "index.d.ts"), "utf8")
+      expect(source).toContain("THIS FILE WAS GENERATED VIA @FXRI/SWAGGER2API, DO NOT EDIT")
+      expect(source).toContain("export {}")
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("JS 模式生成器已写实现出口时一并覆盖为统一横幅", () => {
+    const dir = makeDir()
+    try {
+      fs.mkdirSync(path.join(dir, "types"), { recursive: true })
+      fs.writeFileSync(path.join(dir, "types", "index.js"), "// 生成器运行时出口\n")
+      const result = splitContractOutput({ dir, moduleFiles: ["Modules"], toJS: true })
+      expect(result.errors).toEqual([])
+      expect(result.written.sort()).toEqual(["types/index.d.ts", "types/index.js"])
+      expect(fs.readFileSync(path.join(dir, "types", "index.js"), "utf8")).toContain("export {}")
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
