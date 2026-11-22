@@ -1,5 +1,5 @@
 ---
-"@fxri/swagger2api": minor
+"@fxri/swagger2api": patch
 ---
 
 - 新增：`output.banner`（`zh` 默认 / `en`）控制产物文件头横幅语言，非法值告警后回落中文
