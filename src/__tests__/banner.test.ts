@@ -2,7 +2,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { GENERATED_BANNER, GENERATED_BANNER_ZH, resolveBannerLanguage, rewriteGeneratedBanners } from "../utils/banner"
+import { GENERATED_BANNER, GENERATED_BANNER_ZH, bannerBlock, generatedHeader, resolveBannerLanguage, rewriteGeneratedBanners } from "../utils/banner"
 
 describe("横幅语言配置", () => {
   it("缺省中文", () => {
@@ -24,6 +24,25 @@ describe("横幅语言配置", () => {
   })
 })
 
+describe("横幅文案", () => {
+  it("中英横幅结构一致，仅锚点文案不同", () => {
+    const zh = bannerBlock("zh")
+    const en = bannerBlock("en")
+    expect(zh).toHaveLength(en.length)
+    expect(zh[0]).toBe(en[0])
+    expect(zh[1]).toBe(en[1])
+    expect(zh[3]).toBe(en[3])
+    expect(zh[2]).toContain(GENERATED_BANNER_ZH)
+    expect(en[2]).toContain(GENERATED_BANNER)
+    expect(zh.join("\n")).not.toContain("swagger-typescript-api")
+    expect(en.join("\n")).not.toContain("swagger-typescript-api")
+  })
+
+  it("本工具自写文件头带 lint 关闭与横幅块", () => {
+    expect(generatedHeader("zh")).toEqual(["/* eslint-disable */", "/* tslint:disable */", ...bannerBlock("zh")])
+  })
+})
+
 describe("产物横幅改写", () => {
   /** 用例创建的临时目录，结束后清理 */
   const roots: string[] = []
@@ -42,11 +61,11 @@ describe("产物横幅改写", () => {
     return dir
   }
 
-  /** 上游多行横幅 */
+  /** 上游生成器写入的多行横幅 */
   const upstreamBlock = [
     "/*",
     " * ---------------------------------------------------------------",
-    ` * ## ${GENERATED_BANNER}        ##`,
+    " * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##",
     " * ##                                                           ##",
     " * ## AUTHOR: acacode                                           ##",
     " * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##",
@@ -54,10 +73,10 @@ describe("产物横幅改写", () => {
     " */"
   ].join("\n")
 
-  it("英文块改写为中文，工具单行横幅同样处理", () => {
+  it("上游英文块与本工具英文块都改写为中文横幅", () => {
     const dir = makeDir()
     fs.writeFileSync(path.join(dir, "Module.ts"), `${upstreamBlock}\nexport class Module {}\n`)
-    fs.writeFileSync(path.join(dir, "index.ts"), `/* eslint-disable */\n/* tslint:disable */\n/* ## ${GENERATED_BANNER} ## */\nexport class Api {}\n`)
+    fs.writeFileSync(path.join(dir, "index.ts"), `${generatedHeader("en").join("\n")}\nexport class Api {}\n`)
     fs.writeFileSync(path.join(dir, "handwritten.ts"), "export const value = 1\n")
 
     const changed = rewriteGeneratedBanners(dir, "zh")

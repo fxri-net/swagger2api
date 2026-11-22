@@ -24,21 +24,9 @@ const RESERVED = new Set(["index", "shared", "types", CLIENT_BASE, ...LEGACY_OUT
 
 /** 判定横幅时读取的文件头字节数：只读前 1KB，不整文件读取 */
 const BANNER_SCAN_BYTES = 1024
-/** 判定旧版特征时读取的文件头字节数：旧版自写文件不带横幅，需要多读一段结构特征 */
-const LEGACY_SCAN_BYTES = 4096
-/** 本工具自写文件的固定头：只有在该头之下才用旧版特征判定 */
-const GENERATED_FILE_HEAD = /^\/\* eslint-disable \*\/\r?\n\/\* tslint:disable \*\//
-/** 旧版（1.3.3 及以前）自写产物的结构特征：升级后首个生成据此覆盖旧文件 */
-const LEGACY_GENERATED_SIGNATURES: RegExp[] = [
-  /聚合入口：各模块共享同一个请求实例/,
-  /模块：由分片合并，对外与单文件产物一致/,
-  /export \* from "\.\/types"[\s\S]*export \* from "\.\/client"/,
-  /Object\.assign\(this,\s*new\s+[A-Za-z_$][\w$]*Part\d+\(http\)/,
-  /extends\s+[A-Za-z_$][\w$]*Part\d+<SecurityDataType>/
-]
 /**
- * 判断文件是否为生成物：文件头含生成横幅，或带本工具固定头且命中旧版产物结构特征。
- * 横幅只看前 1KB，旧版特征最多读前 4KB；两组特征都只读文件头，不整文件读取。
+ * 判断文件是否为生成物：文件头含当前中英横幅锚点之一。
+ * 只读文件头 1KB，不整文件读取。
  * @param file 文件绝对路径
  * @return 是否为生成物
  */
@@ -46,13 +34,10 @@ export function isGeneratedFile(file: string) {
   let fd: number | undefined
   try {
     fd = fs.openSync(file, "r")
-    const buffer = Buffer.alloc(LEGACY_SCAN_BYTES)
-    const read = fs.readSync(fd, buffer, 0, LEGACY_SCAN_BYTES, 0)
-    const bannerHead = buffer.subarray(0, Math.min(read, BANNER_SCAN_BYTES)).toString("utf8")
-    if (bannerHead.includes(GENERATED_BANNER) || bannerHead.includes(GENERATED_BANNER_ZH)) return true
+    const buffer = Buffer.alloc(BANNER_SCAN_BYTES)
+    const read = fs.readSync(fd, buffer, 0, BANNER_SCAN_BYTES, 0)
     const head = buffer.subarray(0, read).toString("utf8")
-    if (!GENERATED_FILE_HEAD.test(head)) return false
-    return LEGACY_GENERATED_SIGNATURES.some((pattern) => pattern.test(head))
+    return head.includes(GENERATED_BANNER) || head.includes(GENERATED_BANNER_ZH)
   } catch {
     return false
   } finally {
@@ -61,7 +46,7 @@ export function isGeneratedFile(file: string) {
 }
 
 /**
- * 递归收集目录下的生成物：按横幅或旧版产物特征识别，跳过软链接。
+ * 递归收集目录下的生成物：按文件头横幅识别，跳过软链接。
  * @param dir 扫描目录
  * @param base 相对路径基准目录
  * @return 相对路径（统一 / 分隔，排序）

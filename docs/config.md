@@ -25,7 +25,7 @@
 - 产物布局：`mode: "grouped"` 固定为 `index`（聚合入口）+ 业务模块文件 + `client`（客户端底座）+ `types/`（契约目录），契约统一从 `types/index` 导出；契约再按业务文件拆分为 `types/<业务文件>.ts` 与 `types/shared.ts`
 - 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留，无需手动清理
 - 相对路径按配置文件所在目录解析，从任意目录执行都能落对位置
-- 产物归属靠生成横幅识别：生成物（含聚合入口与契约）文件头带 `THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API`，手写文件不带；旧版（≤ 1.3.3）自写文件不带横幅，按「固定头 + 结构特征」兼容识别，升级后首个生成可正常覆盖；`--check` 与清理都以文件头判定，不依赖任何持久状态
+- 产物归属靠生成横幅识别：生成物（含聚合入口与契约）文件头带 `本文件由 @fxri/swagger2api 生成，请勿手改`（英文为 `THIS FILE WAS GENERATED VIA @FXRI/SWAGGER2API, DO NOT EDIT`），手写文件不带；`--check` 与清理都只读文件头前 1KB，不依赖任何持久状态。旧横幅不再识别，升级后首次生成前需清空产物目录
 - 不要手写生成目录、不要在自写文件里复用生成横幅，否则会被当成产物覆盖或清理
 - `swagger2api init` 可交互生成这份配置；`swagger2api` 无参即按最近的配置生成
 
@@ -80,7 +80,7 @@
 - 环境变量：`FX_S2A_INPUT`、`FX_S2A_OUTPUT`、`FX_S2A_NAME`、`FX_S2A_CLIENT`、`FX_S2A_LANGUAGE`、`FX_S2A_CLEAN`
 - 拉取超时：`input.timeout`（毫秒，默认 `0` 表示不超时——请求能建立就按「慢」处理，不主动中断；大文档可达数 MB），非法值告警后回落；命令行 `--timeout` 优先
 - 类型检查：`output.typeCheck` 与扁平 `typeCheck` 同义，`skip`（默认）保留 `// @ts-nocheck`，`enforce` 在写盘后剥离
-- 横幅语言：`output.banner` 取 `zh`（默认）或 `en`，控制产物文件头的来源说明；识别归属时中英锚点都认，历史英文产物无需重新生成即可继续被清理与校验
+- 横幅语言：`output.banner` 取 `zh`（默认）或 `en`，控制产物文件头的来源说明；两种语言结构一致，仅文案不同；非法值告警后回落 `zh`
 - 多套预设：`profiles` 内的命名预设用 `--profile <name>` 选用
 - 排障：`swagger2api config status` 展示各层命中文件、生效字段与环境变量覆盖，`--json` 输出结构化结果
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
@@ -89,7 +89,7 @@
 - `grouping.split` 三种形态：不配置即采用上述默认阈值；写对象可按需覆写 `minRoutes` / `targetRoutes` / `maxRoutes` / `minBucketRoutes` / `fallback`（默认 `misc`）/ `categories`，未写的项仍取默认；写 `false` 关闭自适应分桶，一个命名空间一个模块文件，仅作回滚逃生口。业务仓通常保持默认，确需固定文件数或调整桶大小时再覆写。离线产物可用 `swagger2api inspect --dir <目录>` 按同一判据审计（见 [CLI 参考](./cli)）
 - 保留名：`index`、`types`、`client`、`shared` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名（大小写不敏感），命中后自动追加序号，避免覆盖生成能力或运行期成员；单文件模式的路径首段命名空间同样受保护；`grouping.names` 手工名命中聚合成员时直接报错
 - 契约冲突：契约类型名与模块类名同名时只改类名与文件名，聚合属性 `api.<组>` 保持不变；契约与底座（`HttpClient`、`ContentType`、`RequestParams` 等）同名时，根出口显式导出底座，契约仍可从 `types` 直接引用；与聚合类 `Api` 同名时以 `ApiContract` 别名导出契约
-- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按生成横幅（兼容旧版产物特征）清理，只删除识别为生成物且本轮不再生成的文件，手写适配文件不受影响；开关关闭时只报告多余产物、不删除；手动 `--modular` 同样按此清理已消失模块。横幅只看前 1KB，旧版特征最多读前 4KB
+- 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按生成横幅清理，只删除识别为生成物且本轮不再生成的文件，手写适配文件不受影响；开关关闭时只报告多余产物、不删除；手动 `--modular` 同样按此清理已消失模块
 - 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`。同一输出目录只允许一份配置：同目录其他配置的输出与本配置相同或互相嵌套时以退出码 2 拒绝
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示
 
@@ -101,7 +101,7 @@
 | `output` | string | `'./src/api'` | 生成代码的输出目录，相对配置文件所在目录解析 |
 | `name` | string | `'index'` | 接口文件名称，默认后缀为ts |
 | `typeCheck` | `skip` / `enforce` | `'skip'` | 生成物是否保留 `// @ts-nocheck`；`enforce` 在写盘后剥离，`--check` 走同一处理 |
-| `output.banner` | `zh` / `en` | `'zh'` | 产物文件头横幅语言；中文为默认，英文用于兼容既有产物；识别时中英锚点都认，非法值告警后回落 `zh` |
+| `output.banner` | `zh` / `en` | `'zh'` | 产物文件头横幅语言；两种语言结构一致，仅文案不同；非法值告警后回落 `zh` |
 | `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；按缺失 / 不一致 / 多余三类报出，有差异时非 0 退出 |
 | `input.timeout` | number | `0` | 拉取远端文档的超时（毫秒），`0` 表示不超时；非法值告警后回落默认；命令行 `--timeout` 优先 |
 | `--timeout` | number | `input.timeout` 或 0 | 覆盖拉取超时（毫秒），`0` 表示不超时；超时与网络错误统一转为可读提示，退出码 1 |
@@ -115,7 +115,7 @@
 | `--remove-param,-rp` | boolean | `false` | 移除{.+}参数 |
 | `--remove-prefix-index,-rpi` | number | 未设置 | 移除前缀索引；传 `-1` 或不传均表示不移除 |
 | `--remove-dts,-rd` | boolean | `false` | 移除使用--js参数时生成的d.ts文件 |
-| `--prune-output` | boolean | 分组模式默认开启 | 按生成横幅（兼容旧版产物特征）清理已消失的产物，不触碰手写文件；关闭时只报告不删除 |
+| `--prune-output` | boolean | 分组模式默认开启 | 按生成横幅清理已消失的产物，不触碰手写文件；关闭时只报告不删除 |
 | `--remove-empty-components,-rec` | boolean | `true` | 移除空组件定义 |
 | `--extract-request-query,-erq` | string | - | 提取参数，将query参数中的指定对象字段提取为根部字段，支持多选，用【,】分隔，每个接口只提取第一次命中的字段 |
 | `--extract-response-raw,-err` | boolean | `false` | 提取响应，将AxiosResponse返回值转移到raw字段，根部字段自行定义，使用该参数需在响应拦截中重新设计实际的返回值。仅 axios 客户端生效，需搭配 `--axios` 参数，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err) |

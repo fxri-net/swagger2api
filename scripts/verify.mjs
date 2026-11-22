@@ -11,14 +11,14 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const isWindows = process.platform === "win32"
 
 /** 生成横幅：与 CLI 的 GENERATED_BANNER 同源，用于判定产物归属 */
-const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
+const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA @FXRI/SWAGGER2API, DO NOT EDIT"
 /** 中文横幅：默认输出语言，识别时与英文锚点同等有效 */
-const GENERATED_BANNER_ZH = "本文件由 swagger-typescript-api 生成，请勿手改"
+const GENERATED_BANNER_ZH = "本文件由 @fxri/swagger2api 生成，请勿手改"
 /** 中英锚点 */
 const BANNER_ANCHORS = [GENERATED_BANNER, GENERATED_BANNER_ZH]
 
 /**
- * 按文件头 1KB 判定生成物，与 CLI 的 isGeneratedFile 保持同一口径（中英锚点都认）。
+ * 按文件头 1KB 判定生成物，与 CLI 的 isGeneratedFile 保持同一口径（当前中英锚点）。
  * @param {string} file 文件绝对路径
  * @return {boolean} 是否为生成物
  */
@@ -45,6 +45,28 @@ function assertAllGenerated(dir, issues) {
     if (!/\.(?:ts|js)$/.test(file)) continue
     if (!hasBanner(join(dir, file))) issues.push(`生成物缺少横幅：${file}`)
   }
+}
+
+/**
+ * 断言目录内生成物的横幅块文本一致，且横幅不含上游工具名。
+ * @param {string} dir 产物目录
+ * @param {string[]} issues 问题收集数组
+ * @return {void}
+ */
+function assertUniformBanner(dir, issues) {
+  const blocks = new Set()
+  for (const file of collectFiles(dir)) {
+    if (!/\.(?:ts|js)$/.test(file)) continue
+    const head = readFileSync(join(dir, file), "utf8").slice(0, 1024)
+    const block = (head.match(/\/\*[\s\S]*?\*\//g) ?? []).find((item) => BANNER_ANCHORS.some((anchor) => item.includes(anchor)))
+    if (!block) {
+      issues.push(`生成物缺少横幅块：${file}`)
+      continue
+    }
+    blocks.add(block)
+  }
+  if (blocks.size > 1) issues.push(`同目录横幅块不一致：${blocks.size} 种`)
+  for (const block of blocks) if (block.includes("swagger-typescript-api")) issues.push("横幅仍包含上游工具名 swagger-typescript-api")
 }
 
 const flags = new Set(process.argv.slice(2))
@@ -570,7 +592,7 @@ async function checkGroupedOutput() {
       }
       // 横幅语言与共享请求器注入方式：默认中文横幅，共享请求器不可枚举
       const aggregateSource = readFileSync(join(api, "index.ts"), "utf8")
-      if (!aggregateSource.includes("本文件由 swagger-typescript-api 生成，请勿手改")) {
+      if (!aggregateSource.includes(GENERATED_BANNER_ZH)) {
         console.error(`✖ 分组产物（${client.name}）：聚合入口未使用默认中文横幅`)
         return 1
       }
@@ -875,6 +897,7 @@ async function checkGroupedPrune() {
     }
     // 归属判据：整目录产物（含本工具补写的聚合入口与契约）都带生成横幅
     assertAllGenerated(base, issues)
+    assertUniformBanner(base, issues)
 
     // 模拟手写适配文件与上一轮遗留模块：横幅只写在生成物里，手写文件不带
     writeFileSync(join(base, "axios.ts"), "// 手写适配\n")
@@ -1436,6 +1459,7 @@ async function checkGroupedSplit() {
     if (files.some((name) => /^DgAdminV\d/i.test(name))) issues.push("版本段被当作子分类生成了文件")
     // 归属判据：桶、分片、门面、聚合入口与契约都带生成横幅
     assertAllGenerated(base, issues)
+    assertUniformBanner(base, issues)
 
     // 桶文件：一个文件内渲染多个命名空间类，且不串入分片命名空间
     const bucket = readFileSync(join(base, "Modules.ts"), "utf8")
@@ -1477,19 +1501,6 @@ async function checkGroupedSplit() {
     const after = snapshot()
     if (Object.keys(before).join(",") !== Object.keys(after).join(",")) issues.push("连续两次生成的产物集合不一致")
     else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
-
-    // 升级迁移：旧版（1.3.3 及以前）自写的聚合入口与门面不带横幅，重新生成不得判为手写冲突
-    const bannerLine = new RegExp(`^/\\* ## (?:${GENERATED_BANNER}|${GENERATED_BANNER_ZH}) ## \\*/\\r?\\n`, "m")
-    for (const file of ["index.ts", "DgAdmin.ts"]) {
-      writeFileSync(join(base, file), readFileSync(join(base, file), "utf8").replace(bannerLine, ""))
-    }
-    const legacyRun = run(writeConfig("base.json", base, splitGrouping))
-    if (legacyRun.status !== 0) {
-      issues.push("旧版无横幅产物被误判为手写文件")
-      console.error(`${legacyRun.stdout ?? ""}${legacyRun.stderr ?? ""}`)
-    } else if (!BANNER_ANCHORS.some((anchor) => readFileSync(join(base, "index.ts"), "utf8").includes(anchor))) {
-      issues.push("旧版产物未被重新生成覆盖")
-    }
 
     // 契约缩水：整组接口被删除后，模块与嵌套契约都要清理，且随后 --check 通过
     const shrinkDir = join(out, "shrink")

@@ -2,14 +2,30 @@ import fs from "node:fs"
 import path from "node:path"
 
 // 生成横幅：既标识产物归属（清理、手写护栏与 --check 依赖它），也向读者说明来源。
-// 默认输出中文；英文锚点长期保留，用于识别历史产物与上游生成器写入的文件头。
+// 中文与英文使用同一套横幅结构，仅文案不同；默认输出中文。
 
 /** 横幅语言 */
 export type BannerLanguage = "zh" | "en"
-/** 英文横幅锚点（历史产物与上游生成器） */
-export const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
+/** 英文横幅锚点 */
+export const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA @FXRI/SWAGGER2API, DO NOT EDIT"
 /** 中文横幅锚点（默认输出） */
-export const GENERATED_BANNER_ZH = "本文件由 swagger-typescript-api 生成，请勿手改"
+export const GENERATED_BANNER_ZH = "本文件由 @fxri/swagger2api 生成，请勿手改"
+/** 上游生成器写入的横幅锚点：只用于同轮改写生成器文件，不作为产物归属判据 */
+const UPSTREAM_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
+
+/**
+ * 计算文本显示宽度：CJK 与全角字符按两列计。
+ * @param text 文本
+ * @return 显示宽度
+ */
+function displayWidth(text: string) {
+  let width = 0
+  for (const char of text) width += /[\u1100-\u11FF\u2E80-\u9FFF\uFF00-\uFFEF]/.test(char) ? 2 : 1
+  return width
+}
+
+/** 横幅文本区宽度：两种语言取同一宽度，使横幅块逐行对齐 */
+const BANNER_WIDTH = Math.max(displayWidth(GENERATED_BANNER), displayWidth(GENERATED_BANNER_ZH))
 
 /**
  * 取目标语言的横幅锚点。
@@ -21,37 +37,28 @@ export function bannerAnchor(language: BannerLanguage = "zh") {
 }
 
 /**
- * 本工具自写文件的固定头。
+ * 取目标语言的横幅块：两种语言结构一致，仅锚点文案不同。
  * @param language 横幅语言
- * @return 三行文件头
+ * @return 横幅块各行
  */
-export function generatedHeader(language: BannerLanguage = "zh") {
-  return ["/* eslint-disable */", "/* tslint:disable */", `/* ## ${bannerAnchor(language)} ## */`]
+export function bannerBlock(language: BannerLanguage = "zh") {
+  const anchor = bannerAnchor(language)
+  const border = ` * ${"-".repeat(BANNER_WIDTH + 6)}`
+  return ["/*", border, ` * ## ${anchor}${" ".repeat(BANNER_WIDTH - displayWidth(anchor))} ##`, border, " */"]
 }
 
-/** 横幅块（多行注释） */
-const BANNERS: Record<BannerLanguage, string[]> = {
-  zh: [
-    "/*",
-    " * ---------------------------------------------------------------",
-    " * ## 本文件由 swagger-typescript-api 生成，请勿手改              ##",
-    " * ## 生成工具：@fxri/swagger2api；来源：swagger-typescript-api ##",
-    " * ---------------------------------------------------------------",
-    " */"
-  ],
-  en: [
-    "/*",
-    " * ---------------------------------------------------------------",
-    " * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##",
-    " * ##                                                           ##",
-    " * ## AUTHOR: acacode                                           ##",
-    " * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##",
-    " * ---------------------------------------------------------------",
-    " */"
-  ]
+/**
+ * 本工具自写文件的固定头：关闭 lint 后接生成横幅。
+ * @param language 横幅语言
+ * @return 文件头各行
+ */
+export function generatedHeader(language: BannerLanguage = "zh") {
+  return ["/* eslint-disable */", "/* tslint:disable */", ...bannerBlock(language)]
 }
 /** 注释块 */
 const COMMENT_BLOCK = /\/\*[\s\S]*?\*\//g
+/** 需要改写的横幅锚点：当前中英锚点与生成器同轮写入的上游锚点 */
+const REWRITE_ANCHORS = [GENERATED_BANNER, GENERATED_BANNER_ZH, UPSTREAM_BANNER]
 /** 判定横幅时读取的文件头字节数 */
 const HEAD_SCAN_BYTES = 2048
 /** 需要处理的代码文件后缀 */
@@ -99,7 +106,7 @@ function collectCodeFiles(dir: string, base = dir): string[] {
  */
 export function rewriteGeneratedBanners(dir: string, language: BannerLanguage = "zh") {
   if (!fs.existsSync(dir)) return []
-  const target = BANNERS[language].join("\n")
+  const target = bannerBlock(language).join("\n")
   const anchor = bannerAnchor(language)
   const changed: string[] = []
   for (const file of collectCodeFiles(dir)) {
@@ -110,7 +117,8 @@ export function rewriteGeneratedBanners(dir: string, language: BannerLanguage = 
     let match: RegExpExecArray | null
     let block: RegExpExecArray | null = null
     while ((match = COMMENT_BLOCK.exec(head))) {
-      if (match[0].includes(GENERATED_BANNER) || match[0].includes(GENERATED_BANNER_ZH)) {
+      const found = match[0]
+      if (REWRITE_ANCHORS.some((item) => found.includes(item))) {
         block = match
         break
       }

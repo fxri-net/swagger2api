@@ -29,7 +29,7 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 | `--modular` | 按组拆分为多文件并生成聚合入口 |
 | `--dry-run` | 只输出报表，不写产物；分组模式给出命名、桶 / 分片规划与预计新增文件 |
 | `--json` | 与 `--dry-run` 组合输出结构化报表；与 `--check` 组合输出结构化校验结果（`schemaVersion`、`toolVersion`、`missing` / `mismatched` / `extra`） |
-| `--prune-output` | 按生成横幅（兼容旧版产物特征）清理本轮不再生成的产物，不触碰手写文件；关闭时只报告不删除 |
+| `--prune-output` | 按生成横幅清理本轮不再生成的产物，不触碰手写文件；关闭时只报告不删除 |
 | `--config <path>` | 显式指定项目层配置 |
 | `--target <id>` | 多目标配置下只执行指定目标；未知目标退出码 2 |
 | `--profile <name>` | 选用配置内的命名预设 |

@@ -161,30 +161,7 @@ describe("产物归属与清理", () => {
     expect(findHandwrittenConflicts(dir, entries, false)).toEqual([])
   })
 
-  it("旧版聚合入口与门面不带横幅也识别为生成物", () => {
-    const dir = makeDir()
-    const head = "/* eslint-disable */\n/* tslint:disable */\n"
-    write(
-      dir,
-      "index.ts",
-      `${head}import { HttpClient } from "./client"\nexport * from "./types"\nexport * from "./client"\n/** 聚合入口：各模块共享同一个请求实例 */\nexport class Api extends HttpClient {}\n`,
-    )
-    write(
-      dir,
-      "DgAdmin.js",
-      `${head}import { DgAdminPart1 } from "./DgAdminPart1"\n/** dg_admin 模块：由分片合并，对外与单文件产物一致 */\nexport class DgAdmin {\n  constructor(http) {\n    Object.assign(this, new DgAdminPart1(http))\n  }\n}\n`,
-    )
-    write(
-      dir,
-      "DgAdmin.d.ts",
-      `${head}import { DgAdminPart1 } from "./DgAdminPart1"\nexport interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType> {}\nexport declare class DgAdmin<SecurityDataType = unknown> {}\n`,
-    )
-    for (const file of ["index.ts", "DgAdmin.js", "DgAdmin.d.ts"]) {
-      expect(isGeneratedFile(path.join(dir, file))).toBe(true)
-    }
-  })
-
-  it("只有固定头但无旧版特征的手写文件不算生成物", () => {
+  it("只有固定头但无生成横幅的手写文件不算生成物", () => {
     const dir = makeDir()
     write(dir, "hand.ts", "/* eslint-disable */\n/* tslint:disable */\n// 手写扩展\nexport const custom = 1\n")
     expect(isGeneratedFile(path.join(dir, "hand.ts"))).toBe(false)

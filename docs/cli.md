@@ -65,10 +65,10 @@ swagger2api skill
 - `--profile <name>`：选用配置文件内的命名预设
 - `--target <id>`：多目标配置下只执行指定目标；未知目标或没有 `targets` 的配置以退出码 2 结束
 - `--modular`：按组拆分为多文件并生成聚合入口
-- `--check`：生成到临时目录后与现有产物逐文件比对，按「缺失 / 内容不一致 / 多余」三类报出并以稳定结论行收尾；多余产物按生成横幅（中英锚点都认，兼容旧版产物特征）识别；不写真实目录；多目标时逐个校验，任一失败以退出码 1 结束
+- `--check`：生成到临时目录后与现有产物逐文件比对，按「缺失 / 内容不一致 / 多余」三类报出并以稳定结论行收尾；多余产物按生成横幅识别；不写真实目录；多目标时逐个校验，任一失败以退出码 1 结束
 - `--check --json`：输出结构化结果（`schemaVersion`、`toolVersion`、`ok`、`errorCode`、`missing` / `mismatched` / `extra`、`actions`），便于 AI 与 CI 直接解析
 - 配置项 `typeCheck`（`skip` 默认 / `enforce`）：`enforce` 时生成后剥离 `.ts` / `.js` / `.d.ts` 中的 `// @ts-nocheck`，`--check` 按剥离后的产物比对
-- `--prune-output`：分组模式默认开启；按生成横幅（中英锚点都认，兼容旧版产物特征）清理输出目录中本轮不再生成的旧产物，手写文件不受影响；开关关闭时只报告多余产物、不删除
+- `--prune-output`：分组模式默认开启；按生成横幅清理输出目录中本轮不再生成的旧产物，手写文件不受影响；开关关闭时只报告多余产物、不删除
 - 输出目录安全护栏：分组生成不会在仓库根、配置目录或其祖先目录上执行横幅清理，命中时报错并跳过删除
 - 同一输出目录只允许一份配置：同目录其他 `swagger2api*.json` / `saconfig*.json` 的输出与本配置相同或互相嵌套时，以退出码 2 拒绝且不落盘
 - `--no-interactive`：强制关闭交互提问；与「非终端环境」同效，需要交互时直接报错并给出等价非交互命令（`init --from-script`、`--config <文件>` 等），退出码 2，不读 stdin、不猜配置
@@ -125,7 +125,8 @@ swagger2api prune --dir ./src/api/old --json
 ```
 
 - 用于配置已删除的 target、目录搬家后遗留的整个产物目录；当前输出目录内的失效产物由生成时的 `output.prune` 自动处理
-- 只删除识别为生成物的文件：文件头含生成横幅，或带本工具固定头并命中旧版产物结构特征（横幅只看前 1KB，旧版特征最多读前 4KB）；手写文件与 `.gitignore` 等非生成物不动；默认 `--dry-run` 语义，必须显式 `--yes` 才删除
+- 只删除识别为生成物的文件：文件头含生成横幅（中文 `本文件由 @fxri/swagger2api 生成，请勿手改`，英文 `THIS FILE WAS GENERATED VIA @FXRI/SWAGGER2API, DO NOT EDIT`）；手写文件与 `.gitignore` 等非生成物不动；默认 `--dry-run` 语义，必须显式 `--yes` 才删除
+- 升级后首次生成前需清空产物目录：旧横幅不再识别，旧产物会被手写护栏拦下
 - 拒绝不存在的目录、软链接目录、仓库根（含 `.git`）与当前目录的祖先、含项目配置文件的目录，命中时以退出码 2 结束
 - `--json` 输出 `{ schemaVersion, toolVersion, command, ok, errorCode, dir, dryRun, files, actions }`，便于脚本按同一契约解析
 
