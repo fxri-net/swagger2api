@@ -26,7 +26,7 @@ jobs:
       - name: 门禁校验（全量）
         run: pnpm verify
       # 运行时回归 job 复用本 job 的构建产物，避免在 node18 上跑 tsup（其 engines 要求更高）
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-node20
           path: dist
@@ -46,7 +46,7 @@ jobs:
           # 钉住声明下限，避免后续 .node-version 升级时该 job 静默漂移
           node-version: 18.12.0
           cache: pnpm
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist-node20
           path: dist
@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: 18.12.0
           cache: pnpm
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist-node20
           path: dist

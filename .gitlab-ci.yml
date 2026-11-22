@@ -50,6 +50,7 @@ runtime18:
       artifacts: true
   script:
     # 镜像基于 Debian slim：自带 tar 与 gzip，故使用官方 tar.gz；按架构选包、双源回退并校验完整性
+    # tarball 缓存到项目内 .cache/nodejs（GitLab cache 跨流水线保留），命中时省去重复下载，校验始终执行
     - |
       set -euo pipefail
       case "$(uname -m)" in
@@ -59,17 +60,27 @@ runtime18:
       esac
       NODE_VERSION=18.12.0
       NODE_TARBALL="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz"
-      BASE="https://nodejs.org/dist/v${NODE_VERSION}"
-      curl -fsSL "${BASE}/${NODE_TARBALL}" -o "/tmp/${NODE_TARBALL}" || {
-        BASE="https://npmmirror.com/mirrors/node/v${NODE_VERSION}"
-        curl -fsSL "${BASE}/${NODE_TARBALL}" -o "/tmp/${NODE_TARBALL}"
-      }
-      curl -fsSL "${BASE}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt
-      ( cd /tmp && grep " ${NODE_TARBALL}$" SHASUMS256.txt | sha256sum -c - )
-      tar -xzf "/tmp/${NODE_TARBALL}" -C /opt
+      NODE_CACHE="$CI_PROJECT_DIR/.cache/nodejs"
+      mkdir -p "$NODE_CACHE"
+      if [ ! -f "$NODE_CACHE/$NODE_TARBALL" ] || [ ! -f "$NODE_CACHE/SHASUMS256.txt" ]; then
+        BASE="https://nodejs.org/dist/v${NODE_VERSION}"
+        curl -fsSL "${BASE}/${NODE_TARBALL}" -o "$NODE_CACHE/${NODE_TARBALL}.tmp" || {
+          BASE="https://npmmirror.com/mirrors/node/v${NODE_VERSION}"
+          curl -fsSL "${BASE}/${NODE_TARBALL}" -o "$NODE_CACHE/${NODE_TARBALL}.tmp"
+        }
+        mv "$NODE_CACHE/${NODE_TARBALL}.tmp" "$NODE_CACHE/$NODE_TARBALL"
+        curl -fsSL "${BASE}/SHASUMS256.txt" -o "$NODE_CACHE/SHASUMS256.txt"
+      fi
+      ( cd "$NODE_CACHE" && grep " ${NODE_TARBALL}$" SHASUMS256.txt | sha256sum -c - )
+      tar -xzf "$NODE_CACHE/$NODE_TARBALL" -C /opt
       export PATH="/opt/node-v${NODE_VERSION}-linux-${NODE_ARCH}/bin:${PATH}"
       node -v
       EXPECTED_NODE=${NODE_VERSION} node scripts/verify.mjs --runtime-only
+  # 缓存键不含版本与架构：文件名本身带版本 + 架构，版本升级时按缺失重新下载，避免多份残留
+  cache:
+    key: node18-tarball-linux
+    paths:
+      - .cache/nodejs
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
