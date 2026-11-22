@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import http from "node:http"
 import https from "node:https"
 import { tmpdir } from "node:os"
@@ -26,6 +26,7 @@ function printHelp() {
 
 选项：
   --only <关键词>   只处理名称包含该关键词的仓库
+  --in-place        直接在接入方仓库内执行（不建临时 worktree），产物与清理会写入真实工作区
   --keep            保留临时 worktree 与日志，便于排查
   --json            输出结构化报告
   --timeout <毫秒>  单条命令超时，默认 900000
@@ -48,7 +49,7 @@ function printHelp() {
  * @return {Record<string, any>} 解析结果
  */
 function parseArgs(argv) {
-  const result = { phases: new Set(), keep: false, json: false, timeout: 900000 }
+  const result = { phases: new Set(), keep: false, json: false, inPlace: false, timeout: 900000 }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--help" || arg === "-h") result.help = true
@@ -56,6 +57,7 @@ function parseArgs(argv) {
     else if (arg === "--only") result.only = argv[(index += 1)]
     else if (arg === "--timeout") result.timeout = Number(argv[(index += 1)])
     else if (arg === "--keep") result.keep = true
+    else if (arg === "--in-place") result.inPlace = true
     else if (arg === "--json") result.json = true
     else if (arg === "--generate" || arg === "--build" || arg === "--smoke") result.phases.add(arg.slice(2))
     else if (arg === "--all") ["generate", "build", "smoke"].forEach((phase) => result.phases.add(phase))
@@ -184,23 +186,145 @@ function removeWorktree(repo, paths) {
   rmSync(paths.base, { recursive: true, force: true })
 }
 
+/** 旧版产物横幅：就地成功生成后据此清理不再覆盖的旧文件 */
+const OLD_BANNERS = ["THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API", "本文件由 swagger-typescript-api 生成，请勿手改"]
+
+/**
+ * 递归列出文件绝对路径。
+ * @param {string} dir 目录
+ * @return {string[]} 文件路径
+ */
+function listFiles(dir) {
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...listFiles(full))
+    else if (entry.isFile()) files.push(full)
+  }
+  return files
+}
+
+/**
+ * 清空目录内容但保留目录本身：目录可能被编辑器等进程占用，改名或删除会失败。
+ * @param {string} dir 目录
+ * @return {void}
+ */
+function clearDirContents(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      clearDirContents(full)
+      rmSync(full, { recursive: true, force: true })
+      continue
+    }
+    rmSync(full, { force: true })
+  }
+}
+
+/**
+ * 把备份目录内容逐文件复制回目标目录。
+ * @param {string} source 备份目录
+ * @param {string} target 目标目录
+ * @return {void}
+ */
+function restoreDir(source, target) {
+  if (!existsSync(source)) return
+  mkdirSync(target, { recursive: true })
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name)
+    const to = join(target, entry.name)
+    if (entry.isDirectory()) restoreDir(from, to)
+    else copyFileSync(from, to)
+  }
+}
+
+/**
+ * 清理旧版横幅文件并移除空目录；手写文件与当前横幅文件保留。
+ * @param {string} dir 产物目录
+ * @return {string[]} 已删除的相对路径
+ */
+function removeStaleBannerFiles(dir) {
+  if (!existsSync(dir)) return []
+  const removed = []
+  for (const file of listFiles(dir)) {
+    if (!/\.(?:ts|js)$/.test(file)) continue
+    const head = readFileSync(file, "utf8").slice(0, 1024)
+    if (!OLD_BANNERS.some((anchor) => head.includes(anchor))) continue
+    removed.push(relative(dir, file).split("\\").join("/"))
+    rmSync(file, { force: true })
+  }
+  // 自底向上删除空目录
+  const pruneEmpty = (current) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const full = join(current, entry.name)
+      pruneEmpty(full)
+      if (readdirSync(full).length === 0) rmSync(full, { recursive: true, force: true })
+    }
+  }
+  pruneEmpty(dir)
+  return removed.sort()
+}
+
 /**
  * 生成并校验单个配置。
+ * 就地模式先复制备份旧产物，失败时恢复；成功后清理旧版横幅文件。
  * @param {string} configFile 配置绝对路径
  * @param {number} timeout 超时
+ * @param {boolean} inPlace 是否就地执行
  * @return {{ok: boolean, messages: string[]}} 结果
  */
-function generateConfig(configFile, timeout) {
+function generateConfig(configFile, timeout, inPlace = false) {
   const messages = []
-  for (const dir of outputsOf(configFile)) {
-    rmSync(dir, { recursive: true, force: true })
-    messages.push(`清空产物：${dir}`)
+  const outputs = outputsOf(configFile)
+  const backupRoot = inPlace ? mkdtempSync(join(tmpdir(), "s2a-output-backup-")) : null
+  const backups = outputs.map((dir, index) => {
+    const existed = existsSync(dir)
+    const backup = join(backupRoot ?? "", String(index))
+    if (inPlace && existed) {
+      cpSync(dir, backup, { recursive: true })
+      messages.push(`备份产物：${dir}`)
+    }
+    return { dir, backup, existed }
+  })
+  if (!inPlace) {
+    for (const dir of outputs) {
+      rmSync(dir, { recursive: true, force: true })
+      messages.push(`清空产物：${dir}`)
+    }
+  }
+  /**
+   * 收尾：成功删除备份并清理旧横幅，失败恢复原产物。
+   * @param {boolean} ok 是否成功
+   * @param {string} note 结果说明
+   * @return {{ok: boolean, messages: string[]}} 结果
+   */
+  const finish = (ok, note) => {
+    if (inPlace) {
+      if (ok) {
+        for (const { dir } of backups) {
+          const removed = removeStaleBannerFiles(dir)
+          if (removed.length > 0) messages.push(`清理旧产物：${removed.join("、")}`)
+        }
+      } else {
+        for (const { dir, backup, existed } of backups) {
+          if (!existed) {
+            rmSync(dir, { recursive: true, force: true })
+            continue
+          }
+          if (existsSync(dir)) clearDirContents(dir)
+          restoreDir(backup, dir)
+        }
+      }
+      rmSync(backupRoot, { recursive: true, force: true })
+    }
+    return { ok, messages: [...messages, note] }
   }
   const generated = run(process.execPath, [cli, "--config", configFile, "-q"], { cwd: dirname(configFile), timeout })
-  if (generated.status !== 0) return { ok: false, messages: [...messages, `生成失败：${generated.output}`] }
+  if (generated.status !== 0) return finish(false, `生成失败：${generated.output}`)
   const checked = run(process.execPath, [cli, "--config", configFile, "--check"], { cwd: dirname(configFile), timeout })
-  if (checked.status !== 0) return { ok: false, messages: [...messages, `校验失败：${checked.output}`] }
-  return { ok: true, messages: [...messages, `生成与校验通过：${configFile}`] }
+  if (checked.status !== 0) return finish(false, `校验失败：${checked.output}`)
+  return finish(true, `生成与校验通过：${configFile}`)
 }
 
 /**
@@ -325,14 +449,14 @@ async function main() {
   const report = { tool: "swagger2api", phases: [...args.phases], repos: [] }
   let failed = 0
   for (const repo of repos) {
-    const entry = { name: repo.name, path: repo.path, ok: true, steps: [] }
-    const paths = createWorktree(repo.path)
+    const entry = { name: repo.name, path: repo.path, ok: true, inPlace: args.inPlace, steps: [] }
+    const paths = args.inPlace ? { worktree: repo.path, base: null } : createWorktree(repo.path)
     entry.worktree = paths.worktree
     try {
       if (args.phases.has("generate")) {
         for (const config of repo.configs ?? []) {
           const configFile = isAbsolute(config) ? config : join(paths.worktree, config)
-          const result = generateConfig(configFile, args.timeout)
+          const result = generateConfig(configFile, args.timeout, args.inPlace)
           entry.steps.push({ phase: "generate", config, ok: result.ok, messages: result.messages })
           if (!result.ok) entry.ok = false
         }
@@ -356,7 +480,9 @@ async function main() {
     } finally {
       stopChildren()
       if (!entry.ok) failed += 1
-      if (args.keep) console.log(`保留 worktree：${paths.worktree}`)
+      if (args.inPlace) {
+        // 就地执行：不改动 worktree，只保留本次产物
+      } else if (args.keep) console.log(`保留 worktree：${paths.worktree}`)
       else removeWorktree(repo.path, paths)
     }
     report.repos.push(entry)
