@@ -806,7 +806,7 @@ async function onGenerateApi(data: Defines["data"]) {
       if (namingEntries.length) {
         const extraFiles = plannedFileNames(namingEntries, splitPlan)
         // 分片门面由本工具补写，必须先于产物校验与聚合入口
-        if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS, bannerLanguage)
+        if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS, bannerLanguage, (datas.config as Record<string, any>).httpClientType === "axios")
         // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
         const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS, language: bannerLanguage })
         if (contracts.errors.length > 0) {

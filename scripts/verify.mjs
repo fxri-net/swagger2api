@@ -646,6 +646,21 @@ async function checkGroupedOutput() {
           }
         }
       }
+      // 客户端实现按类型分流：fetch 不得引入 axios，axios 必须使用 axios.create
+      const clientSource = existsSync(clientFile) ? readFileSync(clientFile, "utf8") : ""
+      if (client.name === "fetch") {
+        if (!clientSource.includes("fetch(") || /(?:^|\n)import axios/.test(clientSource)) {
+          console.error("✖ 分组产物（fetch）：客户端未按 fetch 模板生成")
+          return 1
+        }
+        if (appModule.includes("get instance")) {
+          console.error("✖ 分组产物（fetch）：模块不应暴露 Axios 专属的 instance 访问器")
+          return 1
+        }
+      } else if (!clientSource.includes("axios.create(")) {
+        console.error("✖ 分组产物（axios）：客户端未使用 axios")
+        return 1
+      }
       const reserved = new Set(["index.ts", "client.ts", "route-types.ts"])
       for (const file of collectFiles(api).filter((name) => name.endsWith(".ts") && !name.startsWith("types/") && !reserved.has(name))) {
         const source = ts.createSourceFile(file, readFileSync(join(api, file), "utf8"), ts.ScriptTarget.Latest, true)
@@ -666,6 +681,23 @@ async function checkGroupedOutput() {
     } finally {
       rmSync(out, { recursive: true, force: true })
     }
+  }
+  // 单文件 fetch：不传 --axios 时按 fetch 模板输出，产物不得引入 axios
+  const fetchOut = mkdtempSync(join(tmpdir(), "s2a-fetch-"))
+  try {
+    const config = writeProjectConfig(join(fetchOut, "swagger2api.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: fetchOut,
+      base: { output: { name: "index" }, client: "fetch" }
+    })
+    const result = spawnSync(process.execPath, [cli, "-c", config, "--responses"], { cwd: fetchOut, encoding: "utf8" })
+    const single = existsSync(join(fetchOut, "index.ts")) ? readFileSync(join(fetchOut, "index.ts"), "utf8") : ""
+    if (result.status !== 0 || !single.includes("fetch(") || /(?:^|\n)import axios/.test(single)) {
+      console.error("✖ 单文件产物（fetch）：客户端未按 fetch 模板生成")
+      return 1
+    }
+  } finally {
+    rmSync(fetchOut, { recursive: true, force: true })
   }
   return 0
 }
@@ -2667,7 +2699,7 @@ const steps = [
   { label: "技能打包与定位（skills/** / skill 命令）", run: checkSkillPackage, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "技能规范校验（toolkit skills lint）", run: checkSkillsLint, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
-  { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
+  { label: "产物一致性（分组 axios / fetch + 单文件 fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
   { label: "运行期对象图（可枚举无环 / 回指不可枚举）", run: checkRuntimeObjectGraph },
   { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },

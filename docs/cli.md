@@ -184,4 +184,4 @@ npx @fxri/swagger2api --replace-tags "user" "userCenter"
 
 本工具基于 swagger-typescript-api 封装，`--axios`、`--responses`、`--js` 等原生参数可透传使用，[更多配置选项](https://fig.io/manual/swagger-typescript-api)参考官方文档。
 
-`--single-http-client` 让 `Api` 不再继承 `HttpClient`，改为在构造函数注入共享请求器；其 `http` 与 `HttpClient` 的 `instance`、安全状态等字段均不可枚举，对象图契约见[指南](./guide)。
+`--single-http-client` 让 `Api` 不再继承 `HttpClient`，改为在构造函数注入共享请求器；其 `http` 与 axios 客户端的 `instance`、安全状态等字段均不可枚举，对象图契约见[指南](./guide)。

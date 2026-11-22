@@ -74,10 +74,12 @@ export class <%~ ns.className %><SecurityDataType = unknown> {
     Object.defineProperty(this, "http", { value: http, enumerable: false })
   }
 
+<% if (config.httpClientType === config.constants.HTTP_CLIENT.AXIOS) { %>
   /** 底层请求实例：与聚合入口保持同一个 */
   get instance(): HttpClient<SecurityDataType>["instance"] {
     return this.http.instance
   }
+<% } %>
 <% for (const item of nsRoutes) { %>
 
   <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined }, moduleClient: true }) %>
@@ -96,10 +98,12 @@ export class <%~ moduleClassName %><SecurityDataType = unknown> {
     Object.defineProperty(this, "http", { value: http, enumerable: false })
   }
 
+<% if (config.httpClientType === config.constants.HTTP_CLIENT.AXIOS) { %>
   /** 底层请求实例：与聚合入口保持同一个 */
   get instance(): HttpClient<SecurityDataType>["instance"] {
     return this.http.instance
   }
+<% } %>
 <% for (const item of moduleRoutes) { %>
 
   <%~ includeFile('./procedure-call.ejs', { ...it, route: { ...item, namespace: undefined }, moduleClient: true }) %>

@@ -488,12 +488,22 @@ export function toSplitFacades(namespaces: SplitNamespacePlan[]): SplitFacade[] 
  * 生成分片门面的 TypeScript 内容：实例合并 + 类型合并，对外与单文件产物一致。
  * @param facade 门面
  * @param language 横幅语言
+ * @param axios 是否暴露 Axios 实例访问器（fetch 客户端没有 instance）
  * @return 文件内容
  */
-export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage = "zh") {
+export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage = "zh", axios = true) {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
   const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
+  const instanceLines = axios
+    ? [
+        "",
+        "  /** 底层请求实例：与聚合入口保持同一个 */",
+        `  get instance(): HttpClient<SecurityDataType>["instance"] {`,
+        "    return this.http.instance",
+        "  }"
+      ]
+    : []
   return [
     ...generatedHeader(language),
     `import { HttpClient } from "./${CLIENT_BASE}"`,
@@ -509,11 +519,7 @@ export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage =
     '    Object.defineProperty(this, "http", { value: http, enumerable: false })',
     `    Object.assign(this, ${sources})`,
     "  }",
-    "",
-    "  /** 底层请求实例：与聚合入口保持同一个 */",
-    `  get instance(): HttpClient<SecurityDataType>["instance"] {`,
-    "    return this.http.instance",
-    "  }",
+    ...instanceLines,
     "}",
     "",
     "/** 类型合并：分片成员与单文件产物保持同一命名空间 */",
@@ -526,11 +532,13 @@ export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage =
  * 生成分片门面的 JavaScript 内容。
  * @param facade 门面
  * @param language 横幅语言
+ * @param axios 是否暴露 Axios 实例访问器（fetch 客户端没有 instance）
  * @return 文件内容
  */
-export function buildSplitFacadeJs(facade: SplitFacade, language: BannerLanguage = "zh") {
+export function buildSplitFacadeJs(facade: SplitFacade, language: BannerLanguage = "zh", axios = true) {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
+  const instanceLines = axios ? ["", "  get instance() {", "    return this.http.instance", "  }"] : []
   return [
     ...generatedHeader(language),
     ...imports,
@@ -542,10 +550,7 @@ export function buildSplitFacadeJs(facade: SplitFacade, language: BannerLanguage
     '    Object.defineProperty(this, "http", { value: http, enumerable: false })',
     `    Object.assign(this, ${sources})`,
     "  }",
-    "",
-    "  get instance() {",
-    "    return this.http.instance",
-    "  }",
+    ...instanceLines,
     "}",
     ""
   ].join("\n")
@@ -579,21 +584,22 @@ export function buildSplitFacadeDeclarations(facade: SplitFacade, language: Bann
  * @param namespaces 命名空间规划
  * @param toJS 是否为 JS 输出
  * @param language 横幅语言
+ * @param axios 是否暴露 Axios 实例访问器（fetch 客户端没有 instance）
  * @return 写入的文件名
  */
-export function writeSplitFacades(dir: string, namespaces: SplitNamespacePlan[], toJS: boolean, language: BannerLanguage = "zh") {
+export function writeSplitFacades(dir: string, namespaces: SplitNamespacePlan[], toJS: boolean, language: BannerLanguage = "zh", axios = true) {
   const files: string[] = []
   for (const facade of toSplitFacades(namespaces)) {
     if (toJS) {
       const js = `${facade.fileName}.js`
-      fs.writeFileSync(path.join(dir, js), buildSplitFacadeJs(facade, language))
+      fs.writeFileSync(path.join(dir, js), buildSplitFacadeJs(facade, language, axios))
       files.push(js)
       const dts = `${facade.fileName}.d.ts`
       fs.writeFileSync(path.join(dir, dts), buildSplitFacadeDeclarations(facade, language))
       files.push(dts)
     } else {
       const ts = `${facade.fileName}.ts`
-      fs.writeFileSync(path.join(dir, ts), buildSplitFacade(facade, language))
+      fs.writeFileSync(path.join(dir, ts), buildSplitFacade(facade, language, axios))
       files.push(ts)
     }
   }

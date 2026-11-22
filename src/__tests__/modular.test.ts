@@ -87,6 +87,14 @@ describe("分组聚合入口", () => {
     }
   })
 
+  it("fetch 模式门面不暴露 Axios 专属的 instance 访问器", () => {
+    const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
+    for (const code of [buildSplitFacade(facade, "zh", false), buildSplitFacadeJs(facade, "zh", false)]) {
+      expect(code).toContain('Object.defineProperty(this, "http", { value: http, enumerable: false })')
+      expect(code).not.toContain("get instance")
+    }
+  })
+
   it("请求器声明为只读，与运行期不可写保持一致", () => {
     const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
     expect(buildSplitFacade(facade)).toContain("declare readonly http: HttpClient<SecurityDataType>")

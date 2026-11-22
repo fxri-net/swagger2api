@@ -37,7 +37,7 @@
 - `output.prune`（分组默认开启）：按横幅清理本轮不再生成的文件；关闭时只报告多余产物、不删除。单文件模式不自动删除旧分组产物，只告警。
 - 不要在生成目录里放手写文件、不要在自写文件里复用生成横幅；同一输出目录只允许一份配置（输出与本配置相同或嵌套的其他配置会被拒绝，退出码 2）。
 - 模块共享请求器 `http` 为只读注入：运行期不可枚举、不可写；`--single-http-client` 时聚合入口的 `http` 同样不可枚举；需要更换请求实例请走聚合入口的 `api.instance` 或 `setSecurityData`。
-- 对象图契约：可枚举自有属性只允许方法 / 叶子数据；`HttpClient` 的 `instance`、`securityData`、`securityWorker`、`secure`、`format` 与模块 / 门面的 `http` 一律不可枚举；属性图无环，方法可解构，`JSON.stringify(api)` 可用。不要对 `api` 做深合并 / 深克隆 / `structuredClone`，也不要用 `JSON.stringify(module)` 判断模块状态。
+- 对象图契约：可枚举自有属性只允许方法 / 叶子数据；axios 客户端下 `HttpClient` 的 `instance`、`securityData`、`securityWorker`、`secure`、`format` 与模块 / 门面的 `http` 一律不可枚举；属性图无环，方法可解构，`JSON.stringify(api)` 可用。不要对 `api` 做深合并 / 深克隆 / `structuredClone`，也不要用 `JSON.stringify(module)` 判断模块状态。
 - 配置合并（`deepMergeConfig` 与迁移的 `mergeDeep`）用祖先栈检测循环引用，遇到环给可读错误而不是栈溢出。
 - 配置删掉某个文档或目录搬家后，用 `swagger2api prune --dir <目录>` 清理废弃目录：默认只列、`--yes` 才删，只删识别为生成物的文件。
 - 旧版 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后会清理残留。
