@@ -1,7 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import prompts from "prompts"
 import axios from "axios"
 import {
   CONFIG_ENV_OVERRIDES,
@@ -15,6 +14,7 @@ import {
   mergeShallow
 } from "./utils/config"
 import { pickDocFlags, resolveDocs } from "./utils/docs"
+import { PromptCancelled, askConfirm, askNumber, askSelect, askText } from "./utils/cli-ui"
 import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePayload } from "./utils/surface"
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
@@ -104,44 +104,37 @@ function writeDocPatch(file: string, id: string, patch: Record<string, any>) {
  * @return 配置段
  */
 async function askConfig() {
-  const answers = await prompts([
-    { name: "id", type: "text", message: "文档 id:", initial: "main" },
-    { name: "url", type: "text", message: "Swagger 地址或本地文件:", initial: "" },
-    { name: "dir", type: "text", message: "输出目录:", initial: "./src/api" },
-    { name: "name", type: "text", message: "入口文件名:", initial: "index" },
-    {
-      name: "client",
-      type: "select",
-      message: "HTTP 客户端:",
-      choices: [
-        { title: "axios", value: "axios" },
-        { title: "fetch", value: "fetch" }
-      ],
-      initial: 0
-    },
-    {
-      name: "language",
-      type: "select",
-      message: "输出语言:",
-      choices: [
-        { title: "TypeScript", value: "ts" },
-        { title: "JavaScript", value: "js" }
-      ],
-      initial: 0
-    },
-    { name: "responses", type: "toggle", message: "生成响应类型信息?", initial: true, active: "是", inactive: "否" },
-    { name: "grouped", type: "toggle", message: "按组拆分为多文件?", initial: false, active: "是", inactive: "否" }
-  ])
-  const patch: Record<string, any> = {
+  const id = await askText("文档 id:", "main")
+  const source = await askText("Swagger 地址或本地文件:", "")
+  const dir = await askText("输出目录:", "./src/api")
+  const name = await askText("入口文件名:", "index")
+  const client = await askSelect(
+    "HTTP 客户端:",
+    [
+      { label: "axios", value: "axios" },
+      { label: "fetch", value: "fetch" }
+    ],
+    "axios"
+  )
+  const language = await askSelect(
+    "输出语言:",
+    [
+      { label: "TypeScript", value: "ts" },
+      { label: "JavaScript", value: "js" }
+    ],
+    "ts"
+  )
+  const responses = await askConfirm("生成响应类型信息?", true)
+  const grouped = await askConfirm("按组拆分为多文件?", false)
+  return {
     base: {
-      output: { name: answers.name, mode: answers.grouped ? "grouped" : "single" },
-      client: answers.client,
-      language: answers.language,
-      types: { responses: Boolean(answers.responses) }
+      output: { name, mode: grouped ? "grouped" : "single" },
+      client,
+      language,
+      types: { responses }
     },
-    docs: [{ id: String(answers.id || "main"), source: answers.url, output: answers.dir }]
+    docs: [{ id: id || "main", source, output: dir }]
   }
-  return patch
 }
 
 /**
@@ -311,51 +304,42 @@ export async function runGrouping() {
     console.error("grouping 需要交互式终端写入配置；非交互环境请直接把 grouping 段写进 swagger2api.json")
     return 2
   }
-  const answers = await prompts([
-    {
-      name: "strategy",
-      type: "select",
-      message: "分组依据：",
-      choices: [
-        { title: "按标签（tag）", value: "tag" },
-        { title: "按路径段", value: "path" },
-        { title: "按显式规则（稍后在配置里补）", value: "rules" }
-      ],
-      initial: 0
-    },
-    { name: "pathDepth", type: "number", message: "路径段深度（按路径分组时生效）:", initial: 0 },
-    { name: "fallback", type: "text", message: "兜底组名:", initial: "misc" }
-  ])
+  const strategy = await askSelect(
+    "分组依据：",
+    [
+      { label: "按标签（tag）", value: "tag" },
+      { label: "按路径段", value: "path" },
+      { label: "按显式规则（稍后在配置里补）", value: "rules" }
+    ],
+    "tag"
+  )
+  const pathDepth = await askNumber("路径段深度（按路径分组时生效）:", 0)
+  const fallback = await askText("兜底组名:", "misc")
   const rules: GroupingRule[] = []
-  if (answers.strategy === "rules") {
+  if (strategy === "rules") {
     // 规则编辑：循环录入「匹配方式 + 匹配值 + 组名」，可直接回车结束
     let more = true
     while (more) {
-      const rule = await prompts([
-        {
-          name: "kind",
-          type: "select",
-          message: "规则匹配方式：",
-          choices: [
-            { title: "路径前缀", value: "prefix" },
-            { title: "标签", value: "tag" }
-          ],
-          initial: 0
-        },
-        { name: "value", type: "text", message: "匹配值（留空结束）：" },
-        { name: "group", type: "text", message: "归入组名：" }
-      ])
-      if (!rule.value || !rule.group) break
-      rules.push({ match: { [rule.kind]: rule.value } as GroupingRule["match"], group: rule.group })
-      const next = await prompts({ name: "again", type: "confirm", message: "继续添加规则？", initial: false })
-      more = Boolean(next.again)
+      const kind = await askSelect(
+        "规则匹配方式：",
+        [
+          { label: "路径前缀", value: "prefix" },
+          { label: "标签", value: "tag" }
+        ],
+        "prefix"
+      )
+      const value = await askText("匹配值（留空结束）：")
+      const group = await askText("归入组名：")
+      if (!value || !group) break
+      rules.push({ match: { [kind]: value } as GroupingRule["match"], group })
+      more = await askConfirm("继续添加规则？", false)
     }
   }
   const grouping: GroupingConfig = {
-    strategy: [answers.strategy],
-    pathDepth: Number(answers.pathDepth ?? 0),
+    strategy: [strategy],
+    pathDepth,
     rules,
-    fallback: answers.fallback || "misc",
+    fallback: fallback || "misc",
     preserveTags: true,
     // 阈值由工具默认，预览直接按最终的分桶/分片结果展示
     split: true
@@ -375,9 +359,8 @@ export async function runGrouping() {
     (entry) => (entry.source !== "auto" && entry.source !== "manual") || entry.reason.includes("重名") || entry.reason.includes("保留名")
   )
   for (const entry of pending) {
-    const answer = await prompts({ name: "name", type: "text", message: `组「${entry.raw}」的模块名（留空保留 ${entry.fileName}）:` })
-    const value = String(answer.name ?? "").trim()
-    if (value) names[entry.raw] = value
+    const answer = await askText(`组「${entry.raw}」的模块名（留空保留 ${entry.fileName}）:`)
+    if (answer.trim()) names[entry.raw] = answer.trim()
   }
   if (Object.keys(names).length) grouping.names = names
   // 写入前校验：手工名非法或冲突时拒绝落盘
@@ -611,8 +594,9 @@ function printUsage() {
   console.log(
     [
       "用法：",
-      "  swagger2api                         按最近的 swagger2api.json 生成",
+      "  swagger2api                         单文档直接生成；多文档交互选择",
       "  swagger2api --target <id[,id]>      只生成指定文档（可逗号多选）",
+      "  swagger2api --all                   生成全部文档（多文档非交互必需）",
       "  swagger2api --dry-run [--json]      只输出分组报表，不写产物",
       "  swagger2api --check                 校验产物与配置是否一致",
       "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",
@@ -732,6 +716,23 @@ export function runCapabilities(argv = process.argv.slice(2)) {
 }
 
 /**
+ * 交互命令包装：ESC / Ctrl+C 统一以 130 结束，不打印堆栈。
+ * @param run 命令实现
+ * @return 退出码
+ */
+async function runInteractive(run: () => Promise<number>) {
+  try {
+    return await run()
+  } catch (error) {
+    if (error instanceof PromptCancelled) {
+      console.log("已取消")
+      return 130
+    }
+    throw error
+  }
+}
+
+/**
  * CLI 入口分发：默认生成，识别 init / config status / grouping / skill。
  * @param runGenerate 默认生成逻辑
  * @return 无
@@ -749,11 +750,11 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   const [command, subcommand] = argv.filter((item) => !item.startsWith("-"))
   if (command === "init") {
-    process.exitCode = await runInit()
+    process.exitCode = await runInteractive(runInit)
     return
   }
   if (command === "grouping") {
-    process.exitCode = await runGrouping()
+    process.exitCode = await runInteractive(runGrouping)
     return
   }
   if (command === "config" && subcommand === "status") {

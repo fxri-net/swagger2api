@@ -1040,6 +1040,86 @@ async function checkNonInteractive() {
 }
 
 /**
+ * 文档选择：单文档直接执行，多文档默认必须显式 --all / --target，非交互给出稳定错误码。
+ * @return {number} 退出码
+ */
+async function checkDocSelection() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 文档选择：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-selection-"))
+  const issues = []
+  const fixture = join(root, "fixtures", "swagger.json")
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: out, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+  const stderrOf = (result) => String(result.stderr ?? "")
+  try {
+    const single = writeProjectConfig(join(out, "single.json"), {
+      source: fixture,
+      output: "./single-api",
+      base: { output: { name: "index" } }
+    })
+    if (run(["-c", single]).status !== 0) issues.push("单文档未直接生成")
+
+    const multi = join(out, "multi.json")
+    writeFileSync(
+      multi,
+      JSON.stringify(
+        {
+          base: { output: { name: "index" } },
+          docs: [
+            { id: "a", source: fixture, output: "./multi/a" },
+            { id: "b", source: fixture, output: "./multi/b" }
+          ]
+        },
+        null,
+        2
+      )
+    )
+
+    // 多文档非交互：必须显式选择
+    const required = run(["-c", multi])
+    if (required.status !== 2) issues.push(`多文档非交互未以退出码 2 结束（实际 ${required.status}）`)
+    if (!stderrOf(required).includes("--target") || !stderrOf(required).includes("--all")) issues.push("多文档非交互缺少 --target / --all 提示")
+
+    const requiredJson = run(["-c", multi, "--json"])
+    if (requiredJson.status !== 2) issues.push("多文档 --json 未以退出码 2 结束")
+    else {
+      try {
+        const payload = JSON.parse(requiredJson.stdout)
+        if (payload.errorCode !== "E_DOC_SELECTION_REQUIRED") issues.push("多文档 --json 缺少稳定错误码")
+        if (!payload.actions?.length) issues.push("多文档 --json 缺少 actions")
+      } catch (error) {
+        issues.push(`多文档 --json 无法解析：${error.message}`)
+      }
+    }
+
+    // --all 全量；--target 子集不碰其他文档
+    if (run(["-c", multi, "--all"]).status !== 0) issues.push("--all 生成失败")
+    if (!existsSync(join(out, "multi", "a", "index.ts")) || !existsSync(join(out, "multi", "b", "index.ts"))) issues.push("--all 未生成全部文档")
+    rmSync(join(out, "multi", "b"), { recursive: true, force: true })
+    if (run(["-c", multi, "--target", "a"]).status !== 0) issues.push("--target 子集生成失败")
+    if (!existsSync(join(out, "multi", "a", "index.ts"))) issues.push("--target 未生成指定文档")
+    if (existsSync(join(out, "multi", "b"))) issues.push("--target 子集误生成了其他文档")
+
+    if (run(["-c", multi, "--target", "nope"]).status !== 2) issues.push("未知文档未以退出码 2 结束")
+    const conflict = run(["-c", multi, "--target", "a", "--all"])
+    if (conflict.status !== 2 || !stderrOf(conflict).includes("不能同时使用")) issues.push("--target 与 --all 冲突未按用法错误结束")
+
+    const removed = run(["-c", single, "--quick"])
+    if (removed.status !== 2 || !stderrOf(removed).includes("已移除")) issues.push("--quick 未按已移除参数报错")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 文档选择未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 能力清单漂移门禁：命令注册表与 --help、技能能力地图、docs 能力总览、README 命令表保持一致。
  * @return {number} 退出码
  */
@@ -2228,7 +2308,7 @@ async function checkSurfaceCommand() {
         2
       )
     )
-    if (run(["-c", multi]).status !== 0) issues.push("多目标生成失败")
+    if (run(["-c", multi, "--all"]).status !== 0) issues.push("多目标生成失败")
     const multiBaseline = join(out, "multi-surface.json")
     if (run(["surface", "-c", multi, "--out", multiBaseline]).status !== 0) issues.push("多目标写基线失败")
     else {
@@ -2325,6 +2405,7 @@ const steps = [
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
+  { label: "文档选择（单文档 / --all / --target / 非交互）", run: checkDocSelection },
   { label: "拉取超时与版本（慢响应 / --timeout / --version）", run: checkTimeoutAndVersion },
   { label: "能力清单漂移（注册表 / 帮助 / 技能地图 / docs / README）", run: checkCapabilityDrift },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },

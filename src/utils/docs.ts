@@ -89,6 +89,38 @@ export function pickDocFlags(argv: string[] = process.argv.slice(2)) {
   return { ids, all, errors }
 }
 
+/** 文档选择结果 */
+export interface DocSelection {
+  /** 本次要执行的文档（run 时有值） */
+  docs: DocConfig[]
+  /** 用法错误：非空即退出 2 */
+  errors: string[]
+  /** run：直接执行；prompt：交互选择；required：非交互必须显式指定 */
+  action: "run" | "prompt" | "required"
+}
+
+/**
+ * 解析命令行选择与交互策略：单文档直接执行，多文档按 --all / --target / 交互顺序决定。
+ * @param docs 已校验的文档
+ * @param picked 命令行选择
+ * @param options.interactive 是否允许交互
+ * @return 选择结果
+ */
+export function selectDocs(docs: DocConfig[], picked: { ids: string[]; all: boolean; errors: string[] }, options: { interactive: boolean }): DocSelection {
+  if (picked.errors.length > 0) return { docs: [], errors: picked.errors, action: "required" }
+  if (picked.all) return { docs, errors: [], action: "run" }
+  if (picked.ids.length > 0) {
+    const known = new Set(docs.map((doc) => doc.id))
+    const unknown = picked.ids.filter((id) => !known.has(id))
+    if (unknown.length > 0) {
+      return { docs: [], errors: [`未知文档 ${unknown.join("、")}（可选：${docs.map((doc) => doc.id).join("、")}）`], action: "required" }
+    }
+    return { docs: docs.filter((doc) => picked.ids.includes(doc.id)), errors: [], action: "run" }
+  }
+  if (docs.length === 1) return { docs, errors: [], action: "run" }
+  return { docs: [], errors: [], action: options.interactive ? "prompt" : "required" }
+}
+
 /**
  * 解析并预校验全部文档。
  * 合并优先级：命令行 > 环境变量 > profile > 文档项 > base。

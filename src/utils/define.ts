@@ -6,8 +6,6 @@ export type GenerateConfig = Parameters<typeof generateApi>["0"]
 export interface ParamData {
   /** 指定配置文件 */
   config: string
-  /** 快速模式 */
-  quick: boolean
   /** 替换标签 */
   replaceTags: string[]
   /** 转换无{.+}get为query */

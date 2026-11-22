@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { hasDocs, pickDocFlags, resolveDocs } from "../utils/docs"
+import { hasDocs, pickDocFlags, resolveDocs, selectDocs, type DocConfig } from "../utils/docs"
 
 /** 用例创建的临时目录，结束后清理 */
 const roots: string[] = []
@@ -152,5 +152,43 @@ describe("文档声明与选择", () => {
 
   it("--target 与 --all 不能同时使用", () => {
     expect(pickDocFlags(["--target", "a", "--all"]).errors).toEqual(["--target 与 --all 不能同时使用"])
+  })
+})
+
+describe("文档选择", () => {
+  /** 构造已校验文档 */
+  const docs = ["a", "b"].map<DocConfig>((id) => ({
+    id,
+    input: `/tmp/${id}.json`,
+    outputDir: `/tmp/${id}`,
+    name: "index",
+    config: {}
+  }))
+
+  it("单文档直接执行，不提问", () => {
+    const selection = selectDocs(docs.slice(0, 1), { ids: [], all: false, errors: [] }, { interactive: false })
+    expect(selection).toEqual({ docs: docs.slice(0, 1), errors: [], action: "run" })
+  })
+
+  it("多文档非交互必须显式选择", () => {
+    expect(selectDocs(docs, { ids: [], all: false, errors: [] }, { interactive: false }).action).toBe("required")
+  })
+
+  it("多文档可交互时进入选择", () => {
+    expect(selectDocs(docs, { ids: [], all: false, errors: [] }, { interactive: true }).action).toBe("prompt")
+  })
+
+  it("--all 全选，--target 子集与逗号重复去重", () => {
+    expect(selectDocs(docs, { ids: [], all: true, errors: [] }, { interactive: false }).docs).toEqual(docs)
+    const picked = pickDocFlags(["--target", "b,a", "--target", "b"])
+    expect(selectDocs(docs, picked, { interactive: false }).docs.map((doc) => doc.id)).toEqual(["a", "b"])
+  })
+
+  it("未知 id 与参数冲突给出错误", () => {
+    const unknown = selectDocs(docs, { ids: ["nope"], all: false, errors: [] }, { interactive: true })
+    expect(unknown.action).toBe("required")
+    expect(unknown.errors[0]).toContain("未知文档 nope")
+    const conflict = selectDocs(docs, pickDocFlags(["--target", "a", "--all"]), { interactive: true })
+    expect(conflict.errors).toEqual(["--target 与 --all 不能同时使用"])
   })
 })

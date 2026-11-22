@@ -65,14 +65,13 @@
   },
   "packageManager": "pnpm@10.34.4",
   "dependencies": {
+    "@inquirer/prompts": "^7.10.1",
     "axios": "^1.21.0",
-    "prompts": "^2.4.2",
     "swagger-typescript-api": "13.0.28",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
-    "@types/prompts": "^2.4.9",
     "@typescript-eslint/eslint-plugin": "^8.69.0",
     "@typescript-eslint/parser": "^8.69.0",
     "cross-env": "^10.1.0",

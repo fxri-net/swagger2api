@@ -4,10 +4,11 @@ import os from "node:os"
 import fs from "node:fs"
 import path from "node:path"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, DEFAULT_FETCH_TIMEOUT, DIAGNOSTIC_SCHEMA_VERSION, getDirname, getPArray, getPKey, getPValue, isUrl, normalizeTimeout, readToolVersion, saveFile, writeJson } from "./utils"
+import { Defines, DEFAULT_FETCH_TIMEOUT, DIAGNOSTIC_SCHEMA_VERSION, canPrompt, getDirname, getPArray, getPKey, getPValue, isUrl, normalizeTimeout, readToolVersion, saveFile, writeJson } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
 import { getConfigFlags, loadConfigLayers } from "./utils/config"
-import { hasDocs, pickDocFlags, resolveDocs } from "./utils/docs"
+import { hasDocs, pickDocFlags, resolveDocs, selectDocs } from "./utils/docs"
+import { PromptCancelled, askCheckbox } from "./utils/cli-ui"
 import { stripTsNoCheck } from "./utils/postprocess"
 import {
   buildCollisionExports,
@@ -143,12 +144,18 @@ function onFailExit(message: string, code = 2): never {
   console.error(message)
   process.exit(code)
 }
+/** 已移除的参数：按用法错误终止并给出新参数 */
+const REMOVED_FLAGS = ["--quick", "-q", "--config-all", "-ca", "--config-scan", "-cs"]
+
 /** 加载参数 */
 async function onLoadParam() {
+  const removed = REMOVED_FLAGS.filter((name) => process.argv.slice(2).includes(name))
+  if (removed.length > 0) {
+    onFailExit(`结束：参数 ${removed.join("、")} 已移除；请改用 --target <id[,id]> 或 --all`, 2)
+  }
   /** 参数 */
   datas.param = {
     config: getPValue(["--config", "-c"]),
-    quick: getPKey(["--quick", "-q"]),
     replaceTags: getPArray(["--replace-tags", "-rt"], { length: 2 }),
     convertGet: getPKey(["--convert-get", "-cg"]),
     removeParam: getPKey(["--remove-param", "-rp"]),
@@ -201,7 +208,7 @@ async function onLoadParam() {
   // 拉取超时：命令行显式值优先，rc 配置在 applyRcConfig 中补齐
   datas.timeout = normalizeTimeout(datas.param.timeout, "--timeout")
   // 应用 rc 配置（命令行显式参数优先）
-  onApplyDocs()
+  await onApplyDocs()
 }
 /**
  * 判断命令行是否显式给出某个开关
@@ -263,8 +270,30 @@ function applyRcConfig(rc: Record<string, any>) {
   if (Object.keys(grouping).length) config.grouping = grouping
 }
 
+/**
+ * 多文档未选择：非交互给出稳定错误码与可执行动作。
+ * @param ids 可选文档 id
+ * @return 不返回
+ */
+function onDocSelectionRequired(ids: string[]): never {
+  const message = "多文档配置需要显式选择文档；非交互环境请用 --target <id[,id]> 或 --all"
+  if (jsonOutput()) {
+    writeJson({
+      schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
+      toolVersion: readToolVersion(),
+      command: "generate",
+      ok: false,
+      errorCode: "E_DOC_SELECTION_REQUIRED",
+      message,
+      actions: [`swagger2api --target ${ids[0] ?? "<id>"}`, "swagger2api --all"]
+    })
+    process.exit(2)
+  }
+  onFailExit(`结束：${message}（可选：${ids.join("、")}）`, 2)
+}
+
 /** 应用配置文档列表 */
-function onApplyDocs() {
+async function onApplyDocs() {
   const flags = getConfigFlags()
   const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
   layers.warnings.forEach((warning) => console.error("⚠️", warning))
@@ -278,29 +307,36 @@ function onApplyDocs() {
     else console.error("失败：配置缺少 docs（至少声明一个文档）")
     onExit("结束：配置不可用", 2)
   }
-  const picked = pickDocFlags()
-  if (picked.errors.length > 0) {
-    picked.errors.forEach((error) => console.error("失败：", error))
-    onExit("结束：文档选择参数不合法", 2)
-  }
   const plan = resolveDocs(layers.merged as Record<string, any>, { profile: flags.profile, configDir: datas.configDir })
   plan.warnings.forEach((warning) => console.error("⚠️", warning))
   if (plan.errors.length > 0) {
     plan.errors.forEach((error) => console.error("失败：", error))
     onExit(`结束：配置有 ${plan.errors.length} 处问题，未生成任何文档`, 2)
   }
-  if (picked.ids.length > 0) {
-    const known = new Set(plan.docs.map((doc) => doc.id))
-    const unknown = picked.ids.filter((id) => !known.has(id))
-    if (unknown.length > 0) {
-      console.error(`失败：未知文档 ${unknown.join("、")}（可选：${plan.docs.map((doc) => doc.id).join("、")}）`)
-      onExit("结束：--target 未匹配任何文档", 2)
+  const selection = selectDocs(plan.docs, pickDocFlags(), { interactive: canPrompt() && !jsonOutput() })
+  if (selection.errors.length > 0) {
+    selection.errors.forEach((error) => console.error("失败：", error))
+    onExit("结束：文档选择参数不合法", 2)
+  }
+  if (selection.action === "required") onDocSelectionRequired(plan.docs.map((doc) => doc.id))
+  let docs = selection.docs
+  if (selection.action === "prompt") {
+    try {
+      const ids = await askCheckbox(
+        "选择要生成的文档（空格切换，回车确认）",
+        plan.docs.map((doc) => ({ label: doc.id, value: doc.id, description: doc.outputDir }))
+      )
+      // 空选视为主动放弃，正常退出
+      if (ids.length === 0) onExit("未选择任何文档，已退出", 0)
+      docs = plan.docs.filter((doc) => ids.includes(doc.id))
+    } catch (error) {
+      if (error instanceof PromptCancelled) onExit("已取消", 130)
+      throw error
     }
   }
-  // 选择交互在下一任务接入；当前未显式选择时执行全部文档
   datas.docMode = true
   datas.rcDriven = true
-  datas.docs = picked.ids.length > 0 ? plan.docs.filter((doc) => picked.ids.includes(doc.id)) : plan.docs
+  datas.docs = docs
 }
 /**
  * 拉取远端 Swagger 文档：带显式超时，并把超时与网络错误转成可读提示。
