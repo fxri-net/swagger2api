@@ -84,6 +84,12 @@ describe("分组聚合入口", () => {
       expect(code).not.toContain("this.http = http")
     }
   })
+
+  it("请求器声明为只读，与运行期不可写保持一致", () => {
+    const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
+    expect(buildSplitFacade(facade)).toContain("declare readonly http: HttpClient<SecurityDataType>")
+    expect(buildSplitFacade(facade)).not.toContain("declare http:")
+  })
 })
 
 describe("产物归属与清理", () => {

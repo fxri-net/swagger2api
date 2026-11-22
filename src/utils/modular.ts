@@ -429,7 +429,7 @@ export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage =
     `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
     `export class ${facade.className}<SecurityDataType = unknown> {`,
     "  /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */",
-    "  declare http: HttpClient<SecurityDataType>",
+    "  declare readonly http: HttpClient<SecurityDataType>",
     "",
     "  constructor(http: HttpClient<SecurityDataType>) {",
     "    // 不可枚举：避免深合并或序列化沿聚合入口成环",

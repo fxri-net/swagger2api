@@ -1409,6 +1409,9 @@ async function checkGroupedSplit() {
     if (!facade.includes("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")) {
       issues.push("门面未合并分片类型")
     }
+    if (!part1.includes("declare readonly http: HttpClient<SecurityDataType>")) issues.push("分片缺少只读请求器声明")
+    if (part1.includes("declare http:")) issues.push("请求器声明仍为可写")
+    if (!bucket.includes("declare readonly http: HttpClient<SecurityDataType>")) issues.push("模块缺少只读请求器声明")
 
     // 聚合入口：同桶模块合并导入，按命名空间挂载
     const aggregate = readFileSync(join(base, "index.ts"), "utf8")

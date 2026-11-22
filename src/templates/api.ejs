@@ -67,7 +67,7 @@ import type { <%~ typeContracts.join(", ") %> } from "./<%~ dataContractsFile %>
 /** <%~ ns.title %> 模块 */
 export class <%~ ns.className %><SecurityDataType = unknown> {
   /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */
-  declare http: HttpClient<SecurityDataType>
+  declare readonly http: HttpClient<SecurityDataType>
 
   constructor(http: HttpClient<SecurityDataType>) {
     // 不可枚举：避免深合并或序列化沿聚合入口成环
@@ -89,7 +89,7 @@ export class <%~ ns.className %><SecurityDataType = unknown> {
 /** <%~ moduleName %> 模块 */
 export class <%~ moduleClassName %><SecurityDataType = unknown> {
   /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */
-  declare http: HttpClient<SecurityDataType>
+  declare readonly http: HttpClient<SecurityDataType>
 
   constructor(http: HttpClient<SecurityDataType>) {
     // 不可枚举：避免深合并或序列化沿聚合入口成环

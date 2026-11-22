@@ -94,7 +94,7 @@ client.instance.interceptors.response.use(
 - 契约拆分：只被一个业务文件使用的类型进 `types/<业务文件>.ts`，被多个业务文件使用或未被使用进 `types/shared.ts`；互引的环整体留在同一文件，类型文件之间无环；公开面仍由 `types/index.ts` 显式导出，内部声明只在本文件导出、不进出口
 - 契约导入：TS 产物的模块文件与 `route-types` 只对运行时枚举按值导入，其余纯类型统一写 `import type`，开启 `verbatimModuleSyntax` 的项目不会因残留类型导入在运行期解析失败；JS 产物的声明文件不参与运行期，仍按值导入
 - 升级退场：旧版的 `data-contracts.ts` / `http-client.ts` 不再生成，重新生成成功后自动删除残留
-- 对外面：聚合入口与单文件产物导出面一致（`Api`、`HttpClient`、`ContentType`、`AxiosResponse`、`FullRequestParams`、`RequestParams` 与全部数据契约）；模块通过聚合实例注入共享请求器，替换 `api.instance` 或调用 `setSecurityData` 会对所有组同时生效；模块类额外暴露 `http` 字段（内部注入，勿直接调用）
+- 对外面：聚合入口与单文件产物导出面一致（`Api`、`HttpClient`、`ContentType`、`AxiosResponse`、`FullRequestParams`、`RequestParams` 与全部数据契约）；模块通过聚合实例注入共享请求器，替换 `api.instance` 或调用 `setSecurityData` 会对所有组同时生效；模块类额外暴露只读 `http` 字段（内部注入，运行期不可枚举、不可写，勿直接调用）
 - 模块命名：组名经统一规则转为合法标识符——路径字符与标点只作分隔，数字开头补前缀，超长截断加短哈希，Windows 设备名与 `index` 等保留名追加序号；重名（含全半角、大小写折叠后同名）各自独立并追加序号，不做业务组合并
 - 命名兼容：`grouping.collapse` 为 `true` 时合并折叠键相同的组（如 `opt` 与 `opt_`），复现单文件产物的合并语义；`instance`、`request` 等聚合成员名同样列入保留名，命中后追加序号
 - 命名预览：`--dry-run` 打印「原始组名 → 文件 / 类 / 属性」映射与重命名原因，`--dry-run --json` 输出结构化结果；`grouping.names` 可对个别组指定可读名，只改名不改归属
