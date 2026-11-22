@@ -4,10 +4,12 @@ import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   GENERATED_BANNER,
+  GENERATED_BANNER_ZH,
   buildAggregateDeclarations,
   buildAggregateEntry,
   buildSplitFacade,
   buildSplitFacadeDeclarations,
+  buildSplitFacadeJs,
   collectGeneratedFiles,
   findHandwrittenConflicts,
   findStaleOutputFiles,
@@ -61,11 +63,26 @@ describe("分组聚合入口", () => {
   })
 
   it("本工具自写产物同样带生成横幅，整目录可被同源识别", () => {
-    expect(buildAggregateEntry(modules, "Api", "", false)).toContain(GENERATED_BANNER)
-    expect(buildAggregateDeclarations(modules, "Api")).toContain(GENERATED_BANNER)
+    expect(buildAggregateEntry(modules, "Api", "", false)).toContain(GENERATED_BANNER_ZH)
+    expect(buildAggregateDeclarations(modules, "Api")).toContain(GENERATED_BANNER_ZH)
     const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
-    expect(buildSplitFacade(facade)).toContain(GENERATED_BANNER)
-    expect(buildSplitFacadeDeclarations(facade)).toContain(GENERATED_BANNER)
+    expect(buildSplitFacade(facade)).toContain(GENERATED_BANNER_ZH)
+    expect(buildSplitFacadeDeclarations(facade)).toContain(GENERATED_BANNER_ZH)
+  })
+
+  it("横幅语言可切换为英文", () => {
+    expect(buildAggregateEntry(modules, "Api", "", false, "en")).toContain(GENERATED_BANNER)
+    const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
+    expect(buildSplitFacade(facade, "en")).toContain(GENERATED_BANNER)
+    expect(buildSplitFacadeDeclarations(facade, "en")).toContain(GENERATED_BANNER)
+  })
+
+  it("模块共享请求器不可枚举，避免深合并沿聚合入口成环", () => {
+    const facade = { fileName: "DgAdmin", className: "DgAdmin", title: "dg_admin", chunks: [{ fileName: "DgAdminPart1", className: "DgAdminPart1" }] }
+    for (const code of [buildSplitFacade(facade), buildSplitFacadeJs(facade)]) {
+      expect(code).toContain('Object.defineProperty(this, "http", { value: http, enumerable: false })')
+      expect(code).not.toContain("this.http = http")
+    }
   })
 })
 

@@ -22,6 +22,7 @@ import {
   writeAggregateEntry,
   writeSplitFacades
 } from "./utils/modular"
+import { resolveBannerLanguage, rewriteGeneratedBanners } from "./utils/banner"
 import { inspectLayout, inspectThresholdsOf } from "./utils/inspect"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
@@ -808,6 +809,8 @@ async function onGenerateApi(data: Defines["data"]) {
     ...{ param: datas.param }
   })
   console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
+  // 横幅语言：缺省中文，非法值告警后回落
+  const bannerLanguage = resolveBannerLanguage(datas.config as Record<string, any>)
   // 模块化输出：分组模式按命名表校验并挂载；未分组时沿用目录扫描
   if (datas.config.modular) {
     const dir = path.resolve(confs.param.output)
@@ -824,7 +827,7 @@ async function onGenerateApi(data: Defines["data"]) {
     if (namingEntries.length) {
       const extraFiles = plannedFileNames(namingEntries, splitPlan)
       // 分片门面由本工具补写，必须先于产物校验与聚合入口
-      if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS)
+      if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS, bannerLanguage)
       // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
       const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS })
       if (contracts.errors.length > 0) {
@@ -838,7 +841,7 @@ async function onGenerateApi(data: Defines["data"]) {
         failures += 1
         return
       }
-      writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries))
+      writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries), bannerLanguage)
       const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS, { extraFiles })
       if (errors.length > 0) {
         errors.forEach((error) => console.error("失败：", error))
@@ -874,7 +877,7 @@ async function onGenerateApi(data: Defines["data"]) {
         failures += 1
         return
       }
-      writeAggregateEntry(dir, apiClassName, toJS)
+      writeAggregateEntry(dir, apiClassName, toJS, undefined, bannerLanguage)
     }
   }
   // 单文件模式：不自动删除旧分组产物，检测到遗留时提示清理方式，避免模式切换时静默大删
@@ -882,6 +885,9 @@ async function onGenerateApi(data: Defines["data"]) {
     const hint = groupedLeftoverHint(targetDir, Boolean(datas.config.toJS))
     if (hint) console.error(`⚠️ ${hint}`)
   }
+  // 横幅语言：统一改写本轮产物文件头（含上游生成器写入的英文块）
+  const bannerDir = path.resolve(confs.param.output)
+  rewriteGeneratedBanners(bannerDir, bannerLanguage).forEach((file) => console.log("处理：", path.resolve(bannerDir, file)))
   // 类型检查策略：写盘完成后剥离 @ts-nocheck；--check 的临时产物走同一处理再比对
   if (datas.typeCheck === "enforce") {
     const dir = path.resolve(confs.param.output)

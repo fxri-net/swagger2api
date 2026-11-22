@@ -1,7 +1,11 @@
 import fs from "node:fs"
 import path from "node:path"
+import { GENERATED_BANNER, GENERATED_BANNER_ZH, generatedHeader, type BannerLanguage } from "./banner"
 import type { SplitNamespacePlan } from "./grouping"
 import { CLIENT_BASE, LEGACY_OUTPUT_BASES, TYPES_DIR, findOrphanModules, type GroupNameInfo } from "./naming"
+
+export { GENERATED_BANNER, GENERATED_BANNER_ZH }
+export type { BannerLanguage }
 
 /** 模块入口信息 */
 export interface ModuleEntry {
@@ -18,11 +22,6 @@ export interface ModuleEntry {
 /** 不参与聚合的文件名（折叠键比较，兼容大小写不敏感的文件系统） */
 const RESERVED = new Set(["index", "shared", "types", CLIENT_BASE, ...LEGACY_OUTPUT_BASES])
 
-/**
- * 生成横幅：生成器写入文件头，用于判定产物归属。
- * 本工具自行补写的聚合入口、门面与声明同样带上该横幅，保证整目录同源可识别。
- */
-export const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
 /** 判定横幅时读取的文件头字节数：只读前 1KB，不整文件读取 */
 const BANNER_SCAN_BYTES = 1024
 /** 判定旧版特征时读取的文件头字节数：旧版自写文件不带横幅，需要多读一段结构特征 */
@@ -37,9 +36,6 @@ const LEGACY_GENERATED_SIGNATURES: RegExp[] = [
   /Object\.assign\(this,\s*new\s+[A-Za-z_$][\w$]*Part\d+\(http\)/,
   /extends\s+[A-Za-z_$][\w$]*Part\d+<SecurityDataType>/
 ]
-/** 本工具自写文件头：与生成器产物同样可被横幅识别 */
-const GENERATED_HEADER = ["/* eslint-disable */", "/* tslint:disable */", `/* ## ${GENERATED_BANNER} ## */`]
-
 /**
  * 判断文件是否为生成物：文件头含生成横幅，或带本工具固定头且命中旧版产物结构特征。
  * 横幅只看前 1KB，旧版特征最多读前 4KB；两组特征都只读文件头，不整文件读取。
@@ -53,7 +49,7 @@ export function isGeneratedFile(file: string) {
     const buffer = Buffer.alloc(LEGACY_SCAN_BYTES)
     const read = fs.readSync(fd, buffer, 0, LEGACY_SCAN_BYTES, 0)
     const bannerHead = buffer.subarray(0, Math.min(read, BANNER_SCAN_BYTES)).toString("utf8")
-    if (bannerHead.includes(GENERATED_BANNER)) return true
+    if (bannerHead.includes(GENERATED_BANNER) || bannerHead.includes(GENERATED_BANNER_ZH)) return true
     const head = buffer.subarray(0, read).toString("utf8")
     if (!GENERATED_FILE_HEAD.test(head)) return false
     return LEGACY_GENERATED_SIGNATURES.some((pattern) => pattern.test(head))
@@ -221,9 +217,10 @@ export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], 
  * @param apiClassName 聚合类名
  * @param modulesDir 模块所在目录（相对导入用）
  * @param toJS 是否为 JS 输出
+ * @param language 横幅语言
  * @return 文件内容
  */
-export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string, modulesDir: string, toJS: boolean) {
+export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string, modulesDir: string, toJS: boolean, language: BannerLanguage = "zh") {
   const className = apiClassName || "Api"
   const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
   // 同源模块（分桶文件）合并为一条 import，避免多命名空间拆成多个文件时重复导入
@@ -244,7 +241,7 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
   })
   const props = modules.map((item) => `${item.property} = new ${aliasOf(item)}(this)`)
   const lines = [
-    ...GENERATED_HEADER,
+    ...generatedHeader(language),
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...importLines,
     `export * from "./${TYPES_DIR}"`,
@@ -269,19 +266,20 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
  * @param apiClassName 聚合类名
  * @param toJS 是否为 JS 输出
  * @param modules 模块列表；缺省时按目录扫描（兼容按路径索引分组的旧用法）
+ * @param language 横幅语言
  * @return 写入的文件
  */
-export function writeAggregateEntry(dir: string, apiClassName: string, toJS: boolean, modules?: ModuleEntry[]) {
+export function writeAggregateEntry(dir: string, apiClassName: string, toJS: boolean, modules?: ModuleEntry[], language: BannerLanguage = "zh") {
   const ext = toJS ? ".js" : ".ts"
   const list = modules ?? collectModules(dir, ext)
   if (list.length === 0) return []
-  const content = buildAggregateEntry(list, apiClassName, "", toJS)
+  const content = buildAggregateEntry(list, apiClassName, "", toJS, language)
   const files: string[] = []
   const entry = path.join(dir, `index${ext}`)
   fs.writeFileSync(entry, content)
   files.push(entry)
   if (toJS) {
-    const dts = buildAggregateDeclarations(list, apiClassName)
+    const dts = buildAggregateDeclarations(list, apiClassName, language)
     const dtsFile = path.join(dir, "index.d.ts")
     fs.writeFileSync(dtsFile, dts)
     files.push(dtsFile)
@@ -348,9 +346,10 @@ export function verifyGroupedOutput(
  * 生成 JS 模式的聚合声明文件。
  * @param modules 模块列表
  * @param apiClassName 聚合类名
+ * @param language 横幅语言
  * @return 声明内容
  */
-export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName: string) {
+export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName: string, language: BannerLanguage = "zh") {
   const className = apiClassName || "Api"
   const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
   // 声明文件与实现同源：桶文件内的多个类合并到一条 import
@@ -370,7 +369,7 @@ export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName:
   })
   const props = modules.map((item) => `  ${item.property}: ${aliasOf(item)}`)
   return [
-    ...GENERATED_HEADER,
+    ...generatedHeader(language),
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     `export * from "./${TYPES_DIR}"`,
@@ -415,24 +414,26 @@ export function toSplitFacades(namespaces: SplitNamespacePlan[]): SplitFacade[] 
 /**
  * 生成分片门面的 TypeScript 内容：实例合并 + 类型合并，对外与单文件产物一致。
  * @param facade 门面
+ * @param language 横幅语言
  * @return 文件内容
  */
-export function buildSplitFacade(facade: SplitFacade) {
+export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage = "zh") {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
   const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
   return [
-    ...GENERATED_HEADER,
+    ...generatedHeader(language),
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     "",
     `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
     `export class ${facade.className}<SecurityDataType = unknown> {`,
     "  /** 共享请求器：由聚合入口注入；仅供模块内部调用，勿在业务侧直接使用 */",
-    "  http: HttpClient<SecurityDataType>",
+    "  declare http: HttpClient<SecurityDataType>",
     "",
     "  constructor(http: HttpClient<SecurityDataType>) {",
-    "    this.http = http",
+    "    // 不可枚举：避免深合并或序列化沿聚合入口成环",
+    '    Object.defineProperty(this, "http", { value: http, enumerable: false })',
     `    Object.assign(this, ${sources})`,
     "  }",
     "",
@@ -451,19 +452,21 @@ export function buildSplitFacade(facade: SplitFacade) {
 /**
  * 生成分片门面的 JavaScript 内容。
  * @param facade 门面
+ * @param language 横幅语言
  * @return 文件内容
  */
-export function buildSplitFacadeJs(facade: SplitFacade) {
+export function buildSplitFacadeJs(facade: SplitFacade, language: BannerLanguage = "zh") {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
   return [
-    ...GENERATED_HEADER,
+    ...generatedHeader(language),
     ...imports,
     "",
     `/** ${facade.title} 模块：由分片合并，对外与单文件产物一致 */`,
     `export class ${facade.className} {`,
     "  constructor(http) {",
-    "    this.http = http",
+    "    // 不可枚举：避免深合并或序列化沿聚合入口成环",
+    '    Object.defineProperty(this, "http", { value: http, enumerable: false })',
     `    Object.assign(this, ${sources})`,
     "  }",
     "",
@@ -478,13 +481,14 @@ export function buildSplitFacadeJs(facade: SplitFacade) {
 /**
  * 生成分片门面的声明内容。
  * @param facade 门面
+ * @param language 横幅语言
  * @return 声明内容
  */
-export function buildSplitFacadeDeclarations(facade: SplitFacade) {
+export function buildSplitFacadeDeclarations(facade: SplitFacade, language: BannerLanguage = "zh") {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
   return [
-    ...GENERATED_HEADER,
+    ...generatedHeader(language),
     `import { HttpClient } from "./${CLIENT_BASE}"`,
     ...imports,
     "",
@@ -501,21 +505,22 @@ export function buildSplitFacadeDeclarations(facade: SplitFacade) {
  * @param dir 输出目录
  * @param namespaces 命名空间规划
  * @param toJS 是否为 JS 输出
+ * @param language 横幅语言
  * @return 写入的文件名
  */
-export function writeSplitFacades(dir: string, namespaces: SplitNamespacePlan[], toJS: boolean) {
+export function writeSplitFacades(dir: string, namespaces: SplitNamespacePlan[], toJS: boolean, language: BannerLanguage = "zh") {
   const files: string[] = []
   for (const facade of toSplitFacades(namespaces)) {
     if (toJS) {
       const js = `${facade.fileName}.js`
-      fs.writeFileSync(path.join(dir, js), buildSplitFacadeJs(facade))
+      fs.writeFileSync(path.join(dir, js), buildSplitFacadeJs(facade, language))
       files.push(js)
       const dts = `${facade.fileName}.d.ts`
-      fs.writeFileSync(path.join(dir, dts), buildSplitFacadeDeclarations(facade))
+      fs.writeFileSync(path.join(dir, dts), buildSplitFacadeDeclarations(facade, language))
       files.push(dts)
     } else {
       const ts = `${facade.fileName}.ts`
-      fs.writeFileSync(path.join(dir, ts), buildSplitFacade(facade))
+      fs.writeFileSync(path.join(dir, ts), buildSplitFacade(facade, language))
       files.push(ts)
     }
   }

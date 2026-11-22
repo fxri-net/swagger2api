@@ -177,6 +177,7 @@ export const CONFIG_KEYS: ConfigKeyCapability[] = [
   { key: "output.prune", type: "boolean", default: "分组模式开启", usage: "生成后按横幅清理旧产物" },
   { key: "output.clean", type: "boolean", default: "false", usage: "生成前清空整个输出目录，仅适合纯生成目录" },
   { key: "output.typeCheck", type: "string", default: "skip", values: ["skip", "enforce"], usage: "是否剥离生成物的 @ts-nocheck" },
+  { key: "output.banner", type: "string", default: "zh", values: ["zh", "en"], usage: "产物文件头横幅语言" },
   { key: "client.type", type: "string", default: "fetch", values: ["fetch", "axios"], usage: "HTTP 客户端" },
   { key: "language.target", type: "string", default: "ts", values: ["ts", "js"], usage: "产物语言，JS 同时生成声明" },
   { key: "types.responses", type: "boolean", default: "false", usage: "生成响应类型信息" },

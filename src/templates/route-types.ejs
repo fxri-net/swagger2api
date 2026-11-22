@@ -2,13 +2,23 @@
 const { utils, config, routes, modelTypes, route } = it;
 const { _, pascalCase } = utils;
 const dataContracts = config.modular ? _.map(modelTypes, "name") : [];
+// 运行时枚举按值导入，其余纯类型走 import type；JS 产物的声明文件保持值导入形态
+const valueContracts = config.modular
+  ? config.toJS
+    ? dataContracts
+    : modelTypes.filter((item) => item.typeIdentifier === "enum" && !config.generateUnionEnums).map((item) => item.name)
+  : [];
+const typeContracts = config.toJS ? [] : dataContracts.filter((name) => !valueContracts.includes(name));
 const dataContractsFile = config.fileNames?.dataContracts ?? "data-contracts";
 const isModular = Boolean(config.modular && route);
 // 分组模式由命名表提供名称空间，与模块类名同源
 const moduleName = isModular ? (config.param?.moduleClassNames?.[route.moduleName] ?? pascalCase(route.moduleName)) : "";
 %>
-<% if (dataContracts.length) { %>
-import { <%~ dataContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
+<% if (valueContracts.length) { %>
+import { <%~ valueContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
+<% } %>
+<% if (typeContracts.length) { %>
+import type { <%~ typeContracts.join(", ") %> } from "./<%~ dataContractsFile %>"
 <% } %>
 
 <% if (isModular) { %>

@@ -3,10 +3,8 @@
 // @ts-nocheck
 /*
  * ---------------------------------------------------------------
- * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
- * ##                                                           ##
- * ## AUTHOR: acacode                                           ##
- * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
+ * ## 本文件由 swagger-typescript-api 生成，请勿手改              ##
+ * ## 生成工具：@fxri/swagger2api；来源：swagger-typescript-api ##
  * ---------------------------------------------------------------
  */
 

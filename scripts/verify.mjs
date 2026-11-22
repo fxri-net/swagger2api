@@ -12,9 +12,13 @@ const isWindows = process.platform === "win32"
 
 /** 生成横幅：与 CLI 的 GENERATED_BANNER 同源，用于判定产物归属 */
 const GENERATED_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
+/** 中文横幅：默认输出语言，识别时与英文锚点同等有效 */
+const GENERATED_BANNER_ZH = "本文件由 swagger-typescript-api 生成，请勿手改"
+/** 中英锚点 */
+const BANNER_ANCHORS = [GENERATED_BANNER, GENERATED_BANNER_ZH]
 
 /**
- * 按文件头 1KB 判定生成物，与 CLI 的 isGeneratedFile 保持同一口径。
+ * 按文件头 1KB 判定生成物，与 CLI 的 isGeneratedFile 保持同一口径（中英锚点都认）。
  * @param {string} file 文件绝对路径
  * @return {boolean} 是否为生成物
  */
@@ -23,7 +27,8 @@ function hasBanner(file) {
   try {
     const buffer = Buffer.alloc(1024)
     const read = readSync(fd, buffer, 0, 1024, 0)
-    return buffer.subarray(0, read).toString("utf8").includes(GENERATED_BANNER)
+    const head = buffer.subarray(0, read).toString("utf8")
+    return BANNER_ANCHORS.some((anchor) => head.includes(anchor))
   } finally {
     closeSync(fd)
   }
@@ -561,6 +566,58 @@ async function checkGroupedOutput() {
         if (source.parseDiagnostics.length > 0) {
           console.error(`✖ 分组产物（${client.name}）：${file} 无法解析`)
           return 1
+        }
+      }
+      // 横幅语言与共享请求器注入方式：默认中文横幅，共享请求器不可枚举
+      const aggregateSource = readFileSync(join(api, "index.ts"), "utf8")
+      if (!aggregateSource.includes("本文件由 swagger-typescript-api 生成，请勿手改")) {
+        console.error(`✖ 分组产物（${client.name}）：聚合入口未使用默认中文横幅`)
+        return 1
+      }
+      if (!appModule.includes('Object.defineProperty(this, "http", { value: http, enumerable: false })') || appModule.includes("this.http = http")) {
+        console.error(`✖ 分组产物（${client.name}）：共享请求器仍可枚举，深合并会成环`)
+        return 1
+      }
+      // 导入口径：值导入只能引用运行时值（类 / 枚举 / 常量），纯类型必须走 import type
+      const typesDir = join(api, "types")
+      const enums = new Set()
+      if (existsSync(typesDir)) {
+        for (const file of collectFiles(typesDir).filter((name) => name.endsWith(".ts"))) {
+          const source = ts.createSourceFile(file, readFileSync(join(typesDir, file), "utf8"), ts.ScriptTarget.Latest, true)
+          for (const statement of source.statements) {
+            if (ts.isEnumDeclaration(statement)) enums.add(statement.name.text)
+          }
+        }
+      }
+      const clientFile = join(api, "client.ts")
+      const clientValues = new Set()
+      if (existsSync(clientFile)) {
+        const source = ts.createSourceFile("client.ts", readFileSync(clientFile, "utf8"), ts.ScriptTarget.Latest, true)
+        for (const statement of source.statements) {
+          if (ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement) || ts.isFunctionDeclaration(statement)) {
+            if (statement.name) clientValues.add(statement.name.text)
+          } else if (ts.isVariableStatement(statement)) {
+            for (const declaration of statement.declarationList.declarations) {
+              if (ts.isIdentifier(declaration.name)) clientValues.add(declaration.name.text)
+            }
+          }
+        }
+      }
+      const reserved = new Set(["index.ts", "client.ts", "route-types.ts"])
+      for (const file of collectFiles(api).filter((name) => name.endsWith(".ts") && !name.startsWith("types/") && !reserved.has(name))) {
+        const source = ts.createSourceFile(file, readFileSync(join(api, file), "utf8"), ts.ScriptTarget.Latest, true)
+        for (const statement of source.statements) {
+          if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+          const specifier = statement.moduleSpecifier.text
+          const allowed = specifier === "./client" ? clientValues : specifier.startsWith("./types") ? enums : null
+          if (!allowed) continue
+          const clause = statement.importClause
+          if (!clause || clause.isTypeOnly || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue
+          const wrong = clause.namedBindings.elements.map((element) => element.name.text).filter((name) => !allowed.has(name))
+          if (wrong.length > 0) {
+            console.error(`✖ 分组产物（${client.name}）：${file} 以值导入引用纯类型 ${wrong.join("、")}`)
+            return 1
+          }
         }
       }
     } finally {
@@ -1306,7 +1363,7 @@ async function checkGroupedSplit() {
     else for (const name of Object.keys(before)) if (before[name] !== after[name]) issues.push(`产物不稳定：${name}`)
 
     // 升级迁移：旧版（1.3.3 及以前）自写的聚合入口与门面不带横幅，重新生成不得判为手写冲突
-    const bannerLine = new RegExp(`^/\\* ## ${GENERATED_BANNER} ## \\*/\\r?\\n`, "m")
+    const bannerLine = new RegExp(`^/\\* ## (?:${GENERATED_BANNER}|${GENERATED_BANNER_ZH}) ## \\*/\\r?\\n`, "m")
     for (const file of ["index.ts", "DgAdmin.ts"]) {
       writeFileSync(join(base, file), readFileSync(join(base, file), "utf8").replace(bannerLine, ""))
     }
@@ -1314,7 +1371,7 @@ async function checkGroupedSplit() {
     if (legacyRun.status !== 0) {
       issues.push("旧版无横幅产物被误判为手写文件")
       console.error(`${legacyRun.stdout ?? ""}${legacyRun.stderr ?? ""}`)
-    } else if (!readFileSync(join(base, "index.ts"), "utf8").includes(GENERATED_BANNER)) {
+    } else if (!BANNER_ANCHORS.some((anchor) => readFileSync(join(base, "index.ts"), "utf8").includes(anchor))) {
       issues.push("旧版产物未被重新生成覆盖")
     }
 

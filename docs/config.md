@@ -80,6 +80,7 @@
 - 环境变量：`FX_S2A_INPUT`、`FX_S2A_OUTPUT`、`FX_S2A_NAME`、`FX_S2A_CLIENT`、`FX_S2A_LANGUAGE`、`FX_S2A_CLEAN`
 - 拉取超时：`input.timeout`（毫秒，默认 30000），非法值告警后回落；命令行 `--timeout` 优先
 - 类型检查：`output.typeCheck` 与扁平 `typeCheck` 同义，`skip`（默认）保留 `// @ts-nocheck`，`enforce` 在写盘后剥离
+- 横幅语言：`output.banner` 取 `zh`（默认）或 `en`，控制产物文件头的来源说明；识别归属时中英锚点都认，历史英文产物无需重新生成即可继续被清理与校验
 - 多套预设：`profiles` 内的命名预设用 `--profile <name>` 选用
 - 排障：`swagger2api config status` 展示各层命中文件、生效字段与环境变量覆盖，`--json` 输出结构化结果
 - 分组命名覆盖：`grouping.names` 以「原始组名 → 期望模块名」改写产物名，键可用原始名或折叠名（全半角、大小写不敏感），只改名不改接口归属；该表应写在项目层，本地层同名字段会整表替换项目层
@@ -99,6 +100,7 @@
 | `output` | string | `'./src/api'` | 生成代码的输出目录，相对配置文件所在目录解析 |
 | `name` | string | `'index'` | 接口文件名称，默认后缀为ts |
 | `typeCheck` | `skip` / `enforce` | `'skip'` | 生成物是否保留 `// @ts-nocheck`；`enforce` 在写盘后剥离，`--check` 走同一处理 |
+| `output.banner` | `zh` / `en` | `'zh'` | 产物文件头横幅语言；中文为默认，英文用于兼容既有产物；识别时中英锚点都认，非法值告警后回落 `zh` |
 | `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；按缺失 / 不一致 / 多余三类报出，有差异时非 0 退出 |
 | `input.timeout` | number | `30000` | 拉取远端文档的超时（毫秒）；非法值告警后回落默认；命令行 `--timeout` 优先 |
 | `--timeout` | number | `input.timeout` 或 30000 | 覆盖拉取超时（毫秒）；超时与网络错误统一转为可读提示，退出码 1 |
