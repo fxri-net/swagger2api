@@ -122,10 +122,12 @@ export class <%~ moduleClassName %><SecurityDataType = unknown> {
 export class <%~ config.apiClassName %><SecurityDataType extends unknown><% if (!config.singleHttpClient) { %> extends HttpClient<SecurityDataType> <% } %> {
 
 <% if(config.singleHttpClient) { %>
-  http: HttpClient<SecurityDataType>;
+  /** 共享请求器：由外部注入；仅供模块内部调用，勿在业务侧直接使用 */
+  declare readonly http: HttpClient<SecurityDataType>
 
-  constructor (http: HttpClient<SecurityDataType>) {
-    this.http = http;
+  constructor(http: HttpClient<SecurityDataType>) {
+    // 不可枚举：避免深合并或序列化沿聚合入口成环
+    Object.defineProperty(this, "http", { value: http, enumerable: false })
   }
 <% } %>
 

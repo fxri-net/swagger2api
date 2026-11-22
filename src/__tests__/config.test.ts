@@ -52,6 +52,18 @@ describe("配置合并", () => {
     ).toEqual({ output: { name: "api", mode: "single" }, naming: { tagRewrite: ["c", "d"] } })
   })
 
+  it("覆盖层循环引用报可读错误而非栈溢出", () => {
+    const overlay: Record<string, any> = { output: { name: "api" } }
+    overlay.output.self = overlay
+    expect(() => deepMergeConfig({ output: { name: "index", mode: "single" } }, overlay)).toThrow(/循环引用/)
+  })
+
+  it("覆盖层共享引用不被误判为环", () => {
+    const shared = { mode: "single" }
+    const overlay = { output: shared, naming: shared }
+    expect(deepMergeConfig({ output: { name: "index" } }, overlay)).toEqual({ output: { name: "index", mode: "single" }, naming: { mode: "single" } })
+  })
+
   it("点号路径读写", () => {
     const target: Record<string, any> = {}
     setByPath(target, "output.mode", "grouped")

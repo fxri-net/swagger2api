@@ -10,11 +10,13 @@ const queryName = (query && query.name) || "query";
 const pathParams = _.values(parameters);
 const pathParamsNames = _.map(pathParams, "name");
 
-// 提取参数
-if (config.param?.extractRequestQuery && query && query.type) {
-  const queryExtract = config.param?.extractRequestQuery?.split(",")
-  query.type = query.type.replace(new RegExp(`[\\s\\S\\n]+ ['"]?(${queryExtract.join("|")})['"]?: ([a-z]+),[\\s\\S\\n]+`, "i"), "$2")
-}
+// 提取参数：只改写本次渲染用的类型，不回写共享 route，保证同一路由多次渲染结果一致
+const queryArg = (() => {
+  if (!query || !config.param?.extractRequestQuery || !query.type) return query
+  const queryExtract = config.param.extractRequestQuery.split(",")
+  const type = query.type.replace(new RegExp(`[\\s\\S\\n]+ ['"]?(${queryExtract.join("|")})['"]?: ([a-z]+),[\\s\\S\\n]+`, "i"), "$2")
+  return { ...query, type }
+})()
 
 const isFetchTemplate = config.httpClientType === HTTP_CLIENT.FETCH;
 
@@ -40,7 +42,7 @@ const rawWrapperArgs = config.extractRequestParams ?
     ]) :
     _.compact([
         ...pathParams,
-        query,
+        queryArg,
         payload,
         requestConfigParam,
     ])

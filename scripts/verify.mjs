@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 // 单一门禁真源：本仓库全部验收步骤由本脚本定义并按序执行，本地与三处 CI（GitHub check / windows、GitLab test）共用同一份清单。
 // 目的：消除「各写一份步骤清单、彼此漂移」的结构性问题，使「本地自检通过、CI 才暴露」在清单层面不可能发生。
@@ -1544,6 +1544,174 @@ async function checkGroupedContract() {
 }
 
 /**
+ * 运行期对象图：四种生成形态的可枚举图无环、JSON 序列化可用、回指字段不可枚举、方法可调用。
+ * 用 JS 产物动态加载验证真实运行期形态，TS 类型面由分组对外面与 tsc 探针覆盖。
+ * @return {number} 退出码
+ */
+async function checkRuntimeObjectGraph() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 运行期对象图：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  // 放在 node_modules/.cache 下，便于产物里的 axios 向上解析到本仓依赖
+  const cacheRoot = join(root, "node_modules", ".cache")
+  mkdirSync(cacheRoot, { recursive: true })
+  const splitGrouping = { strategy: ["path"], pathDepth: 0, split: { minRoutes: 1, targetRoutes: 2, maxRoutes: 3, minBucketRoutes: 2 } }
+  const variants = [
+    { name: "单文件", args: ["--js", "--axios"] },
+    { name: "单文件（共享请求器）", args: ["--js", "--axios", "--single-http-client"], singleHttpClient: true },
+    { name: "分组", args: ["--js", "--axios"], base: { output: { name: "index", mode: "grouped" } } },
+    {
+      name: "分片",
+      args: ["--js", "--axios"],
+      source: join(root, "fixtures", "grouping-split.json"),
+      base: { output: { name: "index", mode: "grouped" }, client: "axios", grouping: splitGrouping }
+    }
+  ]
+  const issues = []
+
+  /**
+   * 沿可枚举自有属性遍历，祖先栈命中即记录环；方法视为叶子。
+   * @param {object} value 当前对象
+   * @param {string} path 遍历轨迹
+   * @param {Set<object>} ancestors 当前路径上的对象
+   * @param {string} label 形态名
+   * @return {void}
+   */
+  const walk = (value, path, ancestors, label) => {
+    if (!value || typeof value !== "object") return
+    if (ancestors.has(value)) {
+      issues.push(`${label}：可枚举图成环 ${path}`)
+      return
+    }
+    ancestors.add(value)
+    for (const key of Object.keys(value)) walk(value[key], `${path}.${key}`, ancestors, label)
+    ancestors.delete(value)
+  }
+
+  /**
+   * 取自有或原型链上的属性描述符。
+   * @param {object} target 查找起点
+   * @param {string} key 属性名
+   * @return {PropertyDescriptor | undefined} 描述符
+   */
+  const descriptorOf = (target, key) => {
+    let current = target
+    while (current) {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Object.getPrototypeOf(current)
+    }
+    return undefined
+  }
+
+  /**
+   * 把省略扩展名的相对导入改写为 Node ESM 可解析的形式。
+   * 生成物面向打包器（bundler 解析），直接 import 需要补 .js 或 /index.js。
+   * @param {string} dir 产物目录
+   * @return {void}
+   */
+  const rewriteRelativeImports = (dir) => {
+    const pattern = /(\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)(["'])(\.\/[^"']+)\2/g
+    for (const file of collectFiles(dir).filter((name) => name.endsWith(".js"))) {
+      const full = join(dir, file)
+      const source = readFileSync(full, "utf8")
+      const rewritten = source.replace(pattern, (match, prefix, quote, specifier) => {
+        if (/\.(?:js|mjs|cjs|json)$/.test(specifier)) return match
+        const target = join(dir, specifier)
+        const resolved = existsSync(`${target}.js`) ? `${specifier}.js` : existsSync(join(target, "index.js")) ? `${specifier}/index.js` : specifier
+        return `${prefix}${quote}${resolved}${quote}`
+      })
+      if (rewritten !== source) writeFileSync(full, rewritten)
+    }
+  }
+
+  for (const variant of variants) {
+    const out = mkdtempSync(join(cacheRoot, "s2a-graph-"))
+    try {
+      const api = join(out, "api")
+      const config = writeProjectConfig(join(out, "swagger2api.json"), {
+        source: variant.source ?? join(root, "fixtures", "swagger.json"),
+        output: api,
+        base: variant.base ?? { output: { name: "index" } }
+      })
+      const generated = spawnSync(process.execPath, [cli, "-c", config, ...variant.args], { cwd: out, encoding: "utf8" })
+      if (generated.status !== 0) {
+        issues.push(`${variant.name}：生成失败`)
+        console.error(`${generated.stdout ?? ""}${generated.stderr ?? ""}`)
+        continue
+      }
+      rewriteRelativeImports(api)
+      let loaded
+      try {
+        loaded = await import(pathToFileURL(join(api, "index.js")).href)
+      } catch (error) {
+        issues.push(`${variant.name}：产物无法加载 ${error instanceof Error ? error.message : String(error)}`)
+        continue
+      }
+      const client = variant.singleHttpClient ? new loaded.Api(new loaded.HttpClient()) : new loaded.Api()
+      // 发起请求的持有者：共享请求器模式下挂在 http 上，其余为聚合实例自身
+      const requestOwner = variant.singleHttpClient ? client.http : client
+
+      // 可枚举键只到方法与模块实例
+      walk(client, variant.name, new Set(), variant.name)
+      try {
+        JSON.stringify(client)
+      } catch {
+        issues.push(`${variant.name}：JSON 序列化失败`)
+      }
+
+      // 共享请求器与 Axios 实例都不可枚举，深合并与序列化触不到
+      if (variant.singleHttpClient && descriptorOf(client, "http")?.enumerable !== false) issues.push(`${variant.name}：http 仍可枚举`)
+      if (descriptorOf(requestOwner, "instance")?.enumerable !== false) issues.push(`${variant.name}：instance 仍可枚举`)
+
+      // 模块与分片门面同样以不可枚举 http 回指聚合实例；单文件的命名空间对象不含 http，不算模块
+      const modules = Object.keys(client)
+        .map((key) => client[key])
+        .filter((value) => value && typeof value === "object" && descriptorOf(value, "http") !== undefined)
+      if (variant.base?.output?.mode === "grouped" && modules.length === 0) issues.push(`${variant.name}：未挂载模块实例`)
+      for (const module of modules) {
+        if (descriptorOf(module, "http")?.enumerable !== false) issues.push(`${variant.name}：模块 http 仍可枚举`)
+      }
+
+      // 自引用注入：securityData 指向聚合实例后对象图与序列化仍然安全
+      requestOwner.setSecurityData(client)
+      walk(client, `${variant.name}.securityData`, new Set(), variant.name)
+      try {
+        JSON.stringify(client)
+      } catch {
+        issues.push(`${variant.name}：注入 securityData 后序列化失败`)
+      }
+
+      // 方法可调用：底层实例替换为桩，避免真实网络请求；单文件的命名空间对象也纳入查找
+      requestOwner.instance = { defaults: { headers: {} }, request: async () => ({ data: { ok: true } }) }
+      const namespaces = Object.keys(client)
+        .map((key) => client[key])
+        .filter((value) => value && typeof value === "object")
+      const methodOwner = [...namespaces, client].find((target) => Object.keys(target).some((key) => typeof target[key] === "function"))
+      const methodKey = methodOwner && Object.keys(methodOwner).find((key) => typeof methodOwner[key] === "function")
+      if (!methodKey) {
+        issues.push(`${variant.name}：未找到可调用方法`)
+      } else {
+        try {
+          await methodOwner[methodKey]()
+        } catch (error) {
+          issues.push(`${variant.name}：方法 ${methodKey} 调用失败 ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  }
+
+  if (issues.length === 0) return 0
+  console.error(`\n✖ 运行期对象图未通过：${issues.length} 项`)
+  for (const issue of issues) console.error(`  - ${issue}`)
+  return 1
+}
+
+/**
  * 契约冲突：契约名与模块类名同名时类名避让，与底座同名时根出口仍能取到底座。
  * @return {number} 退出码
  */
@@ -2499,6 +2667,7 @@ const steps = [
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
   { label: "分组产物一致性（axios / fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },
+  { label: "运行期对象图（可枚举无环 / 回指不可枚举）", run: checkRuntimeObjectGraph },
   { label: "自适应分桶与分片（桶内多类 / 门面合并 / 回滚）", run: checkGroupedSplit },
   { label: "分桶合并（中间小桶并入相邻桶）", run: checkSplitSmallBuckets },
   { label: "手动模块化清理（横幅 / --check）", run: checkManualModularPrune },

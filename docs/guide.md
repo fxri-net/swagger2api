@@ -112,10 +112,12 @@ client.instance.interceptors.response.use(
 
 生成物的运行期对象图是固定契约：
 
-- 聚合入口持有各模块实例；模块以不可枚举的 `http` 指向聚合入口，分片门面用 `Object.assign` 合并分片实例；`instance` 是原型上的 getter
-- 从聚合入口按可枚举属性遍历只到模块与方法，**不存在属性环**；`http` 的闭包持有链只存在于堆上，`dgClone` / `dgMerge` / `JSON.stringify` 都触不到
+- 聚合入口持有各模块实例；模块与分片门面以不可枚举的 `http` 回指共享请求器，`instance` 是原型上的 getter；`--single-http-client` 时 `Api` 自身的 `http` 同样不可枚举
+- `HttpClient` 的 `instance`、`securityData`、`securityWorker`、`secure`、`format` 都是不可枚举的自有字段，`setSecurityData(api)` 这类自引用不会进入可枚举图
+- 从聚合入口按可枚举属性遍历只到模块与方法，**不存在属性环**；`JSON.stringify(api)` 可用，`dgClone` / `dgMerge` 触不到 `http` 与 Axios 图
 - 方法是以箭头字段生成的自有可枚举函数，可直接解构或当回调；代价是方法仍被引用时客户端实例不会释放，属预期行为
 - 使用约束：不要对 `api` 实例做深合并、深克隆或 `structuredClone`；不要用 `JSON.stringify(module)` 判断模块状态；`http` 只读，换实例请走 `api.instance` 或 `setSecurityData`
+- 工具侧 `deepMergeConfig` 与迁移的 `mergeDeep` 用祖先栈检测配置环，遇到循环引用给可读错误而不是栈溢出
 
 ```json
 {

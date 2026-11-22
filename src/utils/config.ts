@@ -141,13 +141,32 @@ function isPlainObject(value: unknown): value is Record<string, any> {
  * @return 合并结果
  */
 export function deepMergeConfig(base: unknown, overlay: unknown): any {
+  return mergeConfigValue(base, overlay, new Set())
+}
+
+/**
+ * 深度合并递归实现：覆盖层用祖先栈检测循环引用，共享引用不误判。
+ * @param base 底层
+ * @param overlay 覆盖层
+ * @param ancestors 当前递归路径上的覆盖层对象
+ * @return 合并结果
+ */
+function mergeConfigValue(base: unknown, overlay: unknown, ancestors: Set<object>): any {
   if (!isPlainObject(base)) return overlay === undefined ? overlay : structuredClone(overlay)
   const result: Record<string, any> = structuredClone(base)
   if (!isPlainObject(overlay)) return result
-  for (const [key, value] of Object.entries(overlay)) {
-    result[key] = isPlainObject(value) && isPlainObject(result[key]) ? deepMergeConfig(result[key], value) : structuredClone(value)
+  if (ancestors.has(overlay)) throw new Error("配置合并失败：检测到循环引用，无法完成深度合并")
+  ancestors.add(overlay)
+  try {
+    for (const [key, value] of Object.entries(overlay)) {
+      // 覆盖层回指祖先即为环；共享引用只出现在兄弟分支，不在此路径里
+      if (isPlainObject(value) && ancestors.has(value)) throw new Error("配置合并失败：检测到循环引用，无法完成深度合并")
+      result[key] = isPlainObject(value) && isPlainObject(result[key]) ? mergeConfigValue(result[key], value, ancestors) : structuredClone(value)
+    }
+    return result
+  } finally {
+    ancestors.delete(overlay)
   }
-  return result
 }
 
 /** 各层允许的根键 */

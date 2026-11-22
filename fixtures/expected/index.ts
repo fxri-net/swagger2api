@@ -76,17 +76,20 @@ export enum ContentType {
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public instance: AxiosInstance
-  private securityData: SecurityDataType | null = null
-  private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"]
-  private secure?: boolean
-  private format?: ResponseType
+  /** 底层 Axios 实例 */
+  declare instance: AxiosInstance
+  declare private securityData: SecurityDataType | null
+  declare private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"]
+  declare private secure?: boolean
+  declare private format?: ResponseType
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" })
-    this.secure = secure
-    this.format = format
-    this.securityWorker = securityWorker
+    // 实例与运行时状态一律不可枚举：避免深合并或序列化沿客户端进入 Axios 图
+    Object.defineProperty(this, "instance", { value: axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" }), enumerable: false, writable: true })
+    Object.defineProperty(this, "securityData", { value: null, enumerable: false, writable: true })
+    Object.defineProperty(this, "securityWorker", { value: securityWorker, enumerable: false, writable: true })
+    Object.defineProperty(this, "secure", { value: secure, enumerable: false, writable: true })
+    Object.defineProperty(this, "format", { value: format, enumerable: false, writable: true })
   }
 
   public setSecurityData = (data: SecurityDataType | null) => {
