@@ -1,6 +1,6 @@
 # AGENTS.md — 本仓库 AI 协作规则
 
-> 规则更新时间 2026-11-03 04:43。本规则内容变更时以变更时刻更新此值；快照与本文件当前值不一致即说明已失同步。
+> 规则更新时间 2026-11-22 23:03。本规则内容变更时以变更时刻更新此值；快照与本文件当前值不一致即说明已失同步。
 
 适用于任何 AI 编码工具在本仓库内开发。本规则只约束仓库的开发过程，不适用于安装后的使用过程。
 
@@ -17,6 +17,7 @@
 ## 验收方式
 
 - 跑 `pnpm verify`——聚合门禁，步骤定义在 `scripts/verify.mjs`，本地与 CI 共用同一份清单，禁止在本文或 CI 配置里另写步骤枚举；任一步失败即不得交付。
+- 接入方仓库验证：`node scripts/business-validate.mjs --manifest <清单> --generate --build --smoke`；脚本用本仓 `dist/cli.js` 代替已发布 CLI，在临时 worktree 内执行，清单与报告不入库（`scripts/business-*.local.json`）。
 - `toolkit tasks check` 的 error 与 warn 均为 0。
 - 开发与 CI 工具链保持 node 20（`.node-version` / `.ci/toolchain.json`），发布产物的运行时下限为 node 18.12，由 `engines`、构建 target 与 node18 运行时作业保证；构建工具 `tsup` 选用声明支持 node 18 及以上的 8.x 线，与开发版本保持一致。
 - CI 脚本只使用 Node 内置能力或 `.ci/toolchain.json` 已声明的 `system` 命令：GitHub runner 工具齐全、GitLab 镜像按声明精简，未声明的系统命令只会在 GitLab 侧暴露；新增系统命令须在两侧都验证。
