@@ -21,7 +21,7 @@
 
 ### generate
 
-- 配置驱动时不读 stdin；`-q` 跳过二次确认。`--timeout` 覆盖 `input.timeout`（默认 300000 毫秒）。
+- 配置驱动时不读 stdin；`-q` 跳过二次确认。`--timeout` 覆盖 `input.timeout`（默认 0 表示不超时）。
 - 分组模式（`output.mode: "grouped"`）默认开启 `output.prune`：按文件头横幅清理本轮不再生成的产物。
 - 手写文件（不含横幅）不清理；同名冲突会终止生成并保持原文件。
 

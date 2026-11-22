@@ -18,7 +18,7 @@
 }
 ```
 
-- 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`typeCheck`（`skip` / `enforce`）、`timeout`（拉取超时毫秒，默认 300000）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
+- 根上可直接写：`url` / `file`、`output`、`name`（默认 `index`）、`mode`（`single` / `grouped`）、`typeCheck`（`skip` / `enforce`）、`timeout`（拉取超时毫秒，默认 0 不超时）、`client`（`axios` / `fetch`）、`language`（`ts` / `js`）、`responses`、`query`、`pathPrefixIndex`、`extractResponseRaw`、`convertGetToQuery`、`dropPathParams`、`tagRewrite`
 - 只写项目自己的口径；分桶阈值、分片规则、清理与产物校验默认由工具决定，需要时可用 `grouping.split` 覆写（见下文「自适应分桶」）
 - `typeCheck: "enforce"` 让类型检查接管生成物：写盘后剥离 `.ts` / `.js` / `.d.ts` 中独立成行的 `// @ts-nocheck`，`--check` 也按剥离后的产物比对；默认 `skip` 保留该行
 - `mode: "grouped"` 自动按路径首段分组，并按体量分桶、对超大命名空间分片；对外仍是 `api.<命名空间>.<方法>`
@@ -78,7 +78,7 @@
 ```
 
 - 环境变量：`FX_S2A_INPUT`、`FX_S2A_OUTPUT`、`FX_S2A_NAME`、`FX_S2A_CLIENT`、`FX_S2A_LANGUAGE`、`FX_S2A_CLEAN`
-- 拉取超时：`input.timeout`（毫秒，默认 300000，大文档拉取留足 5 分钟），非法值告警后回落；命令行 `--timeout` 优先
+- 拉取超时：`input.timeout`（毫秒，默认 `0` 表示不超时——请求能建立就按「慢」处理，不主动中断；大文档可达数 MB），非法值告警后回落；命令行 `--timeout` 优先
 - 类型检查：`output.typeCheck` 与扁平 `typeCheck` 同义，`skip`（默认）保留 `// @ts-nocheck`，`enforce` 在写盘后剥离
 - 横幅语言：`output.banner` 取 `zh`（默认）或 `en`，控制产物文件头的来源说明；识别归属时中英锚点都认，历史英文产物无需重新生成即可继续被清理与校验
 - 多套预设：`profiles` 内的命名预设用 `--profile <name>` 选用
@@ -102,8 +102,8 @@
 | `typeCheck` | `skip` / `enforce` | `'skip'` | 生成物是否保留 `// @ts-nocheck`；`enforce` 在写盘后剥离，`--check` 走同一处理 |
 | `output.banner` | `zh` / `en` | `'zh'` | 产物文件头横幅语言；中文为默认，英文用于兼容既有产物；识别时中英锚点都认，非法值告警后回落 `zh` |
 | `--check` | boolean | `false` | 生成到临时目录并与现有产物逐文件比对，不写真实目录；按缺失 / 不一致 / 多余三类报出，有差异时非 0 退出 |
-| `input.timeout` | number | `300000` | 拉取远端文档的超时（毫秒）；非法值告警后回落默认；命令行 `--timeout` 优先 |
-| `--timeout` | number | `input.timeout` 或 300000 | 覆盖拉取超时（毫秒）；超时与网络错误统一转为可读提示，退出码 1 |
+| `input.timeout` | number | `0` | 拉取远端文档的超时（毫秒），`0` 表示不超时；非法值告警后回落默认；命令行 `--timeout` 优先 |
+| `--timeout` | number | `input.timeout` 或 0 | 覆盖拉取超时（毫秒），`0` 表示不超时；超时与网络错误统一转为可读提示，退出码 1 |
 | `--version` | boolean | `false` | 输出版本号（纯文本一行），不触发生成 |
 | `--quick,-q` | boolean | `false` | 快速模式，直接使用配置文件参数，不再二次确认参数 |
 | `--config,-c` | string | `'saconfig.json'` | 填写配置文件路径，支持多选，用【,】分隔 |

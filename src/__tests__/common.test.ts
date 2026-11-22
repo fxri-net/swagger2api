@@ -67,9 +67,11 @@ describe("交互判定", () => {
 })
 
 describe("拉取超时解析", () => {
-  it("缺省用默认值，数字与数字字符串都接受", async () => {
+  it("缺省与显式 0 都表示不超时，数字与数字字符串都接受", async () => {
     const { normalizeTimeout, DEFAULT_FETCH_TIMEOUT } = await loadCommon([])
-    expect(normalizeTimeout(undefined)).toBe(DEFAULT_FETCH_TIMEOUT)
+    expect(DEFAULT_FETCH_TIMEOUT).toBe(0)
+    expect(normalizeTimeout(undefined)).toBe(0)
+    expect(normalizeTimeout(0)).toBe(0)
     expect(normalizeTimeout("5000")).toBe(5000)
     expect(normalizeTimeout(1500)).toBe(1500)
   })
@@ -81,8 +83,7 @@ describe("拉取超时解析", () => {
       errors.push(value.join(" "))
     })
     expect(normalizeTimeout("abc")).toBe(DEFAULT_FETCH_TIMEOUT)
-    expect(normalizeTimeout(0)).toBe(DEFAULT_FETCH_TIMEOUT)
     expect(normalizeTimeout(-1)).toBe(DEFAULT_FETCH_TIMEOUT)
-    expect(errors.filter((line) => line.includes("已忽略")).length).toBe(3)
+    expect(errors.filter((line) => line.includes("已忽略")).length).toBe(2)
   })
 })
