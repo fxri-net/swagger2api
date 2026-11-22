@@ -66,6 +66,8 @@ export type Defines = {
     configDir?: string
     /** 类型检查策略：skip 保留 @ts-nocheck，enforce 剥离 */
     typeCheck?: "skip" | "enforce"
+    /** 横幅语言配置（output.banner），非法值由解析函数告警回落 */
+    banner?: string
     /** 拉取远端文档的超时（毫秒） */
     timeout?: number
     /** 是否由 rc 配置驱动（不读写 saconfig） */

@@ -1493,6 +1493,64 @@ async function checkSpecShape() {
 }
 
 /**
+ * 英文横幅端到端：output.banner: "en" 时所有产物改用英文块，切回 zh 后可重写且 --check 通过。
+ * @return {number} 退出码
+ */
+async function checkBannerLanguage() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 英文横幅：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-banner-lang-"))
+  const issues = []
+  const api = join(out, "api")
+  const config = join(out, "swagger2api.json")
+  const writeConfig = (language) =>
+    writeFileSync(
+      config,
+      JSON.stringify({ input: { file: join(root, "fixtures", "swagger.json") }, output: { dir: api, name: "index", mode: "grouped", banner: language } }, null, 2)
+    )
+  const run = (extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
+  const assertLanguage = (anchor, foreign) => {
+    const files = collectFiles(api).filter((file) => /\.(?:ts|js)$/.test(file))
+    if (files.length === 0) {
+      issues.push("英文横幅：未生成任何代码文件")
+      return
+    }
+    for (const file of files) {
+      const head = readFileSync(join(api, file), "utf8").slice(0, 1024)
+      if (!head.includes(anchor)) issues.push(`横幅语言不符：${file}`)
+      if (head.includes(foreign)) issues.push(`横幅语言混用：${file}`)
+    }
+  }
+  try {
+    writeConfig("en")
+    const en = run()
+    if (en.status !== 0) issues.push(`英文横幅生成失败：${en.stderr ?? ""}`)
+    else {
+      assertLanguage(GENERATED_BANNER, GENERATED_BANNER_ZH)
+      if (run(["--check"]).status !== 0) issues.push("英文横幅 --check 未通过")
+    }
+
+    writeConfig("zh")
+    const zh = run()
+    if (zh.status !== 0) issues.push(`切回中文横幅失败：${zh.stderr ?? ""}`)
+    else {
+      assertLanguage(GENERATED_BANNER_ZH, GENERATED_BANNER)
+      if (run(["--check"]).status !== 0) issues.push("切回中文横幅 --check 未通过")
+    }
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 英文横幅未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 生成失败回滚：后处理失败时清理本轮新增产物、保留原有文件，且可直接重跑。
  * @return {number} 退出码
  */
@@ -2287,6 +2345,7 @@ const steps = [
   { label: "保留名护栏（驼峰聚合成员 / 单文件命名空间）", run: checkReservedNaming },
   { label: "契约冲突（类名避让 / 根出口显式导出）", run: checkContractCollision },
   { label: "文档形态（缺字段 / 空文档 / 无契约）", run: checkSpecShape },
+  { label: "英文横幅（生成 / --check / 切回中文）", run: checkBannerLanguage },
   { label: "生成失败回滚（残留 / 重入 / --check 不动真实目录）", run: checkGenerationRollback },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },

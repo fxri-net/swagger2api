@@ -260,6 +260,8 @@ function applyRcConfig(rc: Record<string, any>) {
     console.error(`⚠️ 已忽略 output.typeCheck=${JSON.stringify(output.typeCheck)}：仅支持 skip / enforce，回落到 skip`)
   }
   datas.typeCheck = output.typeCheck === "enforce" ? "enforce" : "skip"
+  // 横幅语言：生成配置对象不含 output 段，单独留存供统一解析
+  datas.banner = output.banner
   const param = datas.param
   param.quick = true
   if (!hasFlag(["--remove-prefix-index", "-rpi"]) && naming.pathPrefixIndex !== undefined) param.removePrefixIndex = String(naming.pathPrefixIndex)
@@ -765,7 +767,7 @@ async function onGenerateApi(data: Defines["data"]) {
   }
   data = shape.data as Defines["data"]
   // 横幅语言：缺省中文，非法值告警后回落
-  const bannerLanguage = resolveBannerLanguage(datas.config as Record<string, any>)
+  const bannerLanguage = resolveBannerLanguage({ output: { banner: datas.banner } })
   // 安全守卫：解析外部引用、转义代码字面量、校验标识符字段
   const guard = await guardSpec(data, { baseUrl: isUrl(confs.param.url) ? confs.param.url : undefined })
   if (guard.errors.length > 0) {
