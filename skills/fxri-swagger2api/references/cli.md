@@ -34,7 +34,7 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 | `--target <id>` | 多目标配置下只执行指定目标；未知目标退出码 2 |
 | `--profile <name>` | 选用配置内的命名预设 |
 | `--no-interactive` | 关闭交互提问；需要交互时报错并给出 `init --from-script` / `--config` 等非交互命令，退出码 2 |
-| `--timeout <ms>` | 覆盖拉取超时（`input.timeout`，默认 30000）；超时与网络错误转为可读提示，退出码 1 |
+| `--timeout <ms>` | 覆盖拉取超时（`input.timeout`，默认 300000）；超时与网络错误转为可读提示，退出码 1 |
 | `--version` | 输出版本号纯文本一行，与诊断 JSON 的 `toolVersion` 一致 |
 
 ## 诊断 JSON 与退出码

@@ -171,7 +171,7 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
 export const CONFIG_KEYS: ConfigKeyCapability[] = [
   { key: "input.url", type: "string", default: "-", usage: "Swagger 文档地址" },
   { key: "input.file", type: "string", default: "-", usage: "本地文档快照，源站不可用时使用" },
-  { key: "input.timeout", type: "number", default: "30000", usage: "远端拉取超时（毫秒）" },
+  { key: "input.timeout", type: "number", default: "300000", usage: "远端拉取超时（毫秒）" },
   { key: "output.dir", type: "string", default: "./src/api", usage: "产物目录，相对配置文件解析" },
   { key: "output.mode", type: "string", default: "single", values: ["single", "grouped"], usage: "单文件或分组多文件" },
   { key: "output.prune", type: "boolean", default: "分组模式开启", usage: "生成后按横幅清理旧产物" },

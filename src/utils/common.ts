@@ -126,8 +126,8 @@ export function readToolVersion() {
 export function writeJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
 }
-/** 拉取远端 Swagger 文档的默认超时（毫秒） */
-export const DEFAULT_FETCH_TIMEOUT = 30000
+/** 拉取远端 Swagger 文档的默认超时（毫秒）：大文档可达数 MB，留足 5 分钟 */
+export const DEFAULT_FETCH_TIMEOUT = 300000
 
 /**
  * 归一化拉取超时：只接受正整数毫秒，非法值告警后回落默认值。
