@@ -103,6 +103,15 @@ client.instance.interceptors.response.use(
 - 分片与回滚：超大命名空间按「命名空间之后第一个非版本段」拆分片，由门面类合并实例与类型；`grouping.split: false` 仅作为回滚逃生口，关闭后回到一命名空间一文件
 - 分桶预览：`--dry-run --json` 的 `split` 字段给出「桶 → 命名空间」与「命名空间 → 分片」，便于确认拆法是否符合预期
 
+### 对象图与合并安全
+
+生成物的运行期对象图是固定契约：
+
+- 聚合入口持有各模块实例；模块以不可枚举的 `http` 指向聚合入口，分片门面用 `Object.assign` 合并分片实例；`instance` 是原型上的 getter
+- 从聚合入口按可枚举属性遍历只到模块与方法，**不存在属性环**；`http` 的闭包持有链只存在于堆上，`dgClone` / `dgMerge` / `JSON.stringify` 都触不到
+- 方法是以箭头字段生成的自有可枚举函数，可直接解构或当回调；代价是方法仍被引用时客户端实例不会释放，属预期行为
+- 使用约束：不要对 `api` 实例做深合并、深克隆或 `structuredClone`；不要用 `JSON.stringify(module)` 判断模块状态；`http` 只读，换实例请走 `api.instance` 或 `setSecurityData`
+
 ```json
 {
   "url": "https://example.com/v3/api-docs",

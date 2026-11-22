@@ -1450,6 +1450,9 @@ async function checkGroupedSplit() {
     if (!part2.includes("/dg_admin/v3/user/")) issues.push("分片缺少子分类接口")
     const facade = readFileSync(join(base, "DgAdmin.ts"), "utf8")
     if (!facade.includes("Object.assign(this, new DgAdminPart1(http), new DgAdminPart2(http))")) issues.push("门面未合并分片实例")
+    if (!facade.includes('Object.defineProperty(this, "http", { value: http, enumerable: false })') || facade.includes("this.http = http")) {
+      issues.push("门面请求器注入不是不可枚举")
+    }
     if (!facade.includes("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")) {
       issues.push("门面未合并分片类型")
     }
