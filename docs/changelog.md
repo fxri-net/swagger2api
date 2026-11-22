@@ -6,6 +6,63 @@ outline: [2, 2]
 
 > 完整变更历史以根 `CHANGELOG.md` 为准，本页由 `toolkit release mirror` 自动同步，请勿手改。
 
+## 1.4.0
+
+> 2026-11-23 发布
+
+### 🚨 重大变更
+
+- 配置文件改为 `base` + `docs` 结构：删除 `saconfig*` / `.swagger2apirc*` 读取、`--config-scan` / `--config-all` 与逗号多文件 `--config`，旧配置需用 `swagger2api upgrade` 迁移
+- 移除 `--quick` / `-q`；生成脚本统一为单一 `api`，`api:*` 与 `api:check` 需改用 `swagger2api --target <id>`
+- `grouping` 与 `surface` 必须用 `--target` 指定文档；多文档在非交互环境必须显式 `--target` / `--all`，否则退出 2 并返回 `E_DOC_SELECTION_REQUIRED`
+- 产物横幅只识别当前中英锚点：升级后首次生成前需清空产物目录，否则旧产物会被手写护栏拦下
+
+### ✨ 新增功能
+
+- 项目配置支持 `base` 共享段 + `docs` 文档列表，文档项用 `source` 声明 URL / 本地文件与 headers、timeout
+- `base.output.name` 作为入口文件名默认值（优先级：文档项 > `base.output.name` > `index`）；`client` / `language` 支持字符串简写
+- 多文档默认交互选择要生成的文档，`--all` 全选，`--target` 支持逗号多选与重复传参
+- `swagger2api upgrade` 一键迁移旧配置与生成脚本，支持 `--dry-run` / `--diff` / `--check` / `--yes` / `--only` / `--skip` / `--cwd` / `--json` / `--keep-legacy` / `--restore`
+- `output.banner`（`zh` 默认 / `en`）控制产物文件头横幅语言，非法值告警后回落中文
+- 新增 `docs/upgrade.md` 迁移指南并接入文档站导航
+
+### 🔧 功能调整
+
+- 产物横幅统一为同一套结构，中文与英文仅文案不同，来源只标识 `@fxri/swagger2api`；锚点行不填充对齐空格
+- 生成物对象图契约收敛为「可枚举自有属性只允许方法 / 叶子数据」：`--single-http-client` 的 `http` 与 `HttpClient` 的 `instance` / `securityData` / `securityWorker` / `secure` / `format` 一律不可枚举
+- 模块与分片门面的 `http` 声明改为 `readonly`，与运行期不可写一致
+- 远端文档拉取默认不设超时（`input.timeout` 默认 `0`），请求能建立即按「慢」处理；`0` 为合法取值，负数与非数字告警后回落默认
+- 能力清单更新命令、参数、配置键与退出码，移除 `--quick` / `targets` 旧描述
+- 写入前备份到 `.swagger2api/backup/<时间>/`，`--restore latest` 可回退；`init --from-script` 转为 `upgrade --yes` 别名
+- 交互空选退出 0，ESC / Ctrl+C 退出 130 且不打印堆栈
+- `grouping.names` 手工名命中聚合成员时直接报错，不再静默生成坏产物
+
+### ⚡ 优化改进
+
+- 交互统一改用 `@inquirer/prompts`，移除 `prompts` 依赖
+
+### 🐛 问题修复
+
+- 契约类型名与模块类名同名时只改类名与文件名，避免同一文件内重复声明导致 TS 构建失败；契约与 `HttpClient` 等底座同名时根出口显式导出底座，与聚合类 `Api` 同名时以 `ApiContract` 别名导出
+- `client: "fetch"` 与默认（未传 `--axios`）未生效，产物仍输出 Axios 客户端：模板改为按客户端类型分发，fetch 模式不再暴露 Axios 专属 `instance`
+- TS 分组产物的模块与 route-types 只对运行时枚举按值导入，纯类型写 `import type`；`RequestParams` 改为类型导入，避免 `verbatimModuleSyntax` 项目启动即报缺失导出；JS 产物的声明文件保持值导入形态
+- 后处理失败会残留不完整产物：现先生成横幅，失败时按快照回滚本轮新增文件并保留原有产物，旧版固定产物延后到校验通过后删除，可原地重跑
+- 聚合成员保留名改为大小写不敏感，`setSecurityData` 等驼峰标签不再覆盖客户端底座成员；单文件模式路径首段命中保留名时自动改名
+- 文档缺少 `paths` 时静默成功，现以可读错误终止（`E_SPEC_INVALID`）；`components` 缺失、为 `null` 或路径项为 `null` 时归一或跳过并告警；无 `components.schemas` 时补写空契约出口
+- Swagger 2.0 与空 `paths` 给出明确结论（`E_SPEC_INVALID` / `E_NO_ENDPOINTS`）
+- `procedure-call` 渲染不再回写共享路由的 `query.type`，同一路由多次渲染结果稳定
+- `deepMergeConfig` 与迁移的 `deepMerge` 用祖先栈检测循环引用，成环时给可读错误而不是栈溢出
+
+### 📝 文档更新
+
+- 补齐产物对象图契约（可枚举图无环、`http` 闭包持有链为预期、方法可解构）与 `--single-http-client` 口径，写明不要对 `api` 深合并 / 深克隆
+- 补充失败回滚与可直接重跑、仅支持 OpenAPI 3 与无契约产物的口径
+- README、docs 与技能同步 `base` + `docs`、`--target` / `--all`、`upgrade` 与横幅口径
+
+### 🧹 清理移除
+
+- 移除旧版产物结构特征识别与旧横幅锚点，产物归属只认当前中英锚点
+
 ## 1.3.4
 
 > 2026-11-21 发布
