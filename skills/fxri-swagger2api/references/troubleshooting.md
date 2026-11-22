@@ -9,8 +9,9 @@
 | 不确定产物是否最新 | `swagger2api --check --json` | `ok: true`，或 `missing` / `mismatched` / `extra` 清单 | 有差异按下一行处理 |
 | 产物缺失或内容不一致 | `swagger2api --check --json` | `errorCode: "E_CHECK_FAILED"` 与对应清单 | 重新生成后复检，不手补生成物 |
 | 产物多余 / 组改名后残留 | `swagger2api --check --json`，再 `swagger2api prune --dir "<目录>" --json` | `extra` 列出带横幅文件；prune 返回 `dryRun: true` | 用户确认后加 `--yes` 删除 |
-| 整个目录已废弃（删了 target / 搬家） | `swagger2api prune --dir "<目录>" --json` | `files` 清单与数量 | 用户确认后 `--yes`；不要用 `--clean-output` |
-| 同目录配置输出重叠 | `swagger2api config status --json` | 各层命中文件与 `effective` | 拆分输出目录或删掉多余配置；冲突时退出码 2、不落盘 |
+| 整个目录已废弃（删了文档 / 搬家） | `swagger2api prune --dir "<目录>" --json` | `files` 清单与数量 | 用户确认后 `--yes`；不要用 `--clean-output` |
+| 多文档非交互报 `E_DOC_SELECTION_REQUIRED` | `swagger2api --target <id[,id]>` 或 `--all` | 生成 / 校验结果 | 脚本里显式给出选择，不依赖交互 |
+| 文档输出目录重叠 | 生成时 stderr 与 `--json` 结论 | 文档 id 与重叠目录 | 拆分 `docs[].output`；冲突时退出码 2、不落盘 |
 | 单文件模式出现分组残留 | 直接生成，读取 stderr 告警 | 「检测到输出目录含分组模式产物」 | 按告警执行 `prune --dir`，或 `output.clean` 重建 |
 | 布局异常（模块过小 / 超上限） | `swagger2api inspect --dir "<目录>" --json` | `issues` 清单，`errorCode: "E_LAYOUT_ISSUES"` | 先 `--dry-run --json` 预览分桶与分片，再重新生成 |
 | 配置读不到或被环境变量覆盖 | `swagger2api config status --json` | `layers` / `envOverrides` / `effective` | 按 `warnings` 修正，或显式传 `--config` |

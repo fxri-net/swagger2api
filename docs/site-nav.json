@@ -3,7 +3,10 @@
     { "text": "快速开始", "link": "/getting-started" },
     {
       "text": "指南",
-      "items": [{ "text": "完整攻略", "link": "/guide" }]
+      "items": [
+        { "text": "完整攻略", "link": "/guide" },
+        { "text": "一键迁移", "link": "/upgrade" }
+      ]
     },
     {
       "text": "参考",
@@ -31,7 +34,10 @@
     },
     {
       "text": "指南",
-      "items": [{ "text": "完整攻略", "link": "/guide" }]
+      "items": [
+        { "text": "完整攻略", "link": "/guide" },
+        { "text": "一键迁移", "link": "/upgrade" }
+      ]
     },
     {
       "text": "参考",

@@ -9,8 +9,9 @@
 | `generate` | `swagger2api` | 写入 | 按配置拉取文档并生成接口产物 |
 | `preview` | `swagger2api --dry-run` | 只读 | 只输出分组报表，不写产物 |
 | `check` | `swagger2api --check` | 只读 | 校验产物是否与配置一致 |
-| `init` | `swagger2api init` | 写入 | 生成或迁移配置 |
-| `grouping` | `swagger2api grouping` | 写入（需终端） | 查看分布并写入分组配置 |
+| `init` | `swagger2api init` | 写入 | 交互生成配置（`--from-script` 为 upgrade 别名） |
+| `upgrade` | `swagger2api upgrade` | 写入 | 迁移旧配置与脚本到 base + docs，支持备份与回退 |
+| `grouping` | `swagger2api grouping --target <id>` | 写入（需终端） | 查看指定文档分布并写入分组配置 |
 | `config-status` | `swagger2api config status` | 只读 | 配置分层与生效结果 |
 | `surface` | `swagger2api surface` | 写基线 / 只读比对 | 提取接口面、写基线或比对增删 |
 | `inspect` | `swagger2api inspect` | 只读 | 审计产物布局 |
@@ -35,7 +36,7 @@
 | `actions` | 建议的下一步命令，可直接复制 |
 
 - JSON 模式 stdout 只有一份 JSON，人类日志走 stderr；UTF-8 无 BOM。
-- 错误码：`E_CHECK_FAILED`、`E_LAYOUT_ISSUES`、`E_DIR_NOT_FOUND`、`E_UNSAFE_DIR`、`E_ARGS_MISSING`、`E_CONFIG_CONFLICT`。
+- 错误码：`E_CHECK_FAILED`、`E_LAYOUT_ISSUES`、`E_DIR_NOT_FOUND`、`E_UNSAFE_DIR`、`E_ARGS_MISSING`、`E_DOC_SELECTION_REQUIRED`。
 
 ## 退出码
 
@@ -43,7 +44,8 @@
 | --- | --- |
 | `0` | 成功：生成完成、校验通过或只读完成 |
 | `1` | 生成或校验失败 |
-| `2` | 用法或配置错误（缺参、目录不存在、目录不安全、跨配置输出重叠） |
+| `2` | 用法或配置错误（缺参、目录不存在、目录不安全、多文档未显式选择） |
+| `130` | 交互被 ESC / Ctrl+C 取消 |
 
 ## 场景入口
 
@@ -52,5 +54,6 @@
 | 第一次接入 | [快速开始](./getting-started) |
 | 查命令与参数 | [CLI 参考](./cli) |
 | 调配置 | [配置参考](./config) |
+| 旧配置 / 旧脚本迁移 | [一键迁移](./upgrade) |
 | 产物异常 / 清理 | [CLI 参考 · 废弃产物清理](./cli#废弃产物清理) |
 | 让 AI 自助排障 | [能力总览](./capabilities) 与包内技能 `swagger2api skill --print` |

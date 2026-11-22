@@ -48,10 +48,10 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
   {
     id: "generate",
     name: "swagger2api",
-    purpose: "按配置拉取文档并生成接口产物，分组模式默认按横幅清理旧产物",
+    purpose: "按配置生成文档产物；单文档直接执行，多文档交互勾选或 --target / --all",
     readOnly: false,
     destructive: false,
-    params: ["--config <文件>", "--target <id>", "--profile <name>", "-q", "--timeout <ms>", "--no-interactive"],
+    params: ["--config <文件>", "--target <id[,id]>", "--all", "--profile <name>", "--timeout <ms>", "--no-interactive"],
     examples: ["swagger2api --config swagger2api.json", "swagger2api --config swagger2api.json --target lc"],
     next: "check"
   },
@@ -78,7 +78,7 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
   {
     id: "init",
     name: "swagger2api init",
-    purpose: "交互式生成 swagger2api.json，或从既有 npm script 迁移参数",
+    purpose: "交互式生成 swagger2api.json（--from-script 为 upgrade --yes 的兼容别名）",
     readOnly: false,
     destructive: false,
     params: ["--from-script <package.json>", "--config <文件>"],
@@ -86,13 +86,23 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
     next: "generate"
   },
   {
-    id: "grouping",
-    name: "swagger2api grouping",
-    purpose: "展示标签与路径分布，交互式写入分组配置",
+    id: "upgrade",
+    name: "swagger2api upgrade",
+    purpose: "迁移旧配置与生成脚本到 base + docs，备份后改写 package.json，支持回退",
     readOnly: false,
     destructive: false,
-    params: [],
-    examples: ["swagger2api grouping"],
+    params: ["--dry-run", "--diff", "--check", "--yes", "--only <目录>", "--skip <目录>", "--cwd <目录>", "--json", "--keep-legacy", "--restore <latest|目录>"],
+    examples: ["swagger2api upgrade --dry-run", "swagger2api upgrade --diff", "swagger2api upgrade --restore latest"],
+    next: "generate"
+  },
+  {
+    id: "grouping",
+    name: "swagger2api grouping",
+    purpose: "展示标签与路径分布，交互式写入指定文档的分组配置",
+    readOnly: false,
+    destructive: false,
+    params: ["--target <id>", "--config <文件>"],
+    examples: ["swagger2api grouping --target base"],
     next: "preview"
   },
   {
@@ -111,7 +121,7 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
     purpose: "提取产物接口面、写基线或与基线比对，用于跨版本迁移与回归",
     readOnly: false,
     destructive: false,
-    params: ["--out <文件>", "--compare <文件>", "--requests-only", "--json", "--target <id>"],
+    params: ["--out <文件>", "--compare <文件>", "--requests-only", "--json", "--target <id[,id]>"],
     examples: ["swagger2api surface --out .swagger2api/surface.json", "swagger2api surface --compare .swagger2api/surface.json"],
     next: "check"
   },
@@ -169,28 +179,27 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
 
 /** 配置项注册表：只列需要判断的键，细节以 docs/config.md 为准 */
 export const CONFIG_KEYS: ConfigKeyCapability[] = [
-  { key: "input.url", type: "string", default: "-", usage: "Swagger 文档地址" },
-  { key: "input.file", type: "string", default: "-", usage: "本地文档快照，源站不可用时使用" },
-  { key: "input.timeout", type: "number", default: "0", usage: "远端拉取超时（毫秒），0 表示不超时" },
-  { key: "output.dir", type: "string", default: "./src/api", usage: "产物目录，相对配置文件解析" },
-  { key: "output.mode", type: "string", default: "single", values: ["single", "grouped"], usage: "单文件或分组多文件" },
-  { key: "output.prune", type: "boolean", default: "分组模式开启", usage: "生成后按横幅清理旧产物" },
-  { key: "output.clean", type: "boolean", default: "false", usage: "生成前清空整个输出目录，仅适合纯生成目录" },
-  { key: "output.typeCheck", type: "string", default: "skip", values: ["skip", "enforce"], usage: "是否剥离生成物的 @ts-nocheck" },
-  { key: "output.banner", type: "string", default: "zh", values: ["zh", "en"], usage: "产物文件头横幅语言" },
-  { key: "client.type", type: "string", default: "fetch", values: ["fetch", "axios"], usage: "HTTP 客户端" },
-  { key: "language.target", type: "string", default: "ts", values: ["ts", "js"], usage: "产物语言，JS 同时生成声明" },
-  { key: "types.responses", type: "boolean", default: "false", usage: "生成响应类型信息" },
-  { key: "grouping.split", type: "boolean | object", default: "true", usage: "自适应分桶与分片阈值" },
-  { key: "grouping.names", type: "object", default: "{}", usage: "原始组名到模块名的覆盖表" },
-  { key: "targets", type: "array", default: "-", usage: "多目标配置，逐目标声明输入与输出" }
+  { key: "docs[].id", type: "string", default: "-", usage: "文档唯一标识，用于 --target 与本地层覆盖" },
+  { key: "docs[].source", type: "string | object", default: "-", usage: "文档地址 / 本地文件，或 { url | file, headers, timeout }" },
+  { key: "docs[].output", type: "string | object", default: "./src/api", usage: "产物目录，可为字符串或 { dir, name, ... }" },
+  { key: "base.output.name", type: "string", default: "index", usage: "入口文件名默认值，文档项可覆盖" },
+  { key: "base.output.mode", type: "string", default: "single", values: ["single", "grouped"], usage: "单文件或分组多文件" },
+  { key: "base.output.prune", type: "boolean", default: "分组模式开启", usage: "生成后按横幅清理旧产物" },
+  { key: "base.output.clean", type: "boolean", default: "false", usage: "生成前清空整个输出目录，仅适合纯生成目录" },
+  { key: "base.output.typeCheck", type: "string", default: "skip", values: ["skip", "enforce"], usage: "是否剥离生成物的 @ts-nocheck" },
+  { key: "base.output.banner", type: "string", default: "zh", values: ["zh", "en"], usage: "产物文件头横幅语言" },
+  { key: "base.client", type: "string", default: "fetch", values: ["fetch", "axios"], usage: "HTTP 客户端" },
+  { key: "base.language", type: "string", default: "ts", values: ["ts", "js"], usage: "产物语言，JS 同时生成声明" },
+  { key: "base.types.responses", type: "boolean", default: "false", usage: "生成响应类型信息" },
+  { key: "base.grouping.split", type: "boolean | object", default: "true", usage: "自适应分桶与分片阈值" },
+  { key: "base.grouping.names", type: "object", default: "{}", usage: "原始组名到模块名的覆盖表" }
 ]
 
 /** 退出码 */
 export const EXIT_CODES = [
   { code: 0, description: "成功：生成完成、校验通过或预览完成" },
   { code: 1, description: "生成或校验失败：拉取失败、产物缺失 / 不一致 / 多余" },
-  { code: 2, description: "用法或配置错误：缺参、目录不存在、目录不安全、跨配置输出重叠" }
+  { code: 2, description: "用法或配置错误：缺参、目录不存在、目录不安全、多文档未显式选择" }
 ]
 
 /** 技能参考文件索引：与 references 目录一一对应 */

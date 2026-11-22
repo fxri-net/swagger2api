@@ -16,7 +16,7 @@
 
 后端给到 Swagger 文档，接口代码还要照着手写；接口一多重名 `_n` 后缀满屏；多个项目的接口配置散落各处，更新要挨个跑命令。本工具把这些沉淀为**一行命令**：配置落盘可复用，生成静默无感，调用即取即用。
 
-- **多文档配置**：自动扫描项目下全部 `saconfig*.json`，多项目接口集中管理，搭配快速模式一行命令全量更新（[怎么玩？](./docs/guide.md#多文档配置)）
+- **多文档配置**：每个应用目录一份 `swagger2api.json`，`base` + `docs` 管理多个接口文档，交互勾选或 `--target` / `--all` 更新（[怎么玩？](./docs/guide.md#多文档)）
 - **唯一 operationId**：接口地址 + 请求方法拼接，从源头告别 `_n` 重名后缀（[拼接规则](./docs/guide.md#唯一-operationid-拼接规则)）
 - **不懂生成的代码也能用**：接口文件含请求方法与类型定义，导入即调；参数全部有默认值，交互引导填写（[30 秒上手](./docs/getting-started.md)）
 
@@ -71,9 +71,9 @@ request.getUsers().then((res) => console.log(res))
 | 能力 | 适用场景 | 文档 |
 | --- | --- | --- |
 | 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [快速开始](./docs/getting-started.md) |
-| 多文档配置 | 一份 `swagger2api.json` 用 `targets` 声明多个文档，或扫描 `saconfig*.json` 集中管理 | [配置参考 · 多目标配置](./docs/config.md#多目标配置) |
-| 快速模式 | 配置齐全时跳过二次确认，搭配脚本一行命令静默更新 | [完整攻略](./docs/guide.md#快速模式) |
-| 分层配置与向导 | `swagger2api.json` 项目 / 个人 / 全局三层合并（旧名 `.swagger2apirc.json` 兼容），`init` 向导建设配置，`config status` 排障 | [配置参考](./docs/config.md) |
+| 多文档配置 | 一份 `swagger2api.json` 用 `base` + `docs` 声明多个文档，交互勾选或 `--target` / `--all` 更新 | [配置参考 · 基本结构](./docs/config.md#基本结构) |
+| 一键迁移 | 旧配置与 `api:*` 脚本收编为单一 `api`，支持差异预览、备份与回退 | [一键迁移](./docs/upgrade.md) |
+| 分层配置与向导 | `swagger2api.json` 项目 / 个人 / 全局三层合并，本地层按文档 `id` 覆盖，`config status` 排障 | [配置参考](./docs/config.md#分层配置) |
 | 分组输出 | 大文档按规则 / tag / 路径段拆分为多文件，聚合入口保持单一出口 | [完整攻略](./docs/guide.md#分组输出) |
 | 唯一 operationId | 接口地址 + 请求方法拼接唯一 ID，可选 get 转 query 作区分 | [完整攻略](./docs/guide.md#唯一-operationid-拼接规则) |
 | 灵活裁剪 | 移除路径参数 / 前缀索引、替换标签、移除空组件定义 | [配置参考](./docs/config.md) |
@@ -87,8 +87,9 @@ request.getUsers().then((res) => console.log(res))
 | 文档 | 适合谁 |
 | --- | --- |
 | [快速开始](./docs/getting-started.md) | 第一次接触，想 30 秒跑起来 |
-| [完整攻略](./docs/guide.md) | 日常使用：三种模式、响应提取、配置文件 |
+| [完整攻略](./docs/guide.md) | 日常使用：使用模式、响应提取、配置文件 |
 | [CLI 参考](./docs/cli.md) | 查命令、参数、默认值 |
+| [一键迁移](./docs/upgrade.md) | 旧配置、旧脚本升级到 base + docs |
 | [能力总览](./docs/capabilities.md) | 查命令清单、结构化输出与退出码 |
 | [常见问题](./docs/faq.md) | 遇到问题先来这里找 |
 | [完整文档站](https://fxri-net.github.io/swagger2api/) | 在线阅读体验 |
@@ -105,19 +106,24 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 ## 📁 多文档配置
 
-同一仓库有多个 Swagger 文档时，推荐一份 `swagger2api.json` 用 `defaults` + `targets` 声明：无参数即生成全部目标，`--check` 校验全部目标，详见[配置参考 · 多目标配置](./docs/config.md#多目标配置)。
-
-以下为早期的 saconfig 扫描方式：默认配置文件为 `saconfig.json`；工具会扫描项目下所有 `saconfig*.json`（如 `saconfig.admin.json`、`config/saconfig.json`），多文件时提供选择列表。搭配快速模式与加载全部配置参数，`package.json` 一行脚本即可静默更新所有项目的接口代码：
+每个前端应用目录一份 `swagger2api.json`：`base` 写公共口径，`docs` 逐项声明输入与输出。
 
 ```json
 {
-  "scripts": {
-    "api": "swagger2api --axios --responses -q -rpi 0 -err -ca"
-  }
+  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "docs": [
+    { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
+    { "id": "lc", "source": "./swagger/lc.json", "output": "./src/api/lc" }
+  ]
 }
 ```
 
-此功能扩展使用的话，可以作为一个独立工具使用，同时管理多个项目的接口配置。详见 [完整攻略 · 多文档配置](./docs/guide.md#多文档配置)。
+```bash
+swagger2api --target base   # 只更新指定文档
+swagger2api --all           # 非交互环境更新全部文档
+```
+
+交互环境下运行 `swagger2api` 会列出文档供勾选，默认全不选。旧配置与 `api:*` 脚本可用 `swagger2api upgrade` 一键迁移，详见[一键迁移](./docs/upgrade.md)。
 
 ## ⚙️ 环境要求
 

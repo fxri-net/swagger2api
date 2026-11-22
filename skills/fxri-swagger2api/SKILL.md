@@ -3,7 +3,7 @@ name: fxri-swagger2api
 description: 使用或排障 @fxri/swagger2api 时加载：生成接口产物、校验产物一致性、清理旧产物、首次接入或迁移配置、审计产物布局、记录接口面基线、配置与权限排障。给出能力地图（场景 → 命令 → 输出 → 下一步）、最小配置与非交互用法。不用于一般 TypeScript / axios 用法或接口文档写作。
 license: MIT
 metadata:
-  version: "1.2.10"
+  version: "1.3.0"
   tier: optional
   author: fxri
   source: https://github.com/fxri-net/swagger2api
@@ -11,7 +11,7 @@ metadata:
 
 # swagger2api
 
-> 本技能版本 1.2.10（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
+> 本技能版本 1.3.0（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
 
 一句话：把 Swagger 文档转成可提交的 TS / JS 接口产物，并负责校验、审计与清理同源产物。
 
@@ -30,8 +30,9 @@ metadata:
 | 提交前校验产物 | `swagger2api --check --json`（`check`） | missing / mismatched / extra | 只读 | `prune` 或重新生成 |
 | 清理废弃目录 | `swagger2api prune --dir <目录> --json`（`prune`） | files 清单；`--yes` 才删 | 破坏性 | `check` |
 | 审计产物布局 | `swagger2api inspect --dir <目录> --json`（`inspect`） | issues / hints / 模块体量 | 只读 | `preview` |
-| 首次接入或迁移 | `swagger2api init`（`init`），`--from-script` | `swagger2api.json` | 写入 | `generate` |
-| 分组向导 | `swagger2api grouping`（`grouping`） | `grouping` 配置段 | 写入（需终端） | `preview` |
+| 首次接入 | `swagger2api init`（`init`） | `swagger2api.json`（`base` + `docs`） | 写入 | `generate` |
+| 旧配置 / 旧脚本迁移 | `swagger2api upgrade --dry-run`（`upgrade`） | 计划 / 差异；`--yes` 后备份并写入 | 写入 | `generate` |
+| 分组向导 | `swagger2api grouping --target <id>`（`grouping`） | 指定文档的 `grouping` 配置段 | 写入（需终端） | `preview` |
 | 配置与权限排障 | `swagger2api config status --json`（`config-status`） | 分层、环境变量、生效值 | 只读 | `generate` |
 | 接口面基线 | `swagger2api surface --out / --compare`（`surface`） | 接口与类型清单 | 写基线 / 只读比对 | `check` |
 | 能力自描述 | `swagger2api capabilities --json`（`capabilities`） | 命令 / 配置 / 退出码 | 只读 | `generate` |
@@ -42,12 +43,12 @@ metadata:
 
 - 不要用 `output.clean` 清理混放手写文件的目录；用 `prune --dir` 只删生成物。
 - 不要手改生成物或复用生成横幅；需要去掉 `@ts-nocheck` 时用 `typeCheck: "enforce"`。
-- 不要在同一输出目录放两份配置；冲突会以退出码 2 拒绝且不落盘。
-- 不要在 AI / CI 里依赖交互提问：显式传 `--config`，非终端会直接报错退出 2。
+- 每个应用目录只维护一份 `swagger2api.json`；同一配置内文档输出目录不得重叠，违反时退出 2 且不落盘。
+- 不要在 AI / CI 里依赖交互选择：显式传 `--target <id[,id]>` 或 `--all`，否则多文档退出 2。
 
 ## 三步上手
 
-1. **生成**：写最小 `swagger2api.json`（`input` / `output` / `client`），执行 `swagger2api --config swagger2api.json`；产物结构要变时先 `--dry-run --json`。
+1. **生成**：写最小 `swagger2api.json`（`base` + `docs`，`docs[].source` / `output`），执行 `swagger2api --config swagger2api.json`；多文档用 `--target` / `--all`，产物结构要变时先 `--dry-run --json`。
 2. **校验**：生成后必须跑 `swagger2api --check --json`，要求 `ok: true`；失败不改产物，按 `actions` 处理。
 3. **清理**：产物多余或目录废弃时先 `prune --json` 预览，经用户确认后加 `--yes`。
 
@@ -55,11 +56,11 @@ metadata:
 
 - 逐命令说明：`references/capabilities.md`
 - CLI 参数、诊断 JSON 契约与退出码：`references/cli.md`
-- 配置决策项、多目标与分层：`references/config.md`
+- 配置决策项、`base` / `docs` 与分层：`references/config.md`
 - 产物结构、横幅归属与验收：`references/output.md`
 - 症状 → 命令排障：`references/troubleshooting.md`
-- 首次接入 / 多目标 / 离线迁移 / CI 接入配方：`references/recipes.md`
-- 旧脚本与旧配置迁移：`references/migration.md`
+- 首次接入 / 多文档 / 离线迁移 / CI 接入配方：`references/recipes.md`
+- 旧脚本与旧配置迁移（含 `upgrade` 全流程）：`references/migration.md`
 
 ## 安全约束
 

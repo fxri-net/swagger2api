@@ -234,7 +234,7 @@ function applyRcConfig(rc: Record<string, any>) {
   if (!rcUrl) return
   // 相对路径按配置文件所在目录解析，命令行从任意目录执行都能落对位置
   const configDir = datas.configDir ?? process.cwd()
-  // rc 提供输入地址即视为配置驱动：不扫描、不回写 saconfig
+  // 配置提供输入地址即视为配置驱动：不回写配置
   datas.rcDriven = true
   datas.rcUrl = isUrl(rcUrl) ? rcUrl : path.resolve(configDir, rcUrl)
   datas.rcOutput = path.resolve(configDir, output.dir ?? "./src/api")

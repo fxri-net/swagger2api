@@ -1,30 +1,35 @@
 # 完整攻略
 
-> 目标读者：已跑通最短路径、想系统了解各项能力的用户。覆盖三种使用模式、多文档管理、响应提取与配置文件。
+> 目标读者：已跑通最短路径、想系统了解各项能力的用户。覆盖使用模式、多文档管理、响应提取与配置文件。
 
-## 三种使用模式
+## 使用模式
 
-### 快速模式
+### 单文档
 
-1. 直接使用配置文件参数，若配置文件不存在或者参数不全（如第一次运行该工具），则不会进入该模式。
+每个前端应用目录一份 `swagger2api.json`，`docs` 只写一个文档项；运行 `swagger2api` 直接生成，不提问。
 
-2. 通过 `--quick` 参数开启，搭配 `package.json` 脚本可实现一行命令静默更新接口代码。
+### 多文档
+
+同一应用有多个 Swagger 文档时，在 `base` 写公共口径，`docs` 逐项声明：
+
+```json
+{
+  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "docs": [
+    { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
+    { "id": "lc", "source": "./swagger/lc.json", "output": "./src/api/lc" }
+  ]
+}
+```
+
+- 交互环境：运行 `swagger2api` 后勾选要更新的文档，默认全不选；空格切换、回车确认，空选退出 0。
+- 非交互 / 脚本环境：必须显式 `--target base[,lc]` 或 `--all`，否则退出 2。
+- `--check` / `--dry-run` 与生成共用同一选择结果。
+- 每个应用目录只维护一份配置；不同应用的配置各自独立，不跨目录合并。
 
 ### 指定配置
 
-1. 指定配置文件路径，支持多选，用【,】分隔。
-
-2. 使用该参数则不会触发扫描全部配置文件功能。
-
-### 多文档配置
-
-1. 默认配置文件为 saconfig.json，项目启动后会扫描当前项目下所有符合【./**/saconfig*.json】规则的文件（如【saconfig.json】【saconfig.admin.json】【config/saconfig.json】等），并在扫描到多个文件时提供选择列表，如只有一个文件，则直接进入下一步，该功能可在配置项中关闭。
-
-2. 此功能扩展使用的话，可以作为一个独立工具使用，同时管理多个项目的接口配置。
-
-3. 搭配上快速模式和加载全部配置文件参数，可以实现一行命令更新所有项目的接口配置。
-
-4. 同一仓库内多个 Swagger 文档推荐一份 `swagger2api.json` 用 `defaults` + `targets` 声明：无参数生成全部目标，`--target <id>` 只跑一个，`--check` 校验全部，字段见[配置参考 · 多目标配置](./config#多目标配置)。
+`--config <path>` 只替换项目层配置文件，全局层与本地层照常叠加；只接受单个文件。
 
 ## 唯一 operationId 拼接规则
 
@@ -127,18 +132,17 @@ client.instance.interceptors.response.use(
 - **激活方式**：`pnpm exec swagger2api skill --print` 输出包内技能入口全文；`swagger2api skill` 输出入口路径，`skill --json`
   输出 `{ entry, referencesDir, version }`。技能随 npm 包发布，升级依赖即升级技能；不安装、不写项目文件、不维护状态。
 - **最短路径**：读技能 → 写最小 `swagger2api.json` → `--dry-run --json` 预览 → 生成 → `--check` 与项目类型检查。
-- **配置决策项**：`mode` / `client` / `language` / `typeCheck` / `responses` / `query` / `pathPrefixIndex` / `tagRewrite`；
-  先定输入与输出，其余按默认，逐项加完各跑一次预览。
+- **配置决策项**：`docs[].source` / `docs[].output` / `base.output.mode` / `base.client` / `base.language` / `base.output.typeCheck` / `base.types.responses` / `base.naming`；
+  先定文档输入输出，其余按默认，逐项加完各跑一次预览。
 - **既有边界**：生成物默认沿用 `// @ts-nocheck`，类型错误不进入下游检查；需要类型检查接管时用 `typeCheck: "enforce"`，由工具剥离后再校验，不手改生成物。
 - **规范来源**：技能结构与版本递增的机械真源是全局 `@fxri/toolkit` 的 `skills lint` / `skills bump`；本仓只保留打包与定位硬断言。
 
 ## 配置文件
 
-> 新项目推荐使用分层配置 `swagger2api.json`（可随仓库提交，支持分组、清理与多产物；见[配置参考](./config)）；本节描述的是早期扁平配置 `saconfig.json`，仍完整兼容。
-
-- 默认配置文件为 `saconfig.json`，由工具在脚本执行目录生成
-- 生成代码结束后，如果参数有改动，配置文件会同步更新
-- 配置项与 CLI 参数一一对应，完整字段见 [配置参考](./config)
+- 每个前端应用目录一份 `swagger2api.json`，`base` 写共享口径，`docs` 逐项声明输入输出；完整字段见 [配置参考](./config)。
+- 个人覆盖写在 `swagger2api.local.json`，按文档 `id` 合并，默认不入库；全局偏好放 `~/.swagger2api.json`，只允许 `base` / `profiles`。
+- 生成代码不会回写配置；需要调整参数时直接改配置或命令行。
+- 旧 `saconfig*`、`.swagger2apirc*`、`defaults` + `targets` 与 `api:*` 脚本用 [`swagger2api upgrade`](./upgrade) 迁移，支持差异预览、备份与回退。
 
 ## swagger-typescript-api 扩展
 

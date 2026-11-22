@@ -64,7 +64,7 @@ export type Defines = {
     banner?: string
     /** 拉取远端文档的超时（毫秒） */
     timeout?: number
-    /** 是否由 rc 配置驱动（不读写 saconfig） */
+    /** 是否由配置驱动（不回写配置） */
     rcDriven?: boolean
     /** rc 提供的文档地址 */
     rcUrl?: string

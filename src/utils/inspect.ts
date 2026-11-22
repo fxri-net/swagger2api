@@ -94,7 +94,7 @@ export function inspectThresholdsOf(split: unknown): InspectThresholds {
 }
 
 /**
- * 从配置分层解析审计阈值：多目标配置取 defaults.grouping.split。
+ * 从配置分层解析审计阈值：取 base.grouping.split。
  * @param options.projectFile 显式项目层配置；缺省按当前目录向上查找
  * @param options.cwd 起始目录
  * @return 审计阈值
@@ -102,8 +102,7 @@ export function inspectThresholdsOf(split: unknown): InspectThresholds {
 export function resolveInspectThresholds(options: { projectFile?: string; cwd?: string } = {}): InspectThresholds {
   const layers = loadConfigLayers(options.cwd ?? process.cwd(), { projectFile: options.projectFile })
   const merged = layers.merged as Record<string, any> | null
-  const split = merged?.grouping?.split ?? merged?.defaults?.grouping?.split
-  return inspectThresholdsOf(split)
+  return inspectThresholdsOf(merged?.base?.grouping?.split)
 }
 
 /**
