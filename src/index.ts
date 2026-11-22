@@ -11,6 +11,7 @@ import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags
 import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
 import { stripTsNoCheck } from "./utils/postprocess"
 import {
+  buildCollisionExports,
   collectGeneratedFiles,
   collectGeneratedFilesOf,
   findHandwrittenConflicts,
@@ -26,7 +27,7 @@ import { resolveBannerLanguage, rewriteGeneratedBanners } from "./utils/banner"
 import { inspectLayout, inspectThresholdsOf } from "./utils/inspect"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
-import { CLIENT_BASE, TYPES_DIR, findOrphanModules, isReservedProperty, toClassName, toClassNames, toNamespaceName, type GroupNameInfo } from "./utils/naming"
+import { CLIENT_BASE, TYPES_DIR, findOrphanModules, isReservedProperty, slugifyGroupName, toClassName, toClassNames, toNamespaceName, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -754,7 +755,13 @@ async function onGenerateApi(data: Defines["data"]) {
   // 模块化 + 分组配置：把接口归入原始组名，再按命名表写入模块名
   const groupingConfig = (datas.config as Record<string, any>).grouping as GroupingConfig | undefined
   if (datas.config.modular && groupingConfig && (groupingConfig.strategy?.length || groupingConfig.rules?.length || groupingConfig.split)) {
-    const result = applyGrouping(data, groupingConfig)
+    // 契约类型名参与类名避让：模块类与契约同名会在同一文件内重复声明
+    const typePrefix = String((datas.config as Record<string, any>).typePrefix ?? "")
+    const typeSuffix = String((datas.config as Record<string, any>).typeSuffix ?? "")
+    const contractIdentifiers = Object.keys(data.components?.schemas ?? {})
+      .map((key) => toClassName(slugifyGroupName(`${typePrefix}${key}${typeSuffix}`).slug))
+      .filter(Boolean)
+    const result = applyGrouping(data, groupingConfig, contractIdentifiers)
     result.warnings.forEach((warning) => console.error("⚠️", warning))
     if (result.errors.length > 0) {
       result.errors.forEach((error) => console.error("失败：", error))
@@ -879,7 +886,7 @@ async function onGenerateApi(data: Defines["data"]) {
         failures += 1
         return
       }
-      writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries), bannerLanguage)
+      writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries), bannerLanguage, buildCollisionExports(dir, apiClassName))
       const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS, { extraFiles })
       if (errors.length > 0) {
         errors.forEach((error) => console.error("失败：", error))

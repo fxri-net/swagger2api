@@ -239,9 +239,10 @@ export function toNamespaceName(raw: string) {
  * @param names 手工覆盖表（键为原始名或折叠键）
  * @return 命名结果
  */
-export function buildGroupNaming(groups: string[], names: Record<string, string> = {}): GroupNamingResult {
+export function buildGroupNaming(groups: string[], names: Record<string, string> = {}, extraIdentifiers: string[] = []): GroupNamingResult {
   const errors: string[] = []
   const warnings: string[] = []
+  const extra = new Set(extraIdentifiers)
   const raws = [...new Set(groups)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   // 手工名索引：同时接受原始名与折叠键，避免全半角差异要求用户写两遍
   const manualByKey = new Map<string, string>()
@@ -335,7 +336,7 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
       fallbackSeq += 1
     }
     const fileReserved = RESERVED_MODULE_NAMES.has(base.toLowerCase()) || WINDOWS_DEVICES.has(base.toLowerCase())
-    const identifierReserved = RESERVED_IDENTIFIERS.has(toClassName(base))
+    const identifierReserved = RESERVED_IDENTIFIERS.has(toClassName(base)) || extra.has(toClassName(base))
     const propertyReserved = RESERVED_PROPERTIES.has(base.toLowerCase())
     const reasons = [reason]
     let candidate: string

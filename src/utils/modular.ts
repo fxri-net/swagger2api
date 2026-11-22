@@ -211,6 +211,39 @@ export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], 
     .filter((file) => fs.existsSync(path.join(dir, file)) && !isGeneratedFile(path.join(dir, file)))
 }
 
+/** 客户端底座的固定导出：契约同名时以底座为准，保证根出口可用 */
+const CLIENT_VALUE_EXPORTS = ["ContentType", "HttpClient"]
+const CLIENT_TYPE_EXPORTS = ["ApiConfig", "AxiosResponse", "FullRequestParams", "QueryParamsType", "RequestParams"]
+
+/**
+ * 生成根出口的显式导出：契约与底座或聚合类同名时，显式导出优先于 export *。
+ * @param dir 产物目录
+ * @param apiClassName 聚合类名
+ * @return 追加到聚合入口与声明文件的导出行
+ */
+export function buildCollisionExports(dir: string, apiClassName: string) {
+  const dtsBarrel = path.join(dir, TYPES_DIR, "index.d.ts")
+  const tsBarrel = path.join(dir, TYPES_DIR, "index.ts")
+  const barrel = fs.existsSync(dtsBarrel) ? dtsBarrel : tsBarrel
+  const source = fs.existsSync(barrel) ? fs.readFileSync(barrel, "utf8") : ""
+  const valueNames = new Set<string>()
+  for (const matched of source.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+    matched[1].split(",").forEach((name) => valueNames.add(name.trim()))
+  }
+  const has = (name: string) => new RegExp(`\\b${name}\\b`).test(source)
+  const lines: string[] = []
+  for (const name of CLIENT_VALUE_EXPORTS) if (has(name)) lines.push(`export { ${name} } from "./${CLIENT_BASE}"`)
+  for (const name of CLIENT_TYPE_EXPORTS) if (has(name)) lines.push(`export type { ${name} } from "./${CLIENT_BASE}"`)
+  if (has(apiClassName)) {
+    lines.push(
+      valueNames.has(apiClassName)
+        ? `export { ${apiClassName} as ${apiClassName}Contract } from "./${TYPES_DIR}"`
+        : `export type { ${apiClassName} as ${apiClassName}Contract } from "./${TYPES_DIR}"`
+    )
+  }
+  return lines
+}
+
 /**
  * 生成聚合入口内容：模块注入同一个门面实例，实例替换与安全数据对所有组同时生效。
  * @param modules 模块列表
@@ -218,9 +251,10 @@ export function findHandwrittenConflicts(dir: string, entries: GroupNameInfo[], 
  * @param modulesDir 模块所在目录（相对导入用）
  * @param toJS 是否为 JS 输出
  * @param language 横幅语言
+ * @param extraExports 契约冲突时追加的显式导出
  * @return 文件内容
  */
-export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string, modulesDir: string, toJS: boolean, language: BannerLanguage = "zh") {
+export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string, modulesDir: string, toJS: boolean, language: BannerLanguage = "zh", extraExports: string[] = []) {
   const className = apiClassName || "Api"
   const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
   // 同源模块（分桶文件）合并为一条 import，避免多命名空间拆成多个文件时重复导入
@@ -246,6 +280,7 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
     ...importLines,
     `export * from "./${TYPES_DIR}"`,
     `export * from "./${CLIENT_BASE}"`,
+    ...extraExports,
     "",
     "/** 聚合入口：各模块共享同一个请求实例 */",
     toJS ? `export class ${className} extends HttpClient {` : `export class ${className}<SecurityDataType = unknown> extends HttpClient<SecurityDataType> {`,
@@ -269,17 +304,17 @@ export function buildAggregateEntry(modules: ModuleEntry[], apiClassName: string
  * @param language 横幅语言
  * @return 写入的文件
  */
-export function writeAggregateEntry(dir: string, apiClassName: string, toJS: boolean, modules?: ModuleEntry[], language: BannerLanguage = "zh") {
+export function writeAggregateEntry(dir: string, apiClassName: string, toJS: boolean, modules?: ModuleEntry[], language: BannerLanguage = "zh", extraExports: string[] = []) {
   const ext = toJS ? ".js" : ".ts"
   const list = modules ?? collectModules(dir, ext)
   if (list.length === 0) return []
-  const content = buildAggregateEntry(list, apiClassName, "", toJS, language)
+  const content = buildAggregateEntry(list, apiClassName, "", toJS, language, extraExports)
   const files: string[] = []
   const entry = path.join(dir, `index${ext}`)
   fs.writeFileSync(entry, content)
   files.push(entry)
   if (toJS) {
-    const dts = buildAggregateDeclarations(list, apiClassName, language)
+    const dts = buildAggregateDeclarations(list, apiClassName, language, extraExports)
     const dtsFile = path.join(dir, "index.d.ts")
     fs.writeFileSync(dtsFile, dts)
     files.push(dtsFile)
@@ -347,9 +382,10 @@ export function verifyGroupedOutput(
  * @param modules 模块列表
  * @param apiClassName 聚合类名
  * @param language 横幅语言
+ * @param extraExports 契约冲突时追加的显式导出
  * @return 声明内容
  */
-export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName: string, language: BannerLanguage = "zh") {
+export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName: string, language: BannerLanguage = "zh", extraExports: string[] = []) {
   const className = apiClassName || "Api"
   const aliasOf = (item: ModuleEntry) => (item.className === className ? `${item.className}Module` : item.className)
   // 声明文件与实现同源：桶文件内的多个类合并到一条 import
@@ -374,6 +410,7 @@ export function buildAggregateDeclarations(modules: ModuleEntry[], apiClassName:
     ...imports,
     `export * from "./${TYPES_DIR}"`,
     `export * from "./${CLIENT_BASE}"`,
+    ...extraExports,
     "",
     `export declare class ${className}<SecurityDataType = unknown> extends HttpClient<SecurityDataType> {`,
     ...props,

@@ -1,0 +1,34 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "contract-collision", "version": "1.0.0" },
+  "servers": [{ "url": "http://example.invalid" }],
+  "components": {
+    "schemas": {
+      "Probe": { "type": "object", "properties": { "id": { "type": "string" } } },
+      "HttpClient": { "type": "string", "enum": ["a", "b"] }
+    }
+  },
+  "paths": {
+    "/probe/item": {
+      "post": {
+        "operationId": "probeItem",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Probe" } } }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/probe/dict": {
+      "get": {
+        "operationId": "probeDict",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HttpClient" } } }
+          }
+        }
+      }
+    }
+  }
+}

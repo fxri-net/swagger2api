@@ -88,6 +88,7 @@
 - 自适应分桶：`mode: "grouped"` 默认启用（`grouping.split` 未配置即为 `true`）。总量 ≤ `minRoutes`（默认 150）时只生成一个 `Modules` 模块文件；否则按命名空间码点顺序装箱，单桶达到 `targetRoutes`（默认 300）后开新桶；装箱后小于 `minBucketRoutes`（默认 60）的桶与相邻桶合并（优先前一桶且不超过 `maxRoutes`）；单个命名空间超过 `maxRoutes`（默认 450）时按子分类分片，尾片小于 `minBucketRoutes` 且与前一片合并后不超过 `maxRoutes` 时并入前一片，分片由门面类合并实例与类型；桶名取桶内首个命名空间，单桶固定 `Modules`。对外始终是 `api.<命名空间>.<方法>`
 - `grouping.split` 三种形态：不配置即采用上述默认阈值；写对象可按需覆写 `minRoutes` / `targetRoutes` / `maxRoutes` / `minBucketRoutes` / `fallback`（默认 `misc`）/ `categories`，未写的项仍取默认；写 `false` 关闭自适应分桶，一个命名空间一个模块文件，仅作回滚逃生口。业务仓通常保持默认，确需固定文件数或调整桶大小时再覆写。离线产物可用 `swagger2api inspect --dir <目录>` 按同一判据审计（见 [CLI 参考](./cli)）
 - 保留名：`index`、`types`、`client`、`shared` 等固定产物名，以及 `instance`、`request`、`setSecurityData` 等聚合成员名（大小写不敏感），命中后自动追加序号，避免覆盖生成能力或运行期成员；单文件模式的路径首段命名空间同样受保护；`grouping.names` 手工名命中聚合成员时直接报错
+- 契约冲突：契约类型名与模块类名同名时只改类名与文件名，聚合属性 `api.<组>` 保持不变；契约与底座（`HttpClient`、`ContentType`、`RequestParams` 等）同名时，根出口显式导出底座，契约仍可从 `types` 直接引用；与聚合类 `Api` 同名时以 `ApiContract` 别名导出契约
 - 产物清理：`output.clean` 会清空整个输出目录（只适合纯生成目录）；分组模式默认按生成横幅（兼容旧版产物特征）清理，只删除识别为生成物且本轮不再生成的文件，手写适配文件不受影响；开关关闭时只报告多余产物、不删除；手动 `--modular` 同样按此清理已消失模块。横幅只看前 1KB，旧版特征最多读前 4KB
 - 多产物目录：同一目录需要多份配置时用 `swagger2api.<产物>.json`（如 `swagger2api.mg.json`）并以 `--config` 指定；单产物目录直接运行即可自动命中 `swagger2api.json`。同一输出目录只允许一份配置：同目录其他配置的输出与本配置相同或互相嵌套时以退出码 2 拒绝
 - 旧配置：`saconfig.json` 仍可用；两套同时存在时 rc 优先，并给出迁移提示

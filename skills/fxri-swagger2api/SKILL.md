@@ -3,7 +3,7 @@ name: fxri-swagger2api
 description: 使用或排障 @fxri/swagger2api 时加载：生成接口产物、校验产物一致性、清理旧产物、首次接入或迁移配置、审计产物布局、记录接口面基线、配置与权限排障。给出能力地图（场景 → 命令 → 输出 → 下一步）、最小配置与非交互用法。不用于一般 TypeScript / axios 用法或接口文档写作。
 license: MIT
 metadata:
-  version: "1.2.5"
+  version: "1.2.6"
   tier: optional
   author: fxri
   source: https://github.com/fxri-net/swagger2api
@@ -11,7 +11,7 @@ metadata:
 
 # swagger2api
 
-> 本技能版本 1.2.5（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
+> 本技能版本 1.2.6（随 @fxri/swagger2api 分发）。被问版本时即报此值（不读磁盘、不跑 CLI）；与已安装依赖的技能版本不一致即说明会话上下文已过期，开新会话即可。
 
 一句话：把 Swagger 文档转成可提交的 TS / JS 接口产物，并负责校验、审计与清理同源产物。
 

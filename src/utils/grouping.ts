@@ -228,7 +228,7 @@ export function matchGroup(path: string, operation: Record<string, any>, groupin
  * @param grouping 分组配置
  * @return 分组结果（含命名表与报表所需信息）
  */
-export function applyGrouping(data: Record<string, any>, grouping: GroupingConfig): GroupingResult {
+export function applyGrouping(data: Record<string, any>, grouping: GroupingConfig, extraIdentifiers: string[] = []): GroupingResult {
   const fallback = grouping.fallback ?? "misc"
   const assignments: RouteAssignment[] = []
   const matchedRules = new Set<number>()
@@ -259,7 +259,8 @@ export function applyGrouping(data: Record<string, any>, grouping: GroupingConfi
   if (grouping.split !== undefined && grouping.split !== false) {
     const naming = buildGroupNaming(
       assignments.map((item) => item.group),
-      grouping.names
+      grouping.names,
+      extraIdentifiers
     )
     const split = typeof grouping.split === "object" ? grouping.split : {}
     return applySplit(assignments, grouping, split, naming, matchedRules)
@@ -282,7 +283,8 @@ export function applyGrouping(data: Record<string, any>, grouping: GroupingConfi
   // 命名表：以最终原始组名为输入，冲突由命名模块统一解析
   const naming = buildGroupNaming(
     assignments.map((item) => item.group),
-    grouping.names
+    grouping.names,
+    extraIdentifiers
   )
   const byRaw = new Map(naming.entries.map((entry) => [entry.raw, entry]))
 

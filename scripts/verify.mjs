@@ -1329,6 +1329,50 @@ async function checkGroupedContract() {
 }
 
 /**
+ * 契约冲突：契约名与模块类名同名时类名避让，与底座同名时根出口仍能取到底座。
+ * @return {number} 退出码
+ */
+async function checkContractCollision() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 契约冲突：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-contract-"))
+  try {
+    const api = join(out, "api")
+    const config = join(out, "config.json")
+    writeFileSync(
+      config,
+      JSON.stringify({ file: join(root, "fixtures", "contract-collision.json"), output: api, name: "index", mode: "grouped" }, null, 2),
+    )
+    const result = spawnSync(process.execPath, [cli, "-c", config, "-q"], { cwd: out, encoding: "utf8" })
+    if (result.status !== 0) {
+      console.error("✖ 契约冲突：生成失败")
+      console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+      return 1
+    }
+    const issues = []
+    const aggregate = readFileSync(join(api, "index.ts"), "utf8")
+    if (!aggregate.includes("probe = new Probe2(this)")) issues.push("契约同名时模块类未避让")
+    if (!aggregate.includes('export { HttpClient } from "./client"')) issues.push("根出口未显式导出底座 HttpClient")
+    const barrelFile = join(api, "types/index.d.ts")
+    const barrel = readFileSync(existsSync(barrelFile) ? barrelFile : join(api, "types/index.ts"), "utf8")
+    if (!barrel.includes("HttpClient")) issues.push("契约 HttpClient 未被生成")
+    const module = readFileSync(join(api, "Modules.ts"), "utf8")
+    if (!module.includes("export class Probe2")) issues.push("模块类名未按契约避让")
+    if (!/import (?:type )?\{ Probe \} from "\.\/types\/index"/.test(module)) issues.push("契约导入缺失")
+    if (issues.length) {
+      issues.forEach((issue) => console.error(`✖ 契约冲突：${issue}`))
+      return 1
+    }
+    return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 自适应分桶与分片：桶内多类、分片门面、聚合导入、横幅归属与关闭开关回滚。
  * 生成后编译类型探针，断言分片合并后的调用形态与单文件产物一致。
  * @return {number} 退出码
@@ -2076,6 +2120,7 @@ const steps = [
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
   { label: "保留名护栏（驼峰聚合成员 / 单文件命名空间）", run: checkReservedNaming },
+  { label: "契约冲突（类名避让 / 根出口显式导出）", run: checkContractCollision },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
