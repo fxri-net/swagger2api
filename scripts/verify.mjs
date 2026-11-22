@@ -1643,6 +1643,8 @@ async function checkRuntimeObjectGraph() {
         continue
       }
       rewriteRelativeImports(api)
+      // 临时目录落在 node_modules 内，显式声明 ESM，避免 node18 判定为 CommonJS
+      writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }))
       let loaded
       try {
         loaded = await import(pathToFileURL(join(api, "index.js")).href)
