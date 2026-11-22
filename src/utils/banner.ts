@@ -13,19 +13,8 @@ export const GENERATED_BANNER_ZH = "本文件由 @fxri/swagger2api 生成，请�
 /** 上游生成器写入的横幅锚点：只用于同轮改写生成器文件，不作为产物归属判据 */
 const UPSTREAM_BANNER = "THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API"
 
-/**
- * 计算文本显示宽度：CJK 与全角字符按两列计。
- * @param text 文本
- * @return 显示宽度
- */
-function displayWidth(text: string) {
-  let width = 0
-  for (const char of text) width += /[\u1100-\u11FF\u2E80-\u9FFF\uFF00-\uFFEF]/.test(char) ? 2 : 1
-  return width
-}
-
-/** 横幅文本区宽度：两种语言取同一宽度，使横幅块逐行对齐 */
-const BANNER_WIDTH = Math.max(displayWidth(GENERATED_BANNER), displayWidth(GENERATED_BANNER_ZH))
+/** 横幅边框宽度：取英文锚点长度，中英共用同一上下边框 */
+const BANNER_WIDTH = GENERATED_BANNER.length
 
 /**
  * 取目标语言的横幅锚点。
@@ -44,7 +33,7 @@ export function bannerAnchor(language: BannerLanguage = "zh") {
 export function bannerBlock(language: BannerLanguage = "zh") {
   const anchor = bannerAnchor(language)
   const border = ` * ${"-".repeat(BANNER_WIDTH + 6)}`
-  return ["/*", border, ` * ## ${anchor}${" ".repeat(BANNER_WIDTH - displayWidth(anchor))} ##`, border, " */"]
+  return ["/*", border, ` * ## ${anchor} ##`, border, " */"]
 }
 
 /**
