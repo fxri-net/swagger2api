@@ -382,6 +382,29 @@ function flatToParts(config: Record<string, any>, id: string, fallbackOutput = "
 }
 
 /**
+ * 旧扁平写法转为文档项：别名并入 types / naming，输出选项并入 output。
+ * @param raw 旧配置片段
+ * @param id 文档 id
+ * @param fallbackSource 兜底输入
+ * @param fallbackOutput 兜底输出目录
+ * @return 文档项
+ */
+function docFromFlat(raw: Record<string, any>, id: string, fallbackSource: unknown, fallbackOutput: string) {
+  const parts = flatToParts(raw, id, fallbackOutput)
+  const doc: Record<string, any> = { id, output: parts.doc.output }
+  const source = parts.doc.source ?? fallbackSource
+  if (source !== undefined) doc.source = source
+  const fields = { ...parts.base }
+  const outputOptions = isPlainObject(fields.output) ? fields.output : undefined
+  delete fields.output
+  Object.assign(doc, fields)
+  if (outputOptions && Object.keys(outputOptions).length) {
+    doc.output = typeof doc.output === "string" ? { dir: doc.output, ...outputOptions } : { ...(isPlainObject(doc.output) ? doc.output : {}), ...outputOptions }
+  }
+  return doc
+}
+
+/**
  * 把旧版 defaults + targets 或根级单文档转为新结构。
  * @param config 现有配置
  * @param fallbackId 单文档兜底 id
@@ -415,15 +438,12 @@ function convertExisting(config: Record<string, any>, fallbackId: string) {
   const targets = Array.isArray(config.targets) ? config.targets : []
   const fallbackSource = pickSource(defaults) ?? pickSource(config)
   const fallbackOutput = pickOutputDir(defaults.output) ?? pickOutputDir(config.output) ?? "./src/api"
-  const shared = structuredClone(defaults)
-  for (const key of ["input", "url", "file", "output", "source"]) delete shared[key]
-  const base = normalizeShorthand(shared)
-  const outputOptions = { ...pickOutputOptions(base.output), ...pickOutputOptions(defaults.output), ...pickOutputOptions(config.output) }
-  delete base.output
-  const name = typeof config.name === "string" ? config.name : outputOptions.name
-  delete outputOptions.name
-  if (name) outputOptions.name = name
-  if (Object.keys(outputOptions).length) base.output = outputOptions
+  // defaults 先按扁平别名归一，保证 base 只保留嵌套段
+  const base = flatToParts(defaults, "seed", fallbackOutput).base
+  const rootOutput = { ...(isPlainObject(base.output) ? base.output : {}), ...pickOutputOptions(config.output) }
+  if (typeof config.name === "string") rootOutput.name = config.name
+  if (Object.keys(rootOutput).length > 0) base.output = rootOutput
+  else delete base.output
 
   const docs: Array<Record<string, any>> = []
   if (targets.length > 0) {
@@ -431,15 +451,11 @@ function convertExisting(config: Record<string, any>, fallbackId: string) {
       if (!isPlainObject(raw)) return
       const rest = structuredClone(raw)
       const id = typeof rest.id === "string" && rest.id.trim() ? rest.id.trim() : `doc${index + 1}`
-      const source = pickSource(rest) ?? fallbackSource
-      const output = pickOutputDir(rest.output) ?? fallbackOutput
-      const doc: Record<string, any> = { id, source, output }
-      for (const key of ["id", "source", "input", "url", "file", "output"]) delete rest[key]
-      Object.assign(doc, normalizeShorthand(rest))
-      docs.push(doc)
+      delete rest.id
+      docs.push(docFromFlat(rest, id, fallbackSource, fallbackOutput))
     })
   } else {
-    docs.push({ id: fallbackId, source: fallbackSource, output: fallbackOutput })
+    docs.push(docFromFlat(config, fallbackId, fallbackSource, fallbackOutput))
   }
   return { base, docs, profiles }
 }
@@ -514,12 +530,18 @@ function applyScriptArgs(base: Record<string, any>, doc: Record<string, any> | n
     base[key] = isPlainObject(value) && isPlainObject(base[key]) ? mergeDeep(base[key], value) : structuredClone(value)
   }
   if (!doc) return
-  if (argDoc.source !== undefined) doc.source = mergeDeep(doc.source ?? {}, argDoc.source)
-  if (argDoc.output !== undefined) doc.output = argDoc.output
+  // 只有脚本显式给出的输入输出才覆盖文档项，避免 fallback 值冲掉已有配置
+  const explicitSource = pickSource(config)
+  const explicitOutput = pickOutputDir(config.output)
+  if (explicitSource !== undefined) doc.source = mergeDeep(doc.source ?? {}, explicitSource)
+  if (explicitOutput !== undefined) {
+    const current = isPlainObject(doc.output) ? doc.output : {}
+    doc.output = { ...current, dir: explicitOutput }
+  }
   if (isPlainObject(argBase.output)) {
     const name = argBase.output.name
     if (name && typeof doc.output === "string") doc.output = { dir: doc.output, name }
-    else if (name) doc.output = { ...(doc.output ?? {}), name }
+    else if (name) doc.output = { ...(isPlainObject(doc.output) ? doc.output : {}), name }
   }
 }
 
@@ -562,8 +584,8 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
       manual.push({ path: relOf(file), reason: "旧配置缺少输入地址，未自动迁移" })
       continue
     }
-    base = mergeDeep(base, parts.base)
-    upsertDoc(docs, parts.doc)
+    // 旧配置的个性化设置留在对应文档项，不提升到 base 影响其他文档
+    upsertDoc(docs, docFromFlat(legacy, legacyId(file), undefined, "./src/api"))
   }
 
   // 本地层按 id 合并或追加，并改写为新结构后保留文件
@@ -575,12 +597,10 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
         localConfig = { docs: local.docs.filter(isPlainObject).map((doc) => normalizeShorthand(structuredClone(doc))) }
         for (const doc of localConfig.docs) upsertDoc(docs, doc)
       } else {
-        const parts = flatToParts(local, docs.length === 1 ? docs[0].id : "local")
-        const localDoc = parts.doc
+        const localDoc = docFromFlat(local, docs.length === 1 ? docs[0].id : "local", undefined, pickOutputDir(local.output) ?? "./src/api")
         // 单文档时按 id 合并，仅覆盖输出等字段不会清掉已有输入
         upsertDoc(docs, localDoc)
-        if (Object.keys(parts.base).length) base = mergeDeep(base, parts.base)
-        localConfig = { ...(Object.keys(parts.base).length ? { base: parts.base } : {}), docs: [localDoc] }
+        localConfig = { docs: [localDoc] }
       }
       const content = `${JSON.stringify(localConfig, null, 2)}\n`
       const before = readText(unit.local)
@@ -668,6 +688,20 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
     }
     outputDirs.push({ id, dir: path.resolve(unit.dir, output) })
   }
+  // 单文档：共享口径提升到 base，文档项只留输入与输出目录
+  if (docs.length === 1) {
+    const doc = docs[0]
+    const { id: _id, source: _source, output, ...fields } = doc
+    base = mergeDeep(fields, base)
+    for (const key of Object.keys(fields)) delete doc[key]
+    const outputOptions = isPlainObject(output) ? structuredClone(output) : { dir: output }
+    const dir = outputOptions.dir
+    delete outputOptions.dir
+    const mergedOptions = mergeDeep(outputOptions, isPlainObject(base.output) ? base.output : {})
+    if (Object.keys(mergedOptions).length > 0) base.output = mergedOptions
+    doc.output = dir
+  }
+
   for (let left = 0; left < outputDirs.length; left += 1) {
     for (let right = left + 1; right < outputDirs.length; right += 1) {
       const first = outputDirs[left]

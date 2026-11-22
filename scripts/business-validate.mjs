@@ -113,7 +113,7 @@ function isObject(value) {
 function outputsOf(configFile) {
   const config = JSON.parse(readFileSync(configFile, "utf8"))
   const base = dirname(configFile)
-  const items = Array.isArray(config.targets) ? config.targets : [config]
+  const items = Array.isArray(config.docs) ? config.docs : Array.isArray(config.targets) ? config.targets : [config]
   return items
     .map((item) => {
       const output = item?.output
@@ -320,9 +320,9 @@ function generateConfig(configFile, timeout, inPlace = false) {
     }
     return { ok, messages: [...messages, note] }
   }
-  const generated = run(process.execPath, [cli, "--config", configFile, "-q"], { cwd: dirname(configFile), timeout })
+  const generated = run(process.execPath, [cli, "--config", configFile, "--all"], { cwd: dirname(configFile), timeout })
   if (generated.status !== 0) return finish(false, `生成失败：${generated.output}`)
-  const checked = run(process.execPath, [cli, "--config", configFile, "--check"], { cwd: dirname(configFile), timeout })
+  const checked = run(process.execPath, [cli, "--config", configFile, "--all", "--check"], { cwd: dirname(configFile), timeout })
   if (checked.status !== 0) return finish(false, `校验失败：${checked.output}`)
   return finish(true, `生成与校验通过：${configFile}`)
 }
