@@ -68,6 +68,17 @@ describe("命名表", () => {
     expect(entries.every((entry) => entry.reason.includes("与聚合成员同名"))).toBe(true)
   })
 
+  it("驼峰聚合成员保留名按大小写不敏感处理", () => {
+    const { entries } = buildGroupNaming(["setSecurityData", "SecurityData", "http"])
+    expect(entries.map((entry) => entry.property)).toEqual(["securityData2", "http2", "setSecurityData2"])
+    expect(entries.every((entry) => entry.reason.includes("与聚合成员同名"))).toBe(true)
+  })
+
+  it("手工名命中聚合成员保留名时报错", () => {
+    const { errors } = buildGroupNaming(["甲"], { 甲: "setSecurityData" })
+    expect(errors.some((error) => error.includes("与聚合成员同名"))).toBe(true)
+  })
+
   it("手工覆盖优先，且支持折叠键匹配", () => {
     const { entries, warnings } = buildGroupNaming(["企业（团队）管理"], { "企业(团队)管理": "enterpriseTeam", 未出现: "unused" })
     expect(entries[0].fileName).toBe("EnterpriseTeam")

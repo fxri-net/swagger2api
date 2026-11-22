@@ -1,0 +1,29 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "single-reserved", "version": "1.0.0" },
+  "servers": [{ "url": "http://example.invalid" }],
+  "components": {
+    "schemas": {
+      "ReservedSingleData": { "type": "object", "properties": { "id": { "type": "string" } } }
+    }
+  },
+  "paths": {
+    "/request/list": {
+      "get": {
+        "operationId": "singleReqList",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReservedSingleData" } } }
+          }
+        }
+      }
+    },
+    "/request/item": {
+      "get": { "operationId": "singleReqItem", "responses": { "200": { "description": "ok" } } }
+    },
+    "/setSecurityData/list": {
+      "get": { "operationId": "singleSecList", "responses": { "200": { "description": "ok" } } }
+    }
+  }
+}

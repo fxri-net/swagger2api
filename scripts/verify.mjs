@@ -765,6 +765,72 @@ async function checkGroupingCompat() {
 }
 
 /**
+ * 保留名护栏：分组驼峰聚合成员、单文件模式命名空间都不得覆盖底座成员。
+ * @return {number} 退出码
+ */
+async function checkReservedNaming() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 保留名护栏：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-reserved-"))
+  try {
+    const write = (name, mode, fixture) => {
+      const file = join(out, name)
+      writeFileSync(
+        file,
+        JSON.stringify(
+          {
+            file: join(root, "fixtures", fixture),
+            output: join(out, name.replace(/\.json$/, "")),
+            name: "index",
+            mode
+          },
+          null,
+          2,
+        ),
+      )
+      return file
+    }
+    const run = (config) => spawnSync(process.execPath, [cli, "-c", config, "-q"], { cwd: out, encoding: "utf8" })
+    const issues = []
+
+    const grouped = run(write("grouped.json", "grouped", "grouping-reserved.json"))
+    if (grouped.status !== 0) {
+      console.error("✖ 保留名护栏：分组生成失败")
+      console.error(`${grouped.stdout ?? ""}${grouped.stderr ?? ""}`)
+      return 1
+    }
+    const groupedIndex = readFileSync(join(out, "grouped", "index.ts"), "utf8")
+    if (!groupedIndex.includes("setSecurityData2 = new")) issues.push("分组：驼峰保留名未追加后缀")
+    if (/^ {2}setSecurityData = new/m.test(groupedIndex)) issues.push("分组：setSecurityData 仍覆盖底座成员")
+
+    const single = run(write("single.json", "single", "single-reserved.json"))
+    if (single.status !== 0) {
+      console.error("✖ 保留名护栏：单文件生成失败")
+      console.error(`${single.stdout ?? ""}${single.stderr ?? ""}`)
+      return 1
+    }
+    const singleIndex = readFileSync(join(out, "single", "index.ts"), "utf8")
+    for (const name of ["request2", "setSecurityData2"]) {
+      if (!singleIndex.includes(`${name} = {`)) issues.push(`单文件：命名空间 ${name} 未生成`)
+    }
+    for (const name of ["request", "setSecurityData"]) {
+      if (new RegExp(`^ {2}${name} = \\{`, "m").test(singleIndex)) issues.push(`单文件：${name} 仍覆盖底座成员`)
+    }
+
+    if (issues.length) {
+      issues.forEach((issue) => console.error(`✖ 保留名护栏：${issue}`))
+      return 1
+    }
+    return 0
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 产物清理与可复现：按横幅清理不碰手写文件、手写文件护栏终止、连续两次生成字节一致。
  * @return {number} 退出码
  */
@@ -2006,6 +2072,7 @@ const steps = [
   { label: "接口面基线（提取 / 比对 / 多目标）", run: checkSurfaceCommand },
   { label: "分组命名边界（非 ASCII / 冲突 / 保留名）", run: checkGroupedNaming },
   { label: "分组命名兼容（合并 / 保留名 / 标签参数守卫）", run: checkGroupingCompat },
+  { label: "保留名护栏（驼峰聚合成员 / 单文件命名空间）", run: checkReservedNaming },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },

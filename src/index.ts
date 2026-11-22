@@ -26,7 +26,7 @@ import { resolveBannerLanguage, rewriteGeneratedBanners } from "./utils/banner"
 import { inspectLayout, inspectThresholdsOf } from "./utils/inspect"
 import { applyGrouping, type GroupingConfig, type SplitPlan } from "./utils/grouping"
 import { splitContractOutput } from "./utils/contracts"
-import { CLIENT_BASE, TYPES_DIR, findOrphanModules, toClassNames, type GroupNameInfo } from "./utils/naming"
+import { CLIENT_BASE, TYPES_DIR, findOrphanModules, isReservedProperty, toClassName, toClassNames, toNamespaceName, type GroupNameInfo } from "./utils/naming"
 /** 配置集合 */
 const confs = {
   /** 文件集合 */
@@ -666,7 +666,7 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[], plan:
 
 /**
  * 分桶模式的路由命名：生成器按桶名判重，会把不同命名空间的重名方法误加序号；
- * 这里改为按命名空间判重，复现单文件产物的方法名。
+ * 桶文件内一个命名空间一个类，按命名空间判重即可复现单文件产物的方法名。
  * @return 生成器 hooks
  */
 function createSplitRouteNameHook() {
@@ -678,6 +678,43 @@ function createSplitRouteNameHook() {
       const count = (counters.get(key) ?? 0) + 1
       counters.set(key, count)
       return { ...routeName, usage: count > 1 ? `${routeName.original}${count}` : routeName.original, duplicate: count > 1 }
+    }
+  }
+}
+
+/**
+ * 单文件模式的路由分组：路径首段即聚合属性，命中底座成员时整体改名，
+ * 避免 `request = {}` 之类直接覆盖 HttpClient 能力。
+ * @param paths 文档路径集合
+ * @return 生成器 hooks
+ */
+function createSingleNamespaceHook(paths: Record<string, any>) {
+  const used = new Set<string>()
+  const names = new Set<string>()
+  for (const route of Object.keys(paths ?? {})) {
+    const segment = route.split("/").filter(Boolean)[0]
+    if (!segment) continue
+    const name = toNamespaceName(segment)
+    if (!name) continue
+    names.add(name)
+    used.add(name)
+  }
+  const rename = new Map<string, string>()
+  names.forEach((name) => {
+    if (!isReservedProperty(name)) return
+    let candidate = `${name}2`
+    let index = 2
+    while (used.has(candidate) || isReservedProperty(candidate)) {
+      index += 1
+      candidate = `${name}${index}`
+    }
+    used.add(candidate)
+    rename.set(name, candidate)
+  })
+  return {
+    onCreateRoute(route: Record<string, any>) {
+      if (!route?.namespace || !rename.has(route.namespace)) return route
+      return { ...route, namespace: rename.get(route.namespace) }
     }
   }
 }
@@ -799,13 +836,14 @@ async function onGenerateApi(data: Defines["data"]) {
   }
   // 生成接口
   console.log("执行：", confs.file)
+  // 分组模式按命名空间判重；单文件模式保证聚合属性不覆盖底座成员
+  const namingHooks = datas.config.modular ? createSplitRouteNameHook() : createSingleNamespaceHook(data.paths)
   const generated = await generateApi({
     fileName: `${confs.param.name}.ts`, // 输出类型的 API 文件名称（默认："Api.ts"）
     output: path.resolve(confs.param.output), // TypeScript API 文件的输出路径（默认："./"）
     input: datas.docFile, // 路径/链接到Swagger方案
     ...datas.config,
-    // 分桶后模块名统一为桶名，需按命名空间恢复方法名判重
-    ...(splitPlan ? { hooks: createSplitRouteNameHook() } : {}),
+    ...(Object.keys(namingHooks).length ? { hooks: namingHooks } : {}),
     ...{ param: datas.param }
   })
   console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))

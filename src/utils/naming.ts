@@ -83,20 +83,21 @@ const RESERVED_IDENTIFIERS = new Set([
   "URL",
   "Window"
 ])
-/** 聚合类成员名：组名撞上会覆盖运行期能力 */
+/** 聚合类成员名：组名撞上会覆盖运行期能力；统一小写存放，比较时两侧归一 */
 const RESERVED_PROPERTIES = new Set([
   "instance",
   "request",
-  "setSecurityData",
-  "mergeRequestParams",
-  "stringifyFormItem",
-  "createFormData",
-  "securityData",
-  "securityWorker",
+  "setsecuritydata",
+  "mergerequestparams",
+  "stringifyformitem",
+  "createformdata",
+  "securitydata",
+  "securityworker",
   "secure",
   "format",
   "constructor",
-  "prototype"
+  "prototype",
+  "http"
 ])
 /** Windows 设备名：同名文件无法创建 */
 const WINDOWS_DEVICES = new Set([
@@ -214,6 +215,25 @@ export function toClassName(fileName: string) {
 }
 
 /**
+ * 判定名称是否与聚合类成员同名（大小写不敏感）。
+ * @param name 候选属性名
+ * @return 是否命中保留集合
+ */
+export function isReservedProperty(name: string) {
+  return RESERVED_PROPERTIES.has(name.toLowerCase())
+}
+
+/**
+ * 按生成器口径推导单文件模式的命名空间键：路径首段 camelCase，数字开头补 v。
+ * @param raw 原始路径首段
+ * @return 命名空间键
+ */
+export function toNamespaceName(raw: string) {
+  const slug = toLowerCamel(splitWords(raw))
+  return /^[0-9]/.test(slug) ? `v${slug}` : slug
+}
+
+/**
  * 构造命名表：按原始名码点排序后逐个分配，手工名优先，冲突与保留名追加序号。
  * @param groups 原始组名集合
  * @param names 手工覆盖表（键为原始名或折叠键）
@@ -277,6 +297,11 @@ export function buildGroupNaming(groups: string[], names: Record<string, string>
     const { slug } = slugifyGroupName(manual)
     if (!slug) {
       errors.push(`手工名不可用：${raw} → ${manual}`)
+      continue
+    }
+    // 手工名同样不得覆盖聚合底座成员，避免生成物直接坏在运行期
+    if (isReservedProperty(slug)) {
+      errors.push(`手工名与聚合成员同名：${raw} → ${manual}（${slug}），请改用其他名称`)
       continue
     }
     const previous = manualSlugs.get(slug.toLowerCase())
