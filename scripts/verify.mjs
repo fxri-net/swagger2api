@@ -18,6 +18,18 @@ const GENERATED_BANNER_ZH = "本文件由 @fxri/swagger2api 生成，请勿手�
 const BANNER_ANCHORS = [GENERATED_BANNER, GENERATED_BANNER_ZH]
 
 /**
+ * 写出新 schema 的单文档项目配置：共享段进 base，输入输出进 docs。
+ * @param {string} file 配置文件路径
+ * @param {{source: unknown, output: unknown, base?: Record<string, unknown>, id?: string, doc?: Record<string, unknown>}} options 配置片段
+ * @return {string} 配置文件路径
+ */
+function writeProjectConfig(file, options) {
+  const { source, output, base = {}, id = "main", doc = {} } = options
+  writeFileSync(file, JSON.stringify({ base, docs: [{ id, source, output, ...doc }] }, null, 2))
+  return file
+}
+
+/**
  * 按文件头 1KB 判定生成物，与 CLI 的 isGeneratedFile 保持同一口径（当前中英锚点）。
  * @param {string} file 文件绝对路径
  * @return {boolean} 是否为生成物
@@ -453,15 +465,18 @@ function checkGeneratedOutput() {
   }
   const out = mkdtempSync(join(tmpdir(), "s2a-fixtures-"))
   try {
-    const config = join(out, "saconfig.json")
-    writeFileSync(config, JSON.stringify({ url: join(fixtures, "swagger.json"), output: out, name: "index" }, null, 2))
+    const config = writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(fixtures, "swagger.json"),
+      output: out,
+      base: { output: { name: "index" } }
+    })
     // 与 pnpm api 一致的主力参数组合；配置写到临时目录，避免回写夹具
-    const result = spawnSync(process.execPath, [cli, "-c", config, "-q", "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, stdio: "inherit" })
+    const result = spawnSync(process.execPath, [cli, "-c", config, "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, stdio: "inherit" })
     if (result.status !== 0) return result.status ?? 1
 
     const issues = []
-    const expectedFiles = collectFiles(expected).filter((file) => file !== "saconfig.json")
-    const actualFiles = collectFiles(out).filter((file) => file !== "saconfig.json")
+    const expectedFiles = collectFiles(expected)
+    const actualFiles = collectFiles(out).filter((file) => file !== "swagger2api.json")
     for (const file of expectedFiles) {
       if (!actualFiles.includes(file)) {
         issues.push(`缺少产物：${file}`)
@@ -504,9 +519,12 @@ async function checkSecurityFixtures() {
    * @return {{ status: number, output: string }}
    */
   const runFixture = (fixture, outDir) => {
-    const config = join(outDir, "saconfig.json")
-    writeFileSync(config, JSON.stringify({ url: join(securityDir, fixture), output: outDir, name: "index" }, null, 2))
-    const result = spawnSync(process.execPath, [cli, "-c", config, "-q", "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, encoding: "utf8" })
+    const config = writeProjectConfig(join(outDir, "swagger2api.json"), {
+      source: join(securityDir, fixture),
+      output: outDir,
+      base: { output: { name: "index" } }
+    })
+    const result = spawnSync(process.execPath, [cli, "-c", config, "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, encoding: "utf8" })
     return { status: result.status ?? 1, output: `${result.stdout ?? ""}${result.stderr ?? ""}` }
   }
 
@@ -566,9 +584,12 @@ async function checkGroupedOutput() {
     const out = mkdtempSync(join(tmpdir(), "s2a-grouped-"))
     const api = join(out, "api")
     try {
-      const config = join(out, "saconfig.json")
-      writeFileSync(config, JSON.stringify({ url: join(root, "fixtures", "swagger.json"), output: api, name: "index" }, null, 2))
-      const result = spawnSync(process.execPath, [cli, "-c", config, "-q", ...client.args, "--modular", "--module-name-index", "0"], { cwd: root, encoding: "utf8" })
+      const config = writeProjectConfig(join(out, "swagger2api.json"), {
+        source: join(root, "fixtures", "swagger.json"),
+        output: api,
+        base: { output: { name: "index" } }
+      })
+      const result = spawnSync(process.execPath, [cli, "-c", config, ...client.args, "--modular", "--module-name-index", "0"], { cwd: root, encoding: "utf8" })
       if (result.status !== 0) {
         console.error(`✖ 分组产物（${client.name}）：生成失败`)
         console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
@@ -665,15 +686,15 @@ async function checkGroupedNaming() {
   const api = join(out, "api")
   try {
     // 生成器要求输出目录存在，rc 从工作目录向上查找
-    writeFileSync(
-      join(out, "swagger2api.json"),
-      JSON.stringify({
-        input: { url: join(root, "fixtures", "grouping-edge.json") },
-        output: { dir: api, mode: "grouped", name: "index" },
-        client: { type: "axios" },
+    writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "grouping-edge.json"),
+      output: api,
+      base: {
+        output: { mode: "grouped", name: "index" },
+        client: "axios",
         grouping: { strategy: ["tag"], names: { "★☆": "symbolGroup" } }
-      }, null, 2),
-    )
+      }
+    })
     const result = spawnSync(process.execPath, [cli], { cwd: out, encoding: "utf8" })
     if (result.status !== 0) {
       console.error("✖ 分组命名边界：生成失败")
@@ -728,18 +749,19 @@ async function checkGroupingCompat() {
   const out = mkdtempSync(join(tmpdir(), "s2a-naming-compat-"))
   try {
     const fixture = join(root, "fixtures", "grouping-collapse.json")
-    const writeRc = (name, grouping) => {
-      const file = join(out, name)
-      writeFileSync(
-        file,
-        JSON.stringify({ input: { file: fixture }, output: { dir: join(out, "api"), name: "index", mode: "grouped" }, grouping }, null, 2),
-      )
-      return file
-    }
+    const writeRc = (name, grouping) =>
+      writeProjectConfig(join(out, name), {
+        source: fixture,
+        output: join(out, "api"),
+        base: { output: { name: "index", mode: "grouped" }, grouping }
+      })
     const run = (config, extra = []) =>
       spawnSync(process.execPath, [cli, "-c", config, "--dry-run", "--json", ...extra], { cwd: out, encoding: "utf8" })
-    // 分组日志先于 JSON 输出，从首个 { 起截取结构化报表
-    const readReport = (result) => JSON.parse(result.stdout.slice(result.stdout.indexOf("{")))
+    // 分组日志先于 JSON 输出，从首个 { 起截取结构化报表；多文档模式取首个文档的报表
+    const readReport = (result) => {
+      const payload = JSON.parse(result.stdout.slice(result.stdout.indexOf("{")))
+      return payload.docs ? payload.docs[0].report : payload
+    }
 
     const collapsed = run(writeRc("collapse-on.json", { strategy: ["path"], pathDepth: 0, collapse: true }))
     if (collapsed.status !== 0) {
@@ -798,24 +820,13 @@ async function checkReservedNaming() {
   }
   const out = mkdtempSync(join(tmpdir(), "s2a-reserved-"))
   try {
-    const write = (name, mode, fixture) => {
-      const file = join(out, name)
-      writeFileSync(
-        file,
-        JSON.stringify(
-          {
-            file: join(root, "fixtures", fixture),
-            output: join(out, name.replace(/\.json$/, "")),
-            name: "index",
-            mode
-          },
-          null,
-          2,
-        ),
-      )
-      return file
-    }
-    const run = (config) => spawnSync(process.execPath, [cli, "-c", config, "-q"], { cwd: out, encoding: "utf8" })
+    const write = (name, mode, fixture) =>
+      writeProjectConfig(join(out, name), {
+        source: join(root, "fixtures", fixture),
+        output: join(out, name.replace(/\.json$/, "")),
+        base: { output: { name: "index", mode } }
+      })
+    const run = (config) => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
     const issues = []
 
     const grouped = run(write("grouped.json", "grouped", "grouping-reserved.json"))
@@ -865,21 +876,16 @@ async function checkGroupedPrune() {
   const out = mkdtempSync(join(tmpdir(), "s2a-prune-"))
   try {
     const base = join(out, "base")
-    const config = join(out, "swagger2api.json")
-    writeFileSync(
-      config,
-      JSON.stringify(
-        {
-          input: { file: join(root, "fixtures", "swagger.json") },
-          output: { dir: base, name: "index", mode: "grouped", prune: true },
-          client: { type: "axios" },
-          types: { responses: true },
-          grouping: { strategy: ["path"], pathDepth: 0 }
-        },
-        null,
-        2,
-      ),
-    )
+    const config = writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: base,
+      base: {
+        output: { name: "index", mode: "grouped", prune: true },
+        client: "axios",
+        types: { responses: true },
+        grouping: { strategy: ["path"], pathDepth: 0 }
+      }
+    })
     const generate = () => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
     const issues = []
 
@@ -994,7 +1000,7 @@ async function checkNonInteractive() {
     // 空目录裸跑：缺配置直接报错，不进入交互
     const boot = run([])
     if (boot.status !== 2) issues.push(`缺配置未以退出码 2 结束（实际 ${boot.status}）`)
-    if (!`${boot.stderr ?? ""}`.includes("未找到配置文件")) issues.push("缺配置缺少明确提示")
+    if (!`${boot.stderr ?? ""}`.includes("未找到 swagger2api.json")) issues.push("缺配置缺少明确提示")
     if (!`${boot.stderr ?? ""}`.includes("--config")) issues.push("缺配置未给出非交互命令")
 
     // init 非交互：给出 --from-script 等价命令
@@ -1003,20 +1009,24 @@ async function checkNonInteractive() {
     if (!`${init.stderr ?? ""}`.includes("--from-script")) issues.push("init 未给出迁移命令")
 
     // grouping 非交互：报表后报错，退出码 2
-    writeFileSync(
-      join(out, "swagger2api.json"),
-      JSON.stringify({ input: { file: join(root, "fixtures", "swagger.json") }, output: { dir: join(out, "api") } }, null, 2)
-    )
-    const grouping = run(["grouping"])
+    writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: join(out, "api"),
+      base: { output: { name: "index" } }
+    })
+    const grouping = run(["grouping", "--target", "main"])
     if (grouping.status !== 2) issues.push(`grouping 非终端未以退出码 2 结束（实际 ${grouping.status}）`)
     if (!`${grouping.stderr ?? ""}`.includes("grouping 需要交互式终端")) issues.push("grouping 缺少非交互提示")
 
-    // 显式 --config + -q：非交互环境仍可生成
-    const config = join(out, "api-config.json")
-    writeFileSync(config, JSON.stringify({ url: join(root, "fixtures", "swagger.json"), output: join(out, "gen"), name: "index" }, null, 2))
-    const generate = run(["--config", config, "-q", "--no-interactive"])
+    // 显式 --config：非交互环境仍可生成
+    const config = writeProjectConfig(join(out, "api-config.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: join(out, "gen"),
+      base: { output: { name: "index" } }
+    })
+    const generate = run(["--config", config, "--no-interactive"])
     if (generate.status !== 0) {
-      issues.push("显式 --config + -q 在非交互环境未生成成功")
+      issues.push("显式 --config 在非交互环境未生成成功")
       console.error(`${generate.stdout ?? ""}${generate.stderr ?? ""}`)
     }
 
@@ -1131,19 +1141,19 @@ async function checkTimeoutAndVersion() {
     if (version.status !== 0) issues.push("--version 未以退出码 0 结束")
     if (version.stdout.trim() !== pkg.version) issues.push(`--version 输出与 package.json 不一致（${version.stdout.trim()}）`)
 
-    const config = join(out, "swagger2api.json")
-    writeFileSync(
-      config,
-      JSON.stringify({ input: { url: `http://127.0.0.1:${port}/spec.json`, timeout: 300 }, output: { dir: join(out, "api") } }, null, 2)
-    )
-    const slow = spawnSync(process.execPath, [cli, "-c", config, "-q"], { cwd: out, encoding: "utf8" })
+    const config = writeProjectConfig(join(out, "swagger2api.json"), {
+      source: { url: `http://127.0.0.1:${port}/spec.json`, timeout: 300 },
+      output: join(out, "api"),
+      base: { output: { name: "index" } }
+    })
+    const slow = spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
     if (slow.status !== 1) issues.push(`超时未以退出码 1 结束（实际 ${slow.status}）`)
     const slowOutput = `${slow.stdout ?? ""}${slow.stderr ?? ""}`
     if (!slowOutput.includes("超时")) issues.push("超时缺少可读提示")
     if (!slowOutput.includes("可重试") || !slowOutput.includes("本地快照")) issues.push("超时提示缺少可执行的下一步")
 
     // --timeout 覆盖配置值
-    const override = spawnSync(process.execPath, [cli, "-c", config, "-q", "--timeout", "150"], { cwd: out, encoding: "utf8" })
+    const override = spawnSync(process.execPath, [cli, "-c", config, "--timeout", "150"], { cwd: out, encoding: "utf8" })
     if (override.status !== 1) issues.push("--timeout 覆盖后未以退出码 1 结束")
     if (!`${override.stdout ?? ""}${override.stderr ?? ""}`.includes("> 150 毫秒")) issues.push("--timeout 覆盖未生效")
 
@@ -1236,19 +1246,11 @@ async function checkGroupedContract() {
   const out = mkdtempSync(join(cacheRoot, "s2a-contract-"))
   try {
     const base = join(out, "base")
-    const config = join(out, "swagger2api.json")
-    writeFileSync(
-      config,
-      JSON.stringify(
-        {
-          input: { file: join(root, "fixtures", "swagger.json") },
-          output: { dir: base, name: "index", mode: "grouped" },
-          grouping: { strategy: ["path"], pathDepth: 0 }
-        },
-        null,
-        2,
-      ),
-    )
+    const config = writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: base,
+      base: { output: { name: "index", mode: "grouped" }, grouping: { strategy: ["path"], pathDepth: 0 } }
+    })
     const generated = spawnSync(
       process.execPath,
       [cli, "-c", config, "--axios", "--responses", "--js", "-err", "-rpi", "0", "-erq", "arg0", "-cg"],
@@ -1364,12 +1366,12 @@ async function checkContractCollision() {
   const out = mkdtempSync(join(tmpdir(), "s2a-contract-"))
   try {
     const api = join(out, "api")
-    const config = join(out, "config.json")
-    writeFileSync(
-      config,
-      JSON.stringify({ file: join(root, "fixtures", "contract-collision.json"), output: api, name: "index", mode: "grouped" }, null, 2),
-    )
-    const result = spawnSync(process.execPath, [cli, "-c", config, "-q"], { cwd: out, encoding: "utf8" })
+    const config = writeProjectConfig(join(out, "config.json"), {
+      source: join(root, "fixtures", "contract-collision.json"),
+      output: api,
+      base: { output: { name: "index", mode: "grouped" } }
+    })
+    const result = spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
     if (result.status !== 0) {
       console.error("✖ 契约冲突：生成失败")
       console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
@@ -1408,9 +1410,12 @@ async function checkSpecShape() {
   const out = mkdtempSync(join(tmpdir(), "s2a-spec-shape-"))
   const issues = []
   const writeConfig = (name, spec, extra = {}) => {
-    const config = join(out, `${name}.json`)
-    writeFileSync(config, JSON.stringify({ file: spec, output: `./${name}`, name: "index", ...extra }, null, 2))
-    return config
+    const { mode, language, ...base } = extra
+    return writeProjectConfig(join(out, `${name}.json`), {
+      source: spec,
+      output: `./${name}`,
+      base: { ...base, output: { name: "index", ...(mode ? { mode } : {}) }, ...(language ? { language } : {}) }
+    })
   }
   const run = (config, extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
   const output = (result) => `${result.stdout ?? ""}${result.stderr ?? ""}`
@@ -1507,10 +1512,11 @@ async function checkBannerLanguage() {
   const api = join(out, "api")
   const config = join(out, "swagger2api.json")
   const writeConfig = (language) =>
-    writeFileSync(
-      config,
-      JSON.stringify({ input: { file: join(root, "fixtures", "swagger.json") }, output: { dir: api, name: "index", mode: "grouped", banner: language } }, null, 2)
-    )
+    writeProjectConfig(config, {
+      source: join(root, "fixtures", "swagger.json"),
+      output: api,
+      base: { output: { name: "index", mode: "grouped", banner: language } }
+    })
   const run = (extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
   const assertLanguage = (anchor, foreign) => {
     const files = collectFiles(api).filter((file) => /\.(?:ts|js)$/.test(file))
@@ -1567,8 +1573,11 @@ async function checkGenerationRollback() {
     mkdirSync(join(api, "types"), { recursive: true })
     const hand = join(api, "types", "Modules.ts")
     writeFileSync(hand, "// 手写契约\n")
-    const config = join(out, "swagger2api.json")
-    writeFileSync(config, JSON.stringify({ file: join(root, "fixtures", "swagger.json"), output: "./api", name: "index", mode: "grouped" }, null, 2))
+    const config = writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: "./api",
+      base: { output: { name: "index", mode: "grouped" } }
+    })
     const run = (extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
     const output = (result) => `${result.stdout ?? ""}${result.stderr ?? ""}`
 
@@ -1589,8 +1598,11 @@ async function checkGenerationRollback() {
 
     // --check 失败路径不创建真实产物目录
     const missingDir = join(out, "missing")
-    const missingConfig = join(out, "missing.json")
-    writeFileSync(missingConfig, JSON.stringify({ file: join(root, "fixtures", "swagger.json"), output: "./missing", name: "index", mode: "grouped" }, null, 2))
+    const missingConfig = writeProjectConfig(join(out, "missing.json"), {
+      source: join(root, "fixtures", "swagger.json"),
+      output: "./missing",
+      base: { output: { name: "index", mode: "grouped" } }
+    })
     const missing = spawnSync(process.execPath, [cli, "-c", missingConfig, "--check"], { cwd: out, encoding: "utf8" })
     if (missing.status === 0) issues.push("--check 缺少产物目录时未报错")
     if (existsSync(missingDir)) issues.push("--check 失败时创建了真实产物目录")
@@ -1623,24 +1635,12 @@ async function checkGroupedSplit() {
   const base = join(out, "api")
   const issues = []
   try {
-    const writeConfig = (name, dir, grouping, extra = {}) => {
-      const config = join(out, name)
-      writeFileSync(
-        config,
-        JSON.stringify(
-          {
-            input: { file: join(root, "fixtures", "grouping-split.json") },
-            output: { dir, name: "index", mode: "grouped" },
-            client: { type: "axios" },
-            grouping,
-            ...extra
-          },
-          null,
-          2,
-        ),
-      )
-      return config
-    }
+    const writeConfig = (name, dir, grouping, extra = {}) =>
+      writeProjectConfig(join(out, name), {
+        source: join(root, "fixtures", "grouping-split.json"),
+        output: dir,
+        base: { output: { name: "index", mode: "grouped" }, client: "axios", grouping, ...extra }
+      })
     const splitGrouping = { strategy: ["path"], pathDepth: 0, split: { minRoutes: 1, targetRoutes: 2, maxRoutes: 3, minBucketRoutes: 2 } }
     const run = (config) => spawnSync(process.execPath, [cli, "-c", config], { cwd: out, encoding: "utf8" })
     const first = run(writeConfig("base.json", base, splitGrouping))
@@ -1717,23 +1717,12 @@ async function checkGroupedSplit() {
     const shrinkSource = JSON.parse(readFileSync(join(root, "fixtures", "grouping-split.json"), "utf8"))
     for (const pathKey of Object.keys(shrinkSource.paths)) if (pathKey.startsWith("/dg_admin/")) delete shrinkSource.paths[pathKey]
     writeFileSync(shrinkSpec, JSON.stringify(shrinkSource, null, 2))
-    const shrinkConfig = (name, specFile) => {
-      const config = join(out, name)
-      writeFileSync(
-        config,
-        JSON.stringify(
-          {
-            input: { file: specFile },
-            output: { dir: shrinkDir, name: "index", mode: "grouped" },
-            client: { type: "axios" },
-            grouping: splitGrouping
-          },
-          null,
-          2,
-        ),
-      )
-      return config
-    }
+    const shrinkConfig = (name, specFile) =>
+      writeProjectConfig(join(out, name), {
+        source: specFile,
+        output: shrinkDir,
+        base: { output: { name: "index", mode: "grouped" }, client: "axios", grouping: splitGrouping }
+      })
     const shrinkBefore = run(shrinkConfig("shrink-before.json", join(root, "fixtures", "grouping-split.json")))
     const shrinkAfter = shrinkBefore.status === 0 ? run(shrinkConfig("shrink-after.json", shrinkSpec)) : shrinkBefore
     if (shrinkBefore.status !== 0 || shrinkAfter.status !== 0) {
@@ -1836,27 +1825,23 @@ async function checkSplitSmallBuckets() {
   }
   const out = mkdtempSync(join(tmpdir(), "s2a-small-bucket-"))
   try {
-    const config = join(out, "swagger2api.json")
-    writeFileSync(
-      config,
-      JSON.stringify(
-        {
-          input: { file: join(root, "fixtures", "grouping-small-bucket.json") },
-          output: { dir: join(out, "api"), name: "index", mode: "grouped" },
-          grouping: { strategy: ["path"], pathDepth: 0, split: { minRoutes: 1, targetRoutes: 10, maxRoutes: 15, minBucketRoutes: 2 } }
-        },
-        null,
-        2
-      )
-    )
+    const config = writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "grouping-small-bucket.json"),
+      output: join(out, "api"),
+      base: {
+        output: { name: "index", mode: "grouped" },
+        grouping: { strategy: ["path"], pathDepth: 0, split: { minRoutes: 1, targetRoutes: 10, maxRoutes: 15, minBucketRoutes: 2 } }
+      }
+    })
     const result = spawnSync(process.execPath, [cli, "-c", config, "--dry-run", "--json"], { cwd: out, encoding: "utf8" })
     if (result.status !== 0) {
       console.error("✖ 分桶合并：报表失败")
       console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
       return 1
     }
-    // 分组日志先行，从首个 { 起截取结构化报表
-    const report = JSON.parse(result.stdout.slice(result.stdout.indexOf("{")))
+    // 分组日志先行，从首个 { 起截取结构化报表；多文档模式取首个文档的报表
+    const payload = JSON.parse(result.stdout.slice(result.stdout.indexOf("{")))
+    const report = payload.docs ? payload.docs[0].report : payload
     const buckets = report.split?.buckets ?? []
     const routes = buckets.map((bucket) => bucket.routes)
     if (routes.join(",") !== "11,13,10,3") {
@@ -1890,9 +1875,11 @@ async function checkManualModularPrune() {
     const writeConfig = (name) => {
       const input = join(out, `${name}.json`)
       writeFileSync(input, JSON.stringify(spec))
-      const config = join(out, "swagger2api.json")
-      writeFileSync(config, JSON.stringify({ input: { file: input }, output: { dir: api, name: "index" } }, null, 2))
-      return config
+      return writeProjectConfig(join(out, "swagger2api.json"), {
+        source: input,
+        output: api,
+        base: { output: { name: "index" } }
+      })
     }
     const run = (config, extra = []) => spawnSync(process.execPath, [cli, "-c", config, "--modular", ...extra], { cwd: out, encoding: "utf8" })
 
@@ -1952,13 +1939,13 @@ async function checkManualModularPrune() {
 }
 
 /**
- * 扁平配置与产物校验：一份 swagger2api.json 驱动分组生成，产物靠横幅归属，--check 能发现缺失、篡改与多余。
+ * 项目配置与产物校验：一份 swagger2api.json 驱动分组生成，产物靠横幅归属，--check 能发现缺失、篡改与多余。
  * @return {number} 退出码
  */
 async function checkFlatConfig() {
   const cli = join(root, "dist", "cli.js")
   if (!existsSync(cli)) {
-    console.error("✖ 扁平配置与产物校验：未找到 dist/cli.js，需先构建或提供构建产物")
+    console.error("✖ 项目配置与产物校验：未找到 dist/cli.js，需先构建或提供构建产物")
     return 1
   }
   const out = mkdtempSync(join(tmpdir(), "s2a-flat-"))
@@ -1966,27 +1953,20 @@ async function checkFlatConfig() {
   const issues = []
   try {
     // 业务仓只写项目口径，分桶阈值、清单、清理由工具默认
-    writeFileSync(
-      join(out, "swagger2api.json"),
-      JSON.stringify(
-        {
-          file: join(root, "fixtures", "grouping-split.json"),
-          output: "./api",
-          mode: "grouped",
-          client: "axios",
-          responses: true,
-          query: ["param", "arg0"],
-          pathPrefixIndex: 0,
-          extractResponseRaw: true
-        },
-        null,
-        2,
-      ),
-    )
+    writeProjectConfig(join(out, "swagger2api.json"), {
+      source: join(root, "fixtures", "grouping-split.json"),
+      output: "./api",
+      base: {
+        output: { name: "index", mode: "grouped" },
+        client: "axios",
+        types: { responses: true, extractQuery: "param,arg0", extractResponseRaw: true },
+        naming: { pathPrefixIndex: 0 }
+      }
+    })
     const run = (extra = []) => spawnSync(process.execPath, [cli, ...extra], { cwd: out, encoding: "utf8" })
     const first = run()
     if (first.status !== 0) {
-      console.error("✖ 扁平配置与产物校验：生成失败")
+      console.error("✖ 项目配置与产物校验：生成失败")
       console.error(`${first.stdout ?? ""}${first.stderr ?? ""}`)
       return 1
     }
@@ -2017,7 +1997,7 @@ async function checkFlatConfig() {
     if (!aggregate.includes('import { App, DgAdmin, Misc } from "./Modules"')) issues.push("聚合入口未合并单桶导入")
     if (!aggregate.includes('export * from "./types"')) issues.push("聚合入口未导出 types")
     if (!aggregate.includes('export * from "./client"')) issues.push("聚合入口未导出 client")
-    if (!readFileSync(join(api, "client.ts"), "utf8").includes("axios")) issues.push("扁平配置的 client 未生效")
+    if (!readFileSync(join(api, "client.ts"), "utf8").includes("axios")) issues.push("项目配置的 client 未生效")
 
     // 升级退场：旧版固定产物在成功生成后自动删除
     writeFileSync(join(api, "data-contracts.ts"), "// 旧产物\n")
@@ -2084,36 +2064,20 @@ async function checkFlatConfig() {
     if (!`${missing.stdout ?? ""}${missing.stderr ?? ""}`.includes("缺少产物")) issues.push("--check 缺少缺失提示")
 
     // 模式切换：单文件模式不自动删除旧分组产物，只提示清理方式
-    // 配置放在子目录，避免与同目录项目配置共用输出目录而被冲突校验拦截
     writeFileSync(join(api, "Modules.ts"), `/* ## ${GENERATED_BANNER} ## */\nexport {}\n`)
     const singleDir = join(out, "single")
     mkdirSync(singleDir, { recursive: true })
-    const singleConfig = join(singleDir, "swagger2api.json")
-    writeFileSync(singleConfig, JSON.stringify({ file: join(root, "fixtures", "grouping-split.json"), output: "../api", name: "index" }, null, 2))
+    writeProjectConfig(join(singleDir, "swagger2api.json"), {
+      source: join(root, "fixtures", "grouping-split.json"),
+      output: "../api",
+      base: { output: { name: "index" } }
+    })
     const single = spawnSync(process.execPath, [cli], { cwd: singleDir, encoding: "utf8" })
     if (single.status !== 0) issues.push("单文件模式切换生成失败")
     else if (!`${single.stdout ?? ""}${single.stderr ?? ""}`.includes("分组模式产物")) issues.push("单文件模式未提示旧分组产物")
 
-    // 跨配置冲突：同目录另一份配置指向同一输出时以退出码 2 拒绝，且不落盘
-    writeFileSync(join(out, "swagger2api.other.json"), JSON.stringify({ file: join(root, "fixtures", "grouping-split.json"), output: "./api", name: "index" }, null, 2))
-    const conflict = spawnSync(process.execPath, [cli], { cwd: out, encoding: "utf8" })
-    if (conflict.status !== 2) issues.push(`跨配置输出重叠未以退出码 2 拒绝（实际 ${conflict.status}）`)
-    if (!`${conflict.stdout ?? ""}${conflict.stderr ?? ""}`.includes("重叠")) issues.push("跨配置输出重叠缺少提示")
-    // JSON 模式下同一冲突给稳定错误码与可执行动作
-    const conflictJson = spawnSync(process.execPath, [cli, "--json"], { cwd: out, encoding: "utf8" })
-    if (conflictJson.status !== 2) issues.push("跨配置冲突 --json 未以退出码 2 结束")
-    else {
-      try {
-        const summary = JSON.parse(conflictJson.stdout)
-        if (summary.errorCode !== "E_CONFIG_CONFLICT") issues.push("跨配置冲突缺少稳定错误码")
-        if (!summary.actions?.length) issues.push("跨配置冲突缺少 actions")
-      } catch (error) {
-        issues.push(`跨配置冲突 --json 无法解析：${error.message}`)
-      }
-    }
-
     if (issues.length === 0) return 0
-    console.error(`\n✖ 扁平配置与产物校验未通过：${issues.length} 项`)
+    console.error(`\n✖ 项目配置与产物校验未通过：${issues.length} 项`)
     for (const issue of issues) console.error(`  - ${issue}`)
     return 1
   } finally {
@@ -2136,9 +2100,16 @@ async function checkTypeCheckPolicy() {
   try {
     const spec = join(root, "fixtures", "swagger.json")
     const writeConfig = (name, extra) => {
-      const config = join(out, `${name}.json`)
-      writeFileSync(config, JSON.stringify({ file: spec, output: `./${name}`, name: "index", ...extra }, null, 2))
-      return config
+      const { typeCheck, language, ...base } = extra
+      return writeProjectConfig(join(out, `${name}.json`), {
+        source: spec,
+        output: `./${name}`,
+        base: {
+          ...base,
+          output: { name: "index", ...(typeCheck ? { typeCheck } : {}) },
+          ...(language ? { language } : {})
+        }
+      })
     }
     const run = (config, extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
     const fail = (label, result) => {
@@ -2202,8 +2173,11 @@ async function checkSurfaceCommand() {
   const run = (args, cwd = out) => spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8" })
   try {
     const spec = join(root, "fixtures", "swagger.json")
-    const single = join(out, "single.json")
-    writeFileSync(single, JSON.stringify({ file: spec, output: "./api", name: "index" }, null, 2))
+    const single = writeProjectConfig(join(out, "single.json"), {
+      source: spec,
+      output: "./api",
+      base: { output: { name: "index" } }
+    })
     const generated = run(["-c", single])
     if (generated.status !== 0) {
       console.error("✖ 接口面基线：生成失败")
@@ -2244,9 +2218,10 @@ async function checkSurfaceCommand() {
       multi,
       JSON.stringify(
         {
-          targets: [
-            { id: "base", file: spec, output: "./multi/base" },
-            { id: "lc", file: spec, output: "./multi/lc" }
+          base: { output: { name: "index" } },
+          docs: [
+            { id: "base", source: spec, output: "./multi/base" },
+            { id: "lc", source: spec, output: "./multi/lc" }
           ]
         },
         null,

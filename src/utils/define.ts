@@ -1,15 +1,11 @@
 import { generateApi } from "swagger-typescript-api"
-import type { TargetConfig } from "./targets"
+import type { DocConfig } from "./docs"
 /** 生成配置集合 */
 export type GenerateConfig = Parameters<typeof generateApi>["0"]
 /** 命令行参数集合 */
 export interface ParamData {
   /** 指定配置文件 */
   config: string
-  /** 扫描全部配置文件 */
-  configScan: boolean
-  /** 加载全部配置文件 */
-  configAll: boolean
   /** 快速模式 */
   quick: boolean
   /** 替换标签 */
@@ -82,13 +78,13 @@ export type Defines = {
     baseParam?: ParamData
     /** 命令行覆盖前的生成配置快照（多目标逐目标复位） */
     baseConfig?: GenerateConfig
-    /** 是否多目标模式 */
-    targetMode?: boolean
-    /** 本次要执行的目标（--target 过滤后） */
-    targets?: TargetConfig[]
-    /** 当前执行的目标 id */
-    currentTarget?: string
-    /** 当前目标的分组报表（dry-run --json 汇总用） */
+    /** 是否多文档模式 */
+    docMode?: boolean
+    /** 本次要执行的文档（--target 过滤后） */
+    docs?: DocConfig[]
+    /** 当前执行的文档 id */
+    currentDoc?: string
+    /** 当前文档的分组报表（dry-run --json 汇总用） */
     groupReports?: Array<{ id: string; report: Record<string, any> }>
   }
   /** 数据 */

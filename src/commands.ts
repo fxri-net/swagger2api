@@ -8,14 +8,13 @@ import {
   CONFIG_LOCAL_FILE,
   CONFIG_PROJECT_FILE,
   applyEnvOverrides,
-  applyProfile,
+  applyProfileToBase,
   describeLayers,
   getConfigFlags,
   loadConfigLayers,
-  mergeShallow,
-  normalizeConfig
+  mergeShallow
 } from "./utils/config"
-import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
+import { pickDocFlags, resolveDocs } from "./utils/docs"
 import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePayload } from "./utils/surface"
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
 import { migrateFromPackage } from "./utils/migrate"
@@ -45,7 +44,7 @@ function diagnosticError(argv: string[], command: string, errorCode: string, mes
 /** .gitignore 片段标识：认领本工具写入的注释行，重跑时据此改写 */
 const GITIGNORE_MARKER = "# @fxri/swagger2api"
 /** .gitignore 片段内容 */
-const GITIGNORE_ROWS = [CONFIG_LOCAL_FILE, "*.swagger2apirc.local.json"]
+const GITIGNORE_ROWS = [CONFIG_LOCAL_FILE, ".swagger2api/backup/"]
 
 /**
  * 写入受管的 .gitignore 片段（幂等）：已有片段时补齐新增忽略项。
@@ -84,11 +83,29 @@ function writeConfig(file: string, patch: Record<string, any>) {
 }
 
 /**
+ * 只更新指定文档项：其余文档、base 与未知字段保持原样。
+ * @param file 配置路径
+ * @param id 文档 id
+ * @param patch 待写入的文档字段
+ * @return 无
+ */
+function writeDocPatch(file: string, id: string, patch: Record<string, any>) {
+  const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {}
+  const docs: Array<Record<string, any>> = Array.isArray(existing.docs) ? existing.docs : []
+  const index = docs.findIndex((item) => item && item.id === id)
+  if (index === -1) docs.push({ id, ...patch })
+  else docs[index] = { ...docs[index], ...patch }
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${JSON.stringify({ ...existing, docs }, null, 2)}\n`)
+}
+
+/**
  * 交互式收集配置。
  * @return 配置段
  */
 async function askConfig() {
   const answers = await prompts([
+    { name: "id", type: "text", message: "文档 id:", initial: "main" },
     { name: "url", type: "text", message: "Swagger 地址或本地文件:", initial: "" },
     { name: "dir", type: "text", message: "输出目录:", initial: "./src/api" },
     { name: "name", type: "text", message: "入口文件名:", initial: "index" },
@@ -116,11 +133,13 @@ async function askConfig() {
     { name: "grouped", type: "toggle", message: "按组拆分为多文件?", initial: false, active: "是", inactive: "否" }
   ])
   const patch: Record<string, any> = {
-    input: { url: answers.url },
-    output: { dir: answers.dir, name: answers.name, mode: answers.grouped ? "grouped" : "single" },
-    client: { type: answers.client },
-    language: { target: answers.language },
-    types: { responses: Boolean(answers.responses) }
+    base: {
+      output: { name: answers.name, mode: answers.grouped ? "grouped" : "single" },
+      client: answers.client,
+      language: answers.language,
+      types: { responses: Boolean(answers.responses) }
+    },
+    docs: [{ id: String(answers.id || "main"), source: answers.url, output: answers.dir }]
   }
   return patch
 }
@@ -138,13 +157,15 @@ export async function runInit() {
 
   if (scriptPackage) {
     const result = migrateFromPackage(scriptPackage)
-    writeConfig(targetFile, result.config)
+    // 脚本参数只覆盖共享配置；输入输出必须由用户在新结构的 docs 中补齐
+    writeConfig(targetFile, { base: result.config, docs: [] })
     ensureGitignore(process.cwd())
-    console.log(`已从脚本 ${result.scriptName} 迁移配置到 ${targetFile}`)
+    console.log(`已从脚本 ${result.scriptName} 迁移共享配置到 ${targetFile}`)
+    console.error("⚠️ 迁移结果缺少文档输入输出：请在 docs 中补充 source 与 output")
     if (result.unknown.length) {
       console.error(`⚠️ 以下参数未能识别，请手动补充：${result.unknown.join("、")}`)
     }
-    return result.unknown.length ? 1 : 0
+    return result.unknown.length ? 1 : 2
   }
 
   if (!canPrompt()) {
@@ -165,13 +186,17 @@ export async function runInit() {
 export function runConfigStatus() {
   const { configFile, profile } = getConfigFlags()
   const layers = loadConfigLayers(process.cwd(), { projectFile: configFile })
-  const effective = applyEnvOverrides(applyProfile(layers.merged, profile))
+  const merged = layers.merged ?? {}
+  // 环境变量按文档生效，状态展示先把 base 按预设与环境变量展开，docs 原样列出
+  const base = applyEnvOverrides(applyProfileToBase(merged.base, merged.profiles, profile))
+  const effective = { base, docs: merged.docs ?? [], profiles: merged.profiles ?? {} }
   const payload = {
     layers: describeLayers(layers),
     envOverrides: CONFIG_ENV_OVERRIDES.filter((item) => process.env[item.env] !== undefined).map((item) => `${item.env} → ${item.key}`),
     profile: profile ?? null,
     effective,
-    warnings: layers.warnings
+    warnings: layers.warnings,
+    errors: layers.errors
   }
   if (process.argv.includes("--json")) {
     writeJson(payload)
@@ -180,6 +205,7 @@ export function runConfigStatus() {
     payload.envOverrides.length ? console.log(`环境变量：${payload.envOverrides.join("；")}`) : console.log("环境变量：无")
     console.log(`预设：${payload.profile ?? "未指定"}`)
     payload.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+    payload.errors.forEach((error) => console.error(`失败：${error}`))
   }
   return 0
 }
@@ -235,16 +261,42 @@ function collectStats(spec: Record<string, any>) {
 export async function runGrouping() {
   const { configFile, profile } = getConfigFlags()
   const layers = loadConfigLayers(process.cwd(), { projectFile: configFile })
-  const rc = applyEnvOverrides(applyProfile(layers.merged, profile))
-  const input = rc.input?.url ?? rc.input?.file
-  if (!input) {
-    console.error("未找到 input 配置，请先执行 swagger2api init")
-    return 1
+  layers.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+  if (layers.errors.length > 0) {
+    layers.errors.forEach((error) => console.error(`失败：${error}`))
+    return 2
   }
+  if (!layers.merged) {
+    console.error("失败：未找到 swagger2api.json；请先执行 swagger2api init")
+    return 2
+  }
+  const configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
+  const plan = resolveDocs(layers.merged, { profile, configDir })
+  plan.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+  if (plan.errors.length > 0) {
+    plan.errors.forEach((error) => console.error(`失败：${error}`))
+    return 2
+  }
+  const picked = pickDocFlags()
+  if (picked.errors.length > 0) {
+    picked.errors.forEach((error) => console.error(`失败：${error}`))
+    return 2
+  }
+  const ids = plan.docs.map((doc) => doc.id)
+  if (picked.ids.length !== 1) {
+    console.error(`失败：grouping 需要用 --target 指定一个文档 id（可选：${ids.join("、")}）`)
+    return 2
+  }
+  const doc = plan.docs.find((item) => item.id === picked.ids[0])
+  if (!doc) {
+    console.error(`失败：未知文档 ${picked.ids[0]}（可选：${ids.join("、")}）`)
+    return 2
+  }
+  const rc = doc.config
   let spec: Record<string, any>
   try {
-    const timeout = normalizeTimeout(rc.input?.timeout ?? (rc as Record<string, any>).timeout, "input.timeout")
-    spec = await loadSpec(input, timeout)
+    const timeout = normalizeTimeout(rc.input?.timeout, "input.timeout")
+    spec = await loadSpec(doc.input, timeout)
   } catch (error) {
     console.error(`读取文档失败：${(error as Error).message}`)
     return 1
@@ -336,21 +388,22 @@ export async function runGrouping() {
   }
   console.log("将写入：", JSON.stringify(grouping))
   const target = configFile ? path.resolve(configFile) : path.join(process.cwd(), CONFIG_PROJECT_FILE)
-  writeConfig(target, { grouping })
-  console.log(`已写入分组配置：${target}`)
+  // 只改被检查的文档项，其余文档与共享配置保持原样
+  writeDocPatch(target, doc.id, { grouping })
+  console.log(`已写入分组配置：${target}（文档 ${doc.id}）`)
   return 0
 }
 
 /** 接口面目标 */
 interface SurfaceTarget {
-  /** 目标 id（单目标为空） */
+  /** 文档 id（单文档时为空，保持基线平铺） */
   id?: string
   /** 产物目录绝对路径 */
   dir: string
 }
 
 /**
- * 解析接口面命令的目标：多目标配置按 targets，单目标按 output.dir。
+ * 解析接口面命令的目标：按文档列表取产物目录，--target 过滤。
  * @param argv 参数列表
  * @return 目标与错误
  */
@@ -358,25 +411,21 @@ function resolveSurfaceTargets(argv: string[]) {
   const flags = getConfigFlags(argv)
   const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
   layers.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+  if (layers.errors.length > 0) return { targets: [] as SurfaceTarget[], errors: layers.errors }
+  if (!layers.merged) return { targets: [] as SurfaceTarget[], errors: ["未找到 swagger2api.json；请先执行 swagger2api init"] }
   const configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
-  const picked = pickTargetFlag(argv)
+  const picked = pickDocFlags(argv)
   if (picked.errors.length > 0) return { targets: [] as SurfaceTarget[], errors: picked.errors }
-  if (hasTargets(layers.merged)) {
-    if (String(flags.configFile ?? "").includes(",")) return { targets: [] as SurfaceTarget[], errors: ["多目标配置只接受单个 --config 文件"] }
-    const plan = resolveTargets(layers.merged as Record<string, any>, { profile: flags.profile, configDir })
-    plan.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
-    if (plan.errors.length > 0) return { targets: [] as SurfaceTarget[], errors: plan.errors }
-    if (picked.id && !plan.targets.some((target) => target.id === picked.id)) {
-      return { targets: [] as SurfaceTarget[], errors: [`未知目标 ${picked.id}（可选：${plan.targets.map((target) => target.id).join("、")}）`] }
-    }
-    const selected = picked.id ? plan.targets.filter((target) => target.id === picked.id) : plan.targets
-    return { targets: selected.map((target) => ({ id: target.id, dir: target.outputDir })), errors: [] as string[] }
+  const plan = resolveDocs(layers.merged, { profile: flags.profile, configDir })
+  plan.warnings.forEach((warning) => console.error(`⚠️ ${warning}`))
+  if (plan.errors.length > 0) return { targets: [] as SurfaceTarget[], errors: plan.errors }
+  if (picked.ids.length > 0) {
+    const unknown = picked.ids.filter((id) => !plan.docs.some((doc) => doc.id === id))
+    if (unknown.length > 0) return { targets: [] as SurfaceTarget[], errors: [`未知文档 ${unknown.join("、")}（可选：${plan.docs.map((doc) => doc.id).join("、")}）`] }
   }
-  if (picked.id) return { targets: [] as SurfaceTarget[], errors: ["当前配置没有 targets，--target 无法使用"] }
-  const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
-  const output = rc.output
-  const dir = typeof output === "string" ? output : output?.dir ?? "./src/api"
-  return { targets: [{ dir: path.resolve(configDir, dir) }], errors: [] as string[] }
+  const selected = picked.ids.length > 0 ? plan.docs.filter((doc) => picked.ids.includes(doc.id)) : plan.docs
+  // 单文档保持平铺基线，多文档按 id 分组
+  return { targets: selected.map((doc) => ({ id: plan.docs.length > 1 ? doc.id : undefined, dir: doc.outputDir })), errors: [] as string[] }
 }
 
 /**
@@ -503,7 +552,7 @@ function pruneBlockedReason(target: string) {
   // 仓库根与配置目录可能混放手写文件与多份产物，只允许指定具体产物目录
   if (fs.existsSync(path.join(target, ".git"))) return `目录 ${target} 是仓库根，拒绝清理`
   const names = fs.readdirSync(target)
-  if (names.some((name) => /^(?:swagger2api(?:\.[^./\\]+)?|saconfig.*)\.json$/i.test(name))) {
+  if (names.some((name) => /^swagger2api(?:\.local)?\.json$/i.test(name))) {
     return `目录 ${target} 是配置目录，拒绝清理；请指定具体产物目录`
   }
   return null
@@ -563,7 +612,7 @@ function printUsage() {
     [
       "用法：",
       "  swagger2api                         按最近的 swagger2api.json 生成",
-      "  swagger2api --target <id>           多目标配置下只生成指定目标",
+      "  swagger2api --target <id[,id]>      只生成指定文档（可逗号多选）",
       "  swagger2api --dry-run [--json]      只输出分组报表，不写产物",
       "  swagger2api --check                 校验产物与配置是否一致",
       "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",

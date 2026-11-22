@@ -3,12 +3,11 @@ import { execSync } from "node:child_process"
 import os from "node:os"
 import fs from "node:fs"
 import path from "node:path"
-import prompts from "prompts"
 import { generateApi } from "swagger-typescript-api"
-import { Defines, DEFAULT_FETCH_TIMEOUT, DIAGNOSTIC_SCHEMA_VERSION, canPrompt, getDirname, getPArray, getPKey, getPValue, isUrl, normalizeTimeout, readToolVersion, saveFile, scanConfigFiles, writeJson } from "./utils"
+import { Defines, DEFAULT_FETCH_TIMEOUT, DIAGNOSTIC_SCHEMA_VERSION, getDirname, getPArray, getPKey, getPValue, isUrl, normalizeTimeout, readToolVersion, saveFile, writeJson } from "./utils"
 import { guardSpec } from "./utils/security/spec-guard"
-import { applyEnvOverrides, applyProfile, findOutputDirConflicts, getConfigFlags, loadConfigLayers, normalizeConfig } from "./utils/config"
-import { hasTargets, pickTargetFlag, resolveTargets } from "./utils/targets"
+import { getConfigFlags, loadConfigLayers } from "./utils/config"
+import { hasDocs, pickDocFlags, resolveDocs } from "./utils/docs"
 import { stripTsNoCheck } from "./utils/postprocess"
 import {
   buildCollisionExports,
@@ -103,27 +102,6 @@ function groupedLeftoverHint(dir: string, toJS: boolean) {
 }
 
 /**
- * 输出跨配置输出目录冲突：JSON 模式给出稳定错误码与可直接执行的下一步。
- * @param conflicts 冲突说明
- * @return 无
- */
-function onConfigConflict(conflicts: string[]) {
-  if (!jsonOutput()) {
-    conflicts.forEach((conflict) => console.error("失败：", conflict))
-    return
-  }
-  writeJson({
-    schemaVersion: DIAGNOSTIC_SCHEMA_VERSION,
-    toolVersion: readToolVersion(),
-    command: "generate",
-    ok: false,
-    errorCode: "E_CONFIG_CONFLICT",
-    message: conflicts.join("；"),
-    actions: ["swagger2api config status # 查看生效配置与环境变量覆盖", "swagger2api --dry-run --json # 预览本次目标与产物"]
-  })
-}
-
-/**
  * 生成失败：文本模式打印可读结论，JSON 模式输出稳定错误码与下一步。
  * 多目标模式不逐目标写 JSON，避免破坏整体汇总结构。
  * @param code 稳定错误码
@@ -133,7 +111,8 @@ function onConfigConflict(conflicts: string[]) {
  */
 function onGenerateFailure(code: string, message: string, actions: string[] = []) {
   failures += 1
-  if (jsonOutput() && !datas.targetMode) {
+  // 单文档或非文档模式输出结构化结论；多文档后续仍以汇总退出码为准
+  if (jsonOutput() && (!datas.docMode || (datas.docs?.length ?? 0) === 1)) {
     writeJson({ schemaVersion: DIAGNOSTIC_SCHEMA_VERSION, toolVersion: readToolVersion(), command: "generate", ok: false, errorCode: code, message, actions })
     return
   }
@@ -169,8 +148,6 @@ async function onLoadParam() {
   /** 参数 */
   datas.param = {
     config: getPValue(["--config", "-c"]),
-    configScan: getPKey(["--config-scan", "-cs"]) ?? true,
-    configAll: getPKey(["--config-all", "-ca"]),
     quick: getPKey(["--quick", "-q"]),
     replaceTags: getPArray(["--replace-tags", "-rt"], { length: 2 }),
     convertGet: getPKey(["--convert-get", "-cg"]),
@@ -224,7 +201,7 @@ async function onLoadParam() {
   // 拉取超时：命令行显式值优先，rc 配置在 applyRcConfig 中补齐
   datas.timeout = normalizeTimeout(datas.param.timeout, "--timeout")
   // 应用 rc 配置（命令行显式参数优先）
-  onApplyRc()
+  onApplyDocs()
 }
 /**
  * 判断命令行是否显式给出某个开关
@@ -263,7 +240,6 @@ function applyRcConfig(rc: Record<string, any>) {
   // 横幅语言：生成配置对象不含 output 段，单独留存供统一解析
   datas.banner = output.banner
   const param = datas.param
-  param.quick = true
   if (!hasFlag(["--remove-prefix-index", "-rpi"]) && naming.pathPrefixIndex !== undefined) param.removePrefixIndex = String(naming.pathPrefixIndex)
   if (!hasFlag(["--convert-get", "-cg"]) && naming.convertGetToQuery !== undefined) param.convertGet = naming.convertGetToQuery
   if (!hasFlag(["--remove-param", "-rp"]) && naming.dropPathParams !== undefined) param.removeParam = naming.dropPathParams
@@ -287,148 +263,44 @@ function applyRcConfig(rc: Record<string, any>) {
   if (Object.keys(grouping).length) config.grouping = grouping
 }
 
-/**
- * 应用 rc 配置：多目标先整体预校验再挑选目标，单目标沿用原流程。
- * @return 无
- */
-function onApplyRc() {
+/** 应用配置文档列表 */
+function onApplyDocs() {
   const flags = getConfigFlags()
   const layers = loadConfigLayers(process.cwd(), { projectFile: flags.configFile })
   layers.warnings.forEach((warning) => console.error("⚠️", warning))
-  datas.configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
-  // 多目标：配置错误一次报完并以退出码 2 终止，不写任何目标，避免半批产物
-  if (hasTargets(layers.merged)) {
-    if (String(flags.configFile ?? "").includes(",")) {
-      console.error("失败：多目标配置只接受单个 --config 文件")
-      onExit("结束：--config 不接受多个文件", 2)
-    }
-    const picked = pickTargetFlag()
-    if (picked.errors.length > 0) {
-      picked.errors.forEach((error) => console.error("失败：", error))
-      onExit("结束：目标参数不合法", 2)
-    }
-    const plan = resolveTargets(layers.merged as Record<string, any>, { profile: flags.profile, configDir: datas.configDir })
-    plan.warnings.forEach((warning) => console.error("⚠️", warning))
-    if (plan.errors.length > 0) {
-      plan.errors.forEach((error) => console.error("失败：", error))
-      onExit(`结束：多目标配置有 ${plan.errors.length} 处问题，未生成任何目标`, 2)
-    }
-    if (picked.id && !plan.targets.some((target) => target.id === picked.id)) {
-      console.error(`失败：未知目标 ${picked.id}（可选：${plan.targets.map((target) => target.id).join("、")}）`)
-      onExit("结束：--target 未匹配任何目标", 2)
-    }
-    datas.targetMode = true
-    datas.rcDriven = true
-    datas.targets = picked.id ? plan.targets.filter((target) => target.id === picked.id) : plan.targets
-    // 同目录其他配置若与本配置输出重叠，两边的横幅清理会互删产物
-    const conflicts = findOutputDirConflicts({
-      configDir: datas.configDir as string,
-      currentFile: layers.project.file,
-      outputDirs: (datas.targets ?? []).map((target) => path.resolve(target.outputDir))
-    })
-    if (conflicts.length > 0) {
-      onConfigConflict(conflicts)
-      onExit("结束：配置输出目录冲突，未生成任何目标", 2)
-    }
-    return
+  if (layers.errors.length > 0) {
+    layers.errors.forEach((error) => console.error("失败：", error))
+    onExit(`结束：配置有 ${layers.errors.length} 处问题`, 2)
   }
-  // 单目标：--target 只在多目标配置下有意义，脚本残留时明确报错而非静默失效
-  const picked = pickTargetFlag()
+  datas.configDir = layers.project.file ? path.dirname(path.resolve(layers.project.file)) : process.cwd()
+  if (!layers.merged || !hasDocs(layers.merged)) {
+    if (!layers.project.file) console.error("失败：未找到 swagger2api.json；请先执行 swagger2api init，或用 --config <文件> 指定配置")
+    else console.error("失败：配置缺少 docs（至少声明一个文档）")
+    onExit("结束：配置不可用", 2)
+  }
+  const picked = pickDocFlags()
   if (picked.errors.length > 0) {
     picked.errors.forEach((error) => console.error("失败：", error))
-    onExit("结束：目标参数不合法", 2)
+    onExit("结束：文档选择参数不合法", 2)
   }
-  if (picked.id) {
-    console.error("失败：当前配置没有 targets，--target 无法使用")
-    onExit("结束：--target 需要多目标配置", 2)
+  const plan = resolveDocs(layers.merged as Record<string, any>, { profile: flags.profile, configDir: datas.configDir })
+  plan.warnings.forEach((warning) => console.error("⚠️", warning))
+  if (plan.errors.length > 0) {
+    plan.errors.forEach((error) => console.error("失败：", error))
+    onExit(`结束：配置有 ${plan.errors.length} 处问题，未生成任何文档`, 2)
   }
-  // 先归一化扁平配置，再套预设、再做一次归一化，兼容预设内继续使用扁平字段
-  const rc = applyEnvOverrides(normalizeConfig(applyProfile(normalizeConfig(layers.merged), flags.profile)))
-  applyRcConfig(rc)
-  if (!datas.rcUrl || !datas.rcOutput) return
-  // 同目录其他配置若与本配置输出重叠，两边的横幅清理会互删产物
-  const conflicts = findOutputDirConflicts({ configDir: datas.configDir as string, currentFile: layers.project.file, outputDirs: [datas.rcOutput] })
-  if (conflicts.length > 0) {
-    onConfigConflict(conflicts)
-    onExit("结束：配置输出目录冲突，未生成任何产物", 2)
-  }
-}
-/** 加载配置 */
-async function onLoadConfig() {
-  // rc 配置驱动时不需要扫描 saconfig
-  if (datas.rcDriven) {
-    confs.files = ["(swagger2apirc)"]
-    return
-  }
-  // 疏理文件
-  if (datas.param.config) {
-    // 指定配置文件
-    confs.files = datas.param.config.split(",")
-  } else if (datas.param.configScan) {
-    // 扫描配置文件
-    confs.files = scanConfigFiles()
-  }
-  // 默认文件
-  if (confs.files.length == 0) confs.files = ["saconfig.json"]
-  // 选择文件
-  if (!datas.param.configAll && confs.files.length > 1) {
-    // 非交互环境不能多选：给出等价的显式参数，不猜测用户选择
-    if (!canPrompt()) {
-      onFailExit(
-        `结束：检测到 ${confs.files.length} 份配置文件，需要交互选择；非交互环境请用 --config <文件> 指定，或加 --config-all 全部处理`
-      )
+  if (picked.ids.length > 0) {
+    const known = new Set(plan.docs.map((doc) => doc.id))
+    const unknown = picked.ids.filter((id) => !known.has(id))
+    if (unknown.length > 0) {
+      console.error(`失败：未知文档 ${unknown.join("、")}（可选：${plan.docs.map((doc) => doc.id).join("、")}）`)
+      onExit("结束：--target 未匹配任何文档", 2)
     }
-    confs.files = (
-      await prompts({
-        type: "multiselect",
-        name: "files",
-        message: "选择配置文件",
-        hint: "可多选，空格键勾选，回车完成",
-        choices: confs.files.map((item) => ({ title: item.replace(/\\/g, "/"), value: item }))
-      }).then((res) => (res.files?.length != 0 ? res : onExit("结束：至少选择一个配置文件")))
-    )["files"]
   }
-  // 检查配置
-  if (!(confs.files?.length > 0)) onExit("结束：手动退出")
-  // 配置文件缺失时明确报错，不隐式进入交互
-  const missingFiles = confs.files.filter((file) => file !== "(swagger2apirc)" && !fs.existsSync(path.resolve(file)))
-  if (missingFiles.length > 0) {
-    onFailExit(`结束：未找到配置文件 ${missingFiles.join("、")}；请先执行 swagger2api init 生成 swagger2api.json，或用 --config <文件> 指定`)
-  }
-}
-/** 输入参数 */
-async function onInputParam() {
-  // rc 配置驱动：直接使用配置值，不读 saconfig、不交互
-  if (datas.rcDriven) {
-    confs.param = { url: datas.rcUrl, output: datas.rcOutput, name: datas.rcName }
-    datas.docFile = createDocFile()
-    return
-  }
-  try {
-    // 初始化配置
-    confs.param = {}
-    // 读取配置文件
-    confs.param = JSON.parse(fs.readFileSync(confs.file, "utf-8"))
-  } catch (error) {}
-  // 检查快速模式
-  if (!datas.param.quick || [confs.param.url, confs.param.output, confs.param.name].includes(undefined)) {
-    // 非交互环境不能补问参数：给出等价的非交互命令，不猜测配置
-    if (!canPrompt()) {
-      onFailExit(
-        "结束：缺少输入参数（url / output / name），非交互环境请用 swagger2api init 生成配置，或用 --config <文件> 指定完整配置后再加 -q"
-      )
-    }
-    // 输入配置
-    confs.param = await prompts([
-      { name: "url", type: "text", message: "Swagger docs 地址:", initial: confs.param.url ?? "https://example.com/v3/api-docs" },
-      { name: "output", type: "text", message: "输出地址:", initial: confs.param.output ?? "./src/api" },
-      { name: "name", type: "text", message: "文件名:", initial: confs.param.name ?? "index" }
-    ])
-  }
-  // 检查配置
-  if ([confs.param.url, confs.param.output, confs.param.name].includes(undefined)) onExit("结束：手动退出")
-  // 疏理文档
-  datas.docFile = createDocFile()
+  // 选择交互在下一任务接入；当前未显式选择时执行全部文档
+  datas.docMode = true
+  datas.rcDriven = true
+  datas.docs = picked.ids.length > 0 ? plan.docs.filter((doc) => picked.ids.includes(doc.id)) : plan.docs
 }
 /**
  * 拉取远端 Swagger 文档：带显式超时，并把超时与网络错误转成可读提示。
@@ -463,27 +335,6 @@ async function onLoadDocInput(input: string) {
     return
   }
   await onGenerateApi(JSON.parse(fs.readFileSync(path.resolve(input), "utf8")))
-}
-/** 加载文档 */
-async function onLoadDoc(index = 0) {
-  // 疏理文件
-  confs.file = confs.files[index]
-  // 输入配置
-  await onInputParam()
-  // 检查地址：读取失败计入失败数，批量场景下继续处理其余文档
-  try {
-    await onLoadDocInput(confs.param.url as string)
-  } catch (error) {
-    failures += 1
-    console.error("失败：", error)
-  }
-  // 加载下一个文档
-  if (confs.files[index + 1]) {
-    await onLoadDoc(index + 1)
-  } else if (failures > 0) {
-    // 批量场景下跳过失败文档，但整体以非 0 退出，避免静默降级
-    onExit(`结束：${failures} 个文档未生成，失败原因见上方输出`, 1)
-  }
 }
 /**
  * 标签改写：先于分组执行，避免把分组写入的模块名再次改写。
@@ -682,8 +533,8 @@ function onGroupReport(entries: GroupNameInfo[], unmatchedRules: number[], plan:
   }
   if (jsonOutput()) {
     // 多目标：逐目标报表由主流程汇总成单个 JSON，避免输出多份互不闭合的文档
-    if (datas.targetMode) {
-      ;(datas.groupReports ??= []).push({ id: datas.currentTarget ?? "", report })
+    if (datas.docMode) {
+      ;(datas.groupReports ??= []).push({ id: datas.currentDoc ?? "", report })
       return
     }
     writeJson(report)
@@ -993,8 +844,6 @@ async function onGenerateApi(data: Defines["data"]) {
       console.log("清理：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
       execSync(`npx rimraf ${path.resolve(confs.param.output, `${confs.param.name}.d.ts`)}`, { cwd: datas.home }).toString()
     }
-    // 保存配置（rc 驱动时不回写 saconfig）
-    if (!datas.rcDriven) saveFile(confs.file, JSON.stringify(confs.param, null, 2))
     completed = true
   } finally {
     // 失败回滚：只删除本轮新增的文件与空目录，原有产物保留
@@ -1004,56 +853,48 @@ async function onGenerateApi(data: Defines["data"]) {
   }
 }
 /**
- * 多目标：逐目标复位运行时后生成；单个失败不阻断其余目标，最终聚合退出码。
+ * 多文档：逐文档复位运行时后生成；单个失败不阻断其余文档，最终聚合退出码。
  * @return 无
  */
-async function onRunTargets() {
-  const targets = datas.targets ?? []
+async function onRunDocs() {
+  const docs = datas.docs ?? []
   const summary: Array<{ id: string; ok: boolean; report?: Record<string, any> }> = []
   let failed = 0
-  for (const target of targets) {
-    // 每个目标独立复位：参数、配置、统计与命名表互不串味
+  for (const doc of docs) {
+    // 每个文档独立复位：参数、配置、统计与命名表互不串味
     datas.param = structuredClone(datas.baseParam) as Defines["datas"]["param"]
     datas.config = structuredClone(datas.baseConfig) as Defines["datas"]["config"]
     datas.enum = {}
     namingEntries = []
     splitPlan = null
     datas.groupReports = []
-    datas.currentTarget = target.id
-    applyRcConfig(target.config)
-    confs.file = `(targets:${target.id})`
+    datas.currentDoc = doc.id
+    applyRcConfig(doc.config)
+    confs.file = `(docs:${doc.id})`
     confs.param = { url: datas.rcUrl, output: datas.rcOutput, name: datas.rcName }
     datas.docFile = createDocFile()
-    console.log(`\n目标：${target.id}（${target.input} → ${target.outputDir}）`)
+    console.log(`\n文档：${doc.id}（${doc.input} → ${doc.outputDir}）`)
     const before = failures
     try {
-      await onLoadDocInput(target.input)
+      await onLoadDocInput(doc.input)
     } catch (error) {
       failures += 1
-      console.error(`失败：目标 ${target.id}：${(error as Error).message}`)
+      console.error(`失败：文档 ${doc.id}：${(error as Error).message}`)
     }
     const ok = failures === before
     if (!ok) failed += 1
-    summary.push({ id: target.id, ok, report: datas.groupReports?.[0]?.report })
+    summary.push({ id: doc.id, ok, report: datas.groupReports?.[0]?.report })
   }
-  // dry-run 的结构化报表按目标汇总成单个 JSON
-  if (dryRun() && jsonOutput()) writeJson({ targets: summary })
-  if (failed > 0) onExit(`结束：${failed} 个目标失败（共 ${targets.length} 个），其余目标已完成`, 1)
+  // dry-run 的结构化报表按文档汇总成单个 JSON
+  if (dryRun() && jsonOutput()) writeJson({ docs: summary })
+  if (failed > 0) onExit(`结束：${failed} 个文档失败（共 ${docs.length} 个），其余文档已完成`, 1)
 }
 
 /** 主线 */
 async function onMain() {
-  // 加载参数
+  // 参数阶段即完成配置加载与文档预校验，未通过时已退出
   await onLoadParam()
-  // 多目标：配置已在参数阶段整体预校验，直接逐目标执行
-  if (datas.targetMode) {
-    await onRunTargets()
-    return
-  }
-  // 加载配置
-  await onLoadConfig()
-  // 加载文档
-  await onLoadDoc()
+  await onRunDocs()
 }
 // 导出方法
 export { onMain as generateApi }

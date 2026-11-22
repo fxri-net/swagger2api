@@ -1,18 +1,17 @@
-// 配置分层与迁移解析：三层合并、环境变量覆盖、命名预设、脚本参数迁移
+// 配置分层与归一：三层合并、环境变量覆盖、预设、单文档归一与脚本参数迁移
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   applyEnvOverrides,
-  applyProfile,
-  findOutputDirConflicts,
+  applyProfileToBase,
+  deepMergeConfig,
   findUpward,
   getByPath,
   loadConfigLayers,
-  mergeSections,
   mergeShallow,
-  normalizeConfig,
+  normalizeDocConfig,
   setByPath
 } from "../utils/config"
 import { argsToConfig, migrateFromPackage, tokenizeArgs } from "../utils/migrate"
@@ -41,17 +40,16 @@ afterEach(() => {
 })
 
 describe("配置合并", () => {
-  it("按段覆盖：外层同名段整体替换", () => {
-    expect(mergeSections({ output: { dir: "a", mode: "single" }, client: { type: "fetch" } }, { output: { dir: "b" } })).toEqual({
-      output: { dir: "b" },
-      client: { type: "fetch" }
-    })
-  })
-
   it("段内浅合并：数组整体替换", () => {
     expect(
       mergeShallow({ naming: { tagRewrite: ["a", "b"], convertGetToQuery: false } }, { naming: { tagRewrite: ["c", "d"] } })
     ).toEqual({ naming: { tagRewrite: ["c", "d"], convertGetToQuery: false } })
+  })
+
+  it("深度合并对象、整体替换数组", () => {
+    expect(
+      deepMergeConfig({ output: { name: "index", mode: "single" }, naming: { tagRewrite: ["a", "b"] } }, { output: { name: "api" }, naming: { tagRewrite: ["c", "d"] } })
+    ).toEqual({ output: { name: "api", mode: "single" }, naming: { tagRewrite: ["c", "d"] } })
   })
 
   it("点号路径读写", () => {
@@ -69,78 +67,116 @@ describe("环境变量与预设", () => {
     expect(result.output.clean).toBe(false)
   })
 
-  it("命名预设按字段浅合并", () => {
-    const result = applyProfile({ output: { dir: "base", name: "index" }, profiles: { admin: { output: { dir: "admin" } } } }, "admin")
-    expect(result.output).toEqual({ dir: "admin", name: "index" })
+  it("预设深度合并进 base", () => {
+    const result = applyProfileToBase({ output: { name: "index", mode: "single" } }, { admin: { output: { name: "admin" }, client: "axios" } }, "admin")
+    expect(result).toEqual({ output: { name: "admin", mode: "single" }, client: "axios" })
   })
 })
 
 describe("三层加载", () => {
-  it("向上查找并合并三层，本地层字段覆盖项目层", () => {
+  it("base 深度合并，docs 按 id 覆盖或追加", () => {
     const root = makeTree({
-      ".swagger2apirc.json": JSON.stringify({ input: { url: "project" }, output: { dir: "./api", name: "index" } }),
-      ".swagger2apirc.local.json": JSON.stringify({ output: { dir: "./local" } }),
-      "apps/admin/package.json": "{}"
+      ".swagger2api.json": JSON.stringify({ base: { types: { responses: true } } }),
+      "swagger2api.json": JSON.stringify({
+        base: { output: { name: "index", mode: "grouped" }, client: "axios" },
+        docs: [{ id: "a", source: "https://example.com/a.json", output: "./api/a" }],
+        profiles: { admin: { output: { name: "admin" } } }
+      }),
+      "swagger2api.local.json": JSON.stringify({
+        docs: [
+          { id: "b", source: "./b.json", output: "./api/b" },
+          { id: "a", output: "./api/local-a" }
+        ]
+      }),
+      "apps/admin/.keep": ""
     })
-    const layers = loadConfigLayers(path.join(root, "apps", "admin"), { homeDir: path.join(root, "home") })
-    expect(layers.project.file).toBe(path.join(root, ".swagger2apirc.json"))
-    expect(layers.merged?.output).toEqual({ dir: "./local", name: "index" })
-    expect(layers.merged?.input).toEqual({ url: "project" })
+    const layers = loadConfigLayers(path.join(root, "apps", "admin"), { homeDir: root })
+    expect(layers.project.file).toBe(path.join(root, "swagger2api.json"))
+    expect(layers.local.file).toBe(path.join(root, "swagger2api.local.json"))
+    expect(layers.merged?.base).toEqual({ output: { name: "index", mode: "grouped" }, client: "axios", types: { responses: true } })
+    expect(layers.merged?.docs).toEqual([
+      { id: "a", source: "https://example.com/a.json", output: "./api/local-a" },
+      { id: "b", source: "./b.json", output: "./api/b" }
+    ])
+  })
+
+  it("旧字段作为根键时报错", () => {
+    const root = makeTree({ "swagger2api.json": JSON.stringify({ input: { url: "old" }, output: { dir: "./api" } }) })
+    const layers = loadConfigLayers(root, { homeDir: path.join(root, "home") })
+    expect(layers.errors.some((error) => error.includes("不支持的根字段 input"))).toBe(true)
+    expect(layers.errors.some((error) => error.includes("不支持的根字段 output"))).toBe(true)
+  })
+
+  it("全局层不允许声明 docs", () => {
+    const root = makeTree({
+      ".swagger2api.json": JSON.stringify({ docs: [{ id: "a" }] }),
+      "swagger2api.json": JSON.stringify({ docs: [] }),
+      "apps/.keep": ""
+    })
+    const layers = loadConfigLayers(path.join(root, "apps"), { homeDir: root })
+    expect(layers.errors.some((error) => error.includes("全局层不允许声明 docs"))).toBe(true)
   })
 
   it("解析失败的层被忽略并告警", () => {
-    const root = makeTree({ ".swagger2apirc.json": "{ bad json" })
+    const root = makeTree({ "swagger2api.json": "{ bad json" })
     const layers = loadConfigLayers(root, { homeDir: path.join(root, "home") })
     expect(layers.project.hit).toBe(false)
     expect(layers.warnings.length).toBe(1)
   })
 
-  it("同名新配置优先于旧配置并告警", () => {
-    const root = makeTree({
-      "swagger2api.json": JSON.stringify({ input: { url: "new" }, output: { dir: "./api" } }),
-      ".swagger2apirc.json": JSON.stringify({ input: { url: "old" } }),
-      "apps/a/.keep": ""
-    })
-    const layers = loadConfigLayers(path.join(root, "apps", "a"), { homeDir: path.join(root, "home") })
-    expect(layers.project.file).toBe(path.join(root, "swagger2api.json"))
-    expect(layers.merged?.input).toEqual({ url: "new" })
-    expect(layers.warnings.some((warning) => warning.includes("旧配置"))).toBe(true)
-  })
-
-  it("本地层新文件名同样生效", () => {
-    const root = makeTree({
-      "swagger2api.json": JSON.stringify({ input: { url: "project" }, output: { dir: "./api", name: "index" } }),
-      "swagger2api.local.json": JSON.stringify({ output: { dir: "./local" } }),
-      "apps/.keep": ""
-    })
-    const layers = loadConfigLayers(path.join(root, "apps"), { homeDir: path.join(root, "home") })
-    expect(layers.local.file).toBe(path.join(root, "swagger2api.local.json"))
-    expect(layers.merged?.output.dir).toBe("./local")
-  })
-
-  it("最近目录的新名优先于更远目录", () => {
-    const root = makeTree({
-      "swagger2api.json": JSON.stringify({ input: { url: "root" } }),
-      ".swagger2apirc.json": JSON.stringify({ input: { url: "root-old" } }),
-      "apps/swagger2api.json": JSON.stringify({ input: { url: "app" } }),
-      "apps/a/.keep": ""
-    })
-    const layers = loadConfigLayers(path.join(root, "apps", "a"), { homeDir: path.join(root, "home") })
-    expect(layers.project.file).toBe(path.join(root, "apps", "swagger2api.json"))
-    expect(layers.merged?.input).toEqual({ url: "app" })
-  })
-
   it("findUpward 从子目录命中父级文件", () => {
-    const root = makeTree({ ".swagger2apirc.json": "{}", "a/b/c/.keep": "" })
-    expect(findUpward(".swagger2apirc.json", path.join(root, "a", "b", "c"))).toBe(path.join(root, ".swagger2apirc.json"))
+    const root = makeTree({ "swagger2api.json": "{}", "a/b/c/.keep": "" })
+    expect(findUpward("swagger2api.json", path.join(root, "a", "b", "c"))).toBe(path.join(root, "swagger2api.json"))
+  })
+})
+
+describe("单文档归一", () => {
+  it("source 字符串转为输入，字符串简写转为对象", () => {
+    const config = normalizeDocConfig({
+      source: "https://example.com/api-docs",
+      output: { name: "index", mode: "grouped" },
+      client: "axios",
+      language: "js",
+      types: { responses: true },
+      naming: { pathPrefixIndex: 0 }
+    })
+    expect(config.input.url).toBe("https://example.com/api-docs")
+    expect(config.output).toMatchObject({ name: "index", mode: "grouped", prune: true })
+    expect(config.client).toEqual({ type: "axios" })
+    expect(config.language).toEqual({ target: "js" })
+    // 分组模式未显式配置时给路径分组与分桶默认值
+    expect(config.grouping).toEqual({ strategy: ["path"], pathDepth: 0, split: true })
+    expect(config.source).toBeUndefined()
+  })
+
+  it("显式分组配置原样生效，不追加 split 默认值", () => {
+    const config = normalizeDocConfig({
+      source: "./swagger.json",
+      output: { dir: "./api", mode: "grouped" },
+      grouping: { strategy: ["tag"], names: { a: "b" } }
+    })
+    expect(config.grouping).toEqual({ strategy: ["tag"], names: { a: "b" } })
+  })
+
+  it("source 对象保留 headers 与 timeout", () => {
+    const config = normalizeDocConfig({ source: { file: "./swagger.json", headers: { a: "b" }, timeout: 500 }, output: "./api" })
+    expect(config.input.file).toBe("./swagger.json")
+    expect(config.input.headers).toEqual({ a: "b" })
+    expect(config.input.timeout).toBe(500)
+    expect(config.output).toMatchObject({ dir: "./api", name: "index" })
+  })
+
+  it("base.output.name 作为入口文件名默认值", () => {
+    const config = normalizeDocConfig({ source: "./swagger.json", output: { dir: "./api", name: "api" } })
+    expect(config.output.name).toBe("api")
   })
 })
 
 describe("脚本迁移", () => {
   it("切分引号与正则参数", () => {
-    expect(tokenizeArgs(`--config saconfig.json --quick --rt "[a-z_]+(.+)" "$1"`)).toEqual([
+    expect(tokenizeArgs(`--config swagger2api.json --quick --rt "[a-z_]+(.+)" "$1"`)).toEqual([
       "--config",
-      "saconfig.json",
+      "swagger2api.json",
       "--quick",
       "--rt",
       "[a-z_]+(.+)",
@@ -180,80 +216,5 @@ describe("脚本迁移", () => {
     expect(result.scriptName).toBe("api")
     expect(result.config.client.type).toBe("axios")
     expect(result.unknown).toEqual([])
-  })
-})
-
-describe("扁平配置归一化", () => {
-  it("扁平字段转内部结构并注入分组默认", () => {
-    const config = normalizeConfig({
-      url: "https://example.com/api-docs",
-      output: "./src/api/base",
-      mode: "grouped",
-      typeCheck: "enforce",
-      client: "axios",
-      language: "js",
-      responses: true,
-      query: ["param", "arg0"],
-      pathPrefixIndex: 0,
-      extractResponseRaw: true,
-      convertGetToQuery: true,
-      dropPathParams: true,
-      tagRewrite: ["[a-z_]+(.+)", ""]
-    })
-    expect(config.input.url).toBe("https://example.com/api-docs")
-    expect(config.output).toMatchObject({ dir: "./src/api/base", name: "index", mode: "grouped", prune: true, typeCheck: "enforce" })
-    expect(config.client).toEqual({ type: "axios" })
-    expect(config.language).toEqual({ target: "js" })
-    expect(config.types).toMatchObject({ responses: true, extractQuery: "param,arg0", extractResponseRaw: true })
-    expect(config.naming).toMatchObject({ pathPrefixIndex: 0, convertGetToQuery: true, dropPathParams: true, tagRewrite: ["[a-z_]+(.+)", ""] })
-    // 分组模式自动带上路径策略与分片，业务配置不写阈值
-    expect(config.grouping).toMatchObject({ strategy: ["path"], pathDepth: 0, split: true })
-    // 扁平别名不留在根上，避免二次归一化覆盖段内配置
-    expect(config.url).toBeUndefined()
-    expect(config.mode).toBeUndefined()
-  })
-
-  it("扁平 file 输入默认单文件且不清理", () => {
-    const config = normalizeConfig({ file: "./swagger.json", output: "./api" })
-    expect(config.input.file).toBe("./swagger.json")
-    expect(config.output).toMatchObject({ dir: "./api", name: "index", mode: "single", prune: false })
-    expect(config.grouping).toBeUndefined()
-  })
-
-  it("嵌套配置原样返回", () => {
-    const nested = { input: { url: "https://example.com" }, output: { dir: "./api", mode: "single" } }
-    expect(normalizeConfig(nested)).toEqual(nested)
-  })
-})
-
-describe("同目录配置输出冲突", () => {
-  it("输出相同或互相嵌套时报冲突，不同输出放行", () => {
-    const root = makeTree({
-      "swagger2api.json": JSON.stringify({ input: { file: "./a.json" }, output: { dir: "./api" } }),
-      "swagger2api.base.json": JSON.stringify({ input: { file: "./b.json" }, output: { dir: "./api/nested" } }),
-      "swagger2api.lc.json": JSON.stringify({ input: { file: "./c.json" }, output: { dir: "./other" } })
-    })
-    const conflicts = findOutputDirConflicts({
-      configDir: root,
-      currentFile: path.join(root, "swagger2api.json"),
-      outputDirs: [path.join(root, "api")]
-    })
-    expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]).toContain("swagger2api.base.json")
-  })
-
-  it("排除当前配置文件与本地叠加层，目标输出参与比较", () => {
-    const root = makeTree({
-      "swagger2api.json": JSON.stringify({ defaults: { output: "./api" }, targets: [{ id: "a", url: "https://example.com/a" }] }),
-      "swagger2api.local.json": JSON.stringify({ output: { dir: "./api" } }),
-      "saconfig.json": JSON.stringify({ url: "https://example.com/b", output: "./api" })
-    })
-    const conflicts = findOutputDirConflicts({
-      configDir: root,
-      currentFile: path.join(root, "swagger2api.json"),
-      outputDirs: [path.join(root, "api")]
-    })
-    expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]).toContain("saconfig.json")
   })
 })

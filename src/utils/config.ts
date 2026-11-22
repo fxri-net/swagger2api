@@ -3,21 +3,13 @@ import os from "node:os"
 import path from "node:path"
 
 // 配置分层：全局层 ~/.swagger2api.json（个人跨项目）、项目层 swagger2api.json（团队共享，向上查找）、
-// 本地层 swagger2api.local.json（个人按项目，默认不入库）。旧名 .swagger2apirc*.json 继续可用，
-// 同目录并存时新名优先并告警。合并粒度：全局→项目按段整体覆盖，项目→本地按段内字段浅合并（数组整体替换），
-// 与同基地工具链的 rc 约定保持一致。
+// 本地层 swagger2api.local.json（个人按项目，默认不入库）。三层统一使用 base / docs / profiles 结构。
 /** 项目层配置文件名 */
 export const CONFIG_PROJECT_FILE = "swagger2api.json"
-/** 项目层旧文件名（兼容） */
-export const CONFIG_PROJECT_FILE_LEGACY = ".swagger2apirc.json"
 /** 本地层配置文件名 */
 export const CONFIG_LOCAL_FILE = "swagger2api.local.json"
-/** 本地层旧文件名（兼容） */
-export const CONFIG_LOCAL_FILE_LEGACY = ".swagger2apirc.local.json"
 /** 全局层配置文件名（个人跨项目，隐藏文件） */
 export const CONFIG_GLOBAL_FILE = ".swagger2api.json"
-/** 全局层旧文件名（兼容） */
-export const CONFIG_GLOBAL_FILE_LEGACY = ".swagger2apirc.json"
 
 /** 层名 */
 export type ConfigLayerName = "全局层" | "项目层" | "本地层"
@@ -48,6 +40,8 @@ export interface ConfigLayers {
   merged: Record<string, any> | null
   /** 加载过程中的告警 */
   warnings: string[]
+  /** 结构错误（非空即不得生成） */
+  errors: string[]
 }
 
 /**
@@ -86,22 +80,6 @@ export function findUpward(fileName: string, startDir: string) {
     if (parent === current) return null
     current = parent
   }
-}
-
-/**
- * 按段合并：base 的段被 overlay 的同名段整体替换。
- * @param base 底层配置
- * @param overlay 覆盖层配置
- * @return 合并结果
- */
-export function mergeSections(base: Record<string, any> | null, overlay: Record<string, any> | null) {
-  if (!base) return overlay ? { ...overlay } : null
-  if (!overlay) return { ...base }
-  const merged: Record<string, any> = { ...base }
-  for (const [section, value] of Object.entries(overlay)) {
-    merged[section] = value
-  }
-  return merged
 }
 
 /**
@@ -148,6 +126,87 @@ export function findLayerFile(names: string[], startDir: string) {
 }
 
 /**
+ * 判断是否为可递归合并的普通对象。
+ * @param value 任意值
+ * @return 是否普通对象
+ */
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+/**
+ * 深度合并：对象逐键递归，数组与其它类型整体替换。
+ * @param base 底层
+ * @param overlay 覆盖层
+ * @return 合并结果
+ */
+export function deepMergeConfig(base: unknown, overlay: unknown): any {
+  if (!isPlainObject(base)) return overlay === undefined ? overlay : structuredClone(overlay)
+  const result: Record<string, any> = structuredClone(base)
+  if (!isPlainObject(overlay)) return result
+  for (const [key, value] of Object.entries(overlay)) {
+    result[key] = isPlainObject(value) && isPlainObject(result[key]) ? deepMergeConfig(result[key], value) : structuredClone(value)
+  }
+  return result
+}
+
+/** 各层允许的根键 */
+const LAYER_KEYS: Record<ConfigLayerName, string[]> = {
+  全局层: ["base", "profiles"],
+  项目层: ["base", "docs", "profiles"],
+  本地层: ["base", "docs", "profiles"]
+}
+
+/**
+ * 校验单层根键。
+ * @param record 层记录
+ * @param errors 错误收集
+ * @return 无
+ */
+function validateLayerKeys(record: ConfigLayerRecord, errors: string[]) {
+  if (!record.hit || !record.config) return
+  const allowed = new Set(LAYER_KEYS[record.layer])
+  for (const key of Object.keys(record.config)) {
+    if (allowed.has(key)) continue
+    errors.push(`${record.file ?? record.layer}：不支持的根字段 ${key}（仅允许 ${[...allowed].join(" / ")}）；请迁移到 base / docs`)
+  }
+}
+
+/**
+ * 合并三层配置：base / profiles 深度合并，docs 按 id 覆盖或追加。
+ * @param layers 全局、项目、本地层记录
+ * @param errors 错误收集
+ * @return 合并结果
+ */
+function mergeConfigLayers(layers: ConfigLayerRecord[], errors: string[]) {
+  const merged: Record<string, any> = { base: {}, docs: [], profiles: {} }
+  for (const record of layers) {
+    if (!record.hit || !record.config) continue
+    if (isPlainObject(record.config.base)) merged.base = deepMergeConfig(merged.base, record.config.base)
+    if (isPlainObject(record.config.profiles)) merged.profiles = deepMergeConfig(merged.profiles, record.config.profiles)
+    if (record.config.docs === undefined) continue
+    if (record.layer === "全局层") {
+      errors.push(`${record.file}：全局层不允许声明 docs`)
+      continue
+    }
+    if (!Array.isArray(record.config.docs)) {
+      errors.push(`${record.file}：docs 必须是数组`)
+      continue
+    }
+    for (const raw of record.config.docs) {
+      if (!isPlainObject(raw) || typeof raw.id !== "string" || !raw.id.trim()) {
+        merged.docs.push(raw)
+        continue
+      }
+      const index = merged.docs.findIndex((item) => isPlainObject(item) && item.id === raw.id)
+      if (index === -1) merged.docs.push(structuredClone(raw))
+      else merged.docs[index] = deepMergeConfig(merged.docs[index], raw)
+    }
+  }
+  return merged
+}
+
+/**
  * 加载三层配置。
  * @param cwd 起始目录，默认当前工作目录
  * @param options.projectFile 显式指定的项目层文件（--config）
@@ -156,27 +215,18 @@ export function findLayerFile(names: string[], startDir: string) {
  */
 export function loadConfigLayers(cwd = process.cwd(), options: { projectFile?: string; homeDir?: string } = {}): ConfigLayers {
   const warnings: string[] = []
+  const errors: string[] = []
+  if (String(options.projectFile ?? "").includes(",")) errors.push("--config 只接受单个配置文件")
   const home = options.homeDir ?? os.homedir()
-  const globalNew = path.join(home, CONFIG_GLOBAL_FILE)
-  const globalLegacy = path.join(home, CONFIG_GLOBAL_FILE_LEGACY)
-  const globalPick = fs.existsSync(globalNew)
-    ? { file: globalNew, ignored: fs.existsSync(globalLegacy) ? globalLegacy : null }
-    : fs.existsSync(globalLegacy)
-      ? { file: globalLegacy, ignored: null }
-      : null
-  const projectPick = options.projectFile
-    ? { file: path.resolve(options.projectFile), ignored: null }
-    : findLayerFile([CONFIG_PROJECT_FILE, CONFIG_PROJECT_FILE_LEGACY], cwd)
-  const localPick = findLayerFile([CONFIG_LOCAL_FILE, CONFIG_LOCAL_FILE_LEGACY], cwd)
-  // 同目录新旧并存：新名生效，旧文件提示清理，不静默
-  for (const pick of [globalPick, projectPick, localPick]) {
-    if (pick?.ignored) warnings.push(`${pick.file}：同时存在旧配置 ${pick.ignored}，已按新文件名生效，建议删除旧文件`)
-  }
+  const globalPick = fs.existsSync(path.join(home, CONFIG_GLOBAL_FILE)) ? { file: path.join(home, CONFIG_GLOBAL_FILE) } : null
+  const projectPick = options.projectFile ? { file: path.resolve(options.projectFile) } : findUpward(CONFIG_PROJECT_FILE, cwd) ? { file: findUpward(CONFIG_PROJECT_FILE, cwd) as string } : null
+  const localPick = findUpward(CONFIG_LOCAL_FILE, cwd) ? { file: findUpward(CONFIG_LOCAL_FILE, cwd) as string } : null
   const global = readLayer(globalPick?.file ?? null, "全局层", warnings)
   const project = readLayer(projectPick?.file ?? null, "项目层", warnings)
   const local = readLayer(localPick?.file ?? null, "本地层", warnings)
-  const merged = mergeShallow(mergeSections(global.config, project.config), local.config)
-  return { global, project, local, merged, warnings }
+  for (const record of [global, project, local]) validateLayerKeys(record, errors)
+  const merged = project.hit ? mergeConfigLayers([global, project, local], errors) : null
+  return { global, project, local, merged, warnings, errors }
 }
 
 /** 环境变量覆盖表：唯一真源，config status 与文档共用 */
@@ -235,100 +285,53 @@ export function applyEnvOverrides(config: Record<string, any> | null, env: Recor
   return result
 }
 
-/** 扁平配置中直接写在根上的字段 */
-const FLAT_KEYS = [
-  "url",
-  "file",
-  "name",
-  "mode",
-  "typeCheck",
-  "timeout",
-  "responses",
-  "query",
-  "extractResponseRaw",
-  "pathPrefixIndex",
-  "convertGetToQuery",
-  "dropPathParams",
-  "tagRewrite"
-]
-
 /**
- * 归一化配置：根上出现 url / file 时按扁平格式解读，转成内部嵌套结构；
- * 原嵌套格式原样返回，保证旧配置继续可用。
- * @param config 原始配置
- * @return 归一化后的配置
+ * 应用命名预设到 base：preset 直接深度合并进 base。
+ * @param base 基础配置
+ * @param profiles 预设表
+ * @param profile 预设名
+ * @return 合并后的 base
  */
-export function normalizeConfig(config: Record<string, any> | null): Record<string, any> {
-  if (!config || typeof config !== "object" || Array.isArray(config)) return {}
-  if (typeof config.url !== "string" && typeof config.file !== "string") return config
-
-  const result: Record<string, any> = { ...config }
-  // 输入
-  result.input = {
-    ...(config.input && typeof config.input === "object" ? config.input : {}),
-    ...(typeof config.url === "string" ? { url: config.url } : {}),
-    ...(typeof config.file === "string" ? { file: config.file } : {})
-  }
-  // 拉取超时：扁平写法与嵌套 input.timeout 同义
-  if (config.timeout !== undefined) result.input.timeout = config.timeout
-  // 输出：字符串即目录；分组模式默认开启横幅清理
-  const output: Record<string, any> = {
-    ...(config.output && typeof config.output === "object" ? config.output : {}),
-    ...(typeof config.output === "string" ? { dir: config.output } : {})
-  }
-  output.name = config.name ?? output.name ?? "index"
-  output.mode = config.mode ?? output.mode ?? "single"
-  output.prune = output.prune ?? (output.mode === "grouped")
-  // 类型检查策略：扁平写法与嵌套 output.typeCheck 同义
-  if (config.typeCheck !== undefined) output.typeCheck = config.typeCheck
-  result.output = output
-  // 客户端与语言支持字符串简写
-  result.client = typeof config.client === "string" ? { type: config.client } : { ...(config.client ?? {}) }
-  result.language = typeof config.language === "string" ? { target: config.language } : { ...(config.language ?? {}) }
-  // 类型选项
-  result.types = { ...(config.types ?? {}) }
-  if (config.responses !== undefined) result.types.responses = config.responses
-  if (config.extractResponseRaw !== undefined) result.types.extractResponseRaw = config.extractResponseRaw
-  if (config.query !== undefined) result.types.extractQuery = Array.isArray(config.query) ? config.query.join(",") : config.query
-  // 命名选项
-  result.naming = { ...(config.naming ?? {}) }
-  for (const key of ["pathPrefixIndex", "convertGetToQuery", "dropPathParams", "tagRewrite"]) {
-    if (config[key] !== undefined) result.naming[key] = config[key]
-  }
-  // 分组模式：策略与分片阈值由工具默认，业务配置不需要写
-  if (output.mode === "grouped") {
-    const grouping = { ...(config.grouping ?? {}) }
-    grouping.strategy = grouping.strategy ?? ["path"]
-    grouping.pathDepth = grouping.pathDepth ?? result.naming.pathPrefixIndex ?? 0
-    grouping.split = grouping.split ?? true
-    result.grouping = grouping
-  }
-
-  // 扁平别名已并入对应段，去掉根上的副本，避免二次归一化覆盖段内配置
-  for (const key of FLAT_KEYS) delete result[key]
-  return result
+export function applyProfileToBase(base: Record<string, any> | undefined, profiles: Record<string, any> | undefined, profile?: string) {
+  const result = isPlainObject(base) ? structuredClone(base) : {}
+  if (!profile || !isPlainObject(profiles)) return result
+  const preset = profiles[profile]
+  if (!isPlainObject(preset)) return result
+  return deepMergeConfig(result, preset)
 }
 
 /**
- * 应用命名预设：profiles[name] 按字段浅合并到顶层各段。
- * @param config 基础配置
- * @param profile 预设名
- * @return 应用后的新配置
+ * 单文档配置归一：source 合入 input，字符串简写转为对象，补齐输出默认值。
+ * 只处理文档级差异，不注入分组默认值，保证显式分组配置原样生效。
+ * @param config base 与文档项合并后的配置
+ * @return 内部归一化配置
  */
-export function applyProfile(config: Record<string, any> | null, profile?: string) {
-  const result: Record<string, any> = config ? structuredClone(config) : {}
-  if (!profile) return result
-  const preset = result.profiles?.[profile]
-  if (!preset || typeof preset !== "object") return result
-  for (const [section, value] of Object.entries(preset)) {
-    if (section === "profiles") continue
-    const current = result[section]
-    result[section] =
-      current && typeof current === "object" && !Array.isArray(current) && value && typeof value === "object" && !Array.isArray(value)
-        ? { ...current, ...value }
-        : value
+export function normalizeDocConfig(config: Record<string, any>): Record<string, any> {
+  const raw = structuredClone(config)
+  const source = raw.source
+  delete raw.source
+  const input = isPlainObject(raw.input) ? { ...raw.input } : {}
+  if (typeof source === "string") {
+    if (/^https?:\/\//i.test(source)) input.url = source
+    else input.file = source
+  } else if (isPlainObject(source)) {
+    Object.assign(input, source)
   }
-  return result
+  raw.input = input
+  if (typeof raw.client === "string") raw.client = { type: raw.client }
+  if (typeof raw.language === "string") raw.language = { target: raw.language }
+  const output: Record<string, any> = isPlainObject(raw.output) ? { ...raw.output } : typeof raw.output === "string" ? { dir: raw.output } : {}
+  output.name = output.name ?? raw.name ?? "index"
+  output.mode = output.mode ?? raw.mode ?? "single"
+  output.prune = output.prune ?? (output.mode === "grouped")
+  raw.output = output
+  // 分组模式未显式配置时按路径分组并分桶；显式配置原样生效，不追加默认阈值
+  if (output.mode === "grouped" && (!isPlainObject(raw.grouping) || Object.keys(raw.grouping).length === 0)) {
+    raw.grouping = { strategy: ["path"], pathDepth: 0, split: true }
+  }
+  delete raw.name
+  delete raw.mode
+  return raw
 }
 
 /**
@@ -354,68 +357,3 @@ export function describeLayers(layers: ConfigLayers) {
   return lines
 }
 
-/**
- * 判断两个目录是否相同或互相嵌套：嵌套会让一方的横幅扫描删掉另一方的产物。
- * @param left 目录
- * @param right 目录
- * @return 是否重叠
- */
-function overlapsDir(left: string, right: string) {
-  const contains = (parent: string, child: string) => {
-    const rel = path.relative(parent, child)
-    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
-  }
-  return contains(left, right) || contains(right, left)
-}
-
-/**
- * 提取配置文件声明的输出目录（绝对路径）：顶层 output、多目标与默认值都参与。
- * @param config 原始配置
- * @param configDir 配置目录
- * @return 输出目录列表（去重）
- */
-function outputDirsOf(config: Record<string, any>, configDir: string) {
-  const resolveDir = (value: unknown) => (typeof value === "string" && value ? path.resolve(configDir, value) : null)
-  const pick = (source: any) => {
-    if (!source || typeof source !== "object") return null
-    return resolveDir(source.output) ?? resolveDir(source.output?.dir)
-  }
-  const fallback = pick(config) ?? path.resolve(configDir, "./src/api")
-  const targets = Array.isArray(config.targets) ? config.targets : []
-  const dirs = targets.length ? targets.map((target) => pick(target) ?? pick(config.defaults) ?? fallback) : [fallback]
-  return [...new Set(dirs)]
-}
-
-/**
- * 校验同一配置目录内的其他配置：输出目录相同或互相嵌套时互删产物，必须拒绝。
- * @param options.configDir 配置目录
- * @param options.currentFile 当前生效的配置文件（排除自身）
- * @param options.outputDirs 本配置的输出目录（绝对路径）
- * @return 冲突说明（空数组表示无冲突）
- */
-export function findOutputDirConflicts(options: { configDir: string; currentFile?: string | null; outputDirs: string[] }) {
-  const conflicts: string[] = []
-  if (!fs.existsSync(options.configDir)) return conflicts
-  const current = options.currentFile ? path.resolve(options.currentFile) : null
-  for (const name of fs.readdirSync(options.configDir)) {
-    // 只认项目层配置：本地层是叠加层，旧名 swagger2apirc 与新名并存时由加载器忽略
-    const isProject = /^swagger2api(?:\.[^./\\]+)?\.json$/i.test(name) || /^saconfig.*\.json$/i.test(name)
-    if (!isProject || name === CONFIG_LOCAL_FILE) continue
-    const file = path.join(options.configDir, name)
-    if (current && path.resolve(file) === current) continue
-    let config: Record<string, any>
-    try {
-      config = JSON.parse(fs.readFileSync(file, "utf8"))
-    } catch {
-      continue
-    }
-    if (!config || typeof config !== "object" || Array.isArray(config)) continue
-    for (const other of outputDirsOf(config, options.configDir)) {
-      for (const own of options.outputDirs) {
-        if (!overlapsDir(other, own)) continue
-        conflicts.push(`输出目录 ${own} 与同目录配置 ${name} 的输出 ${other} 重叠；同一输出目录只允许一份配置`)
-      }
-    }
-  }
-  return [...new Set(conflicts)]
-}
