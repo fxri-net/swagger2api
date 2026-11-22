@@ -1120,6 +1120,116 @@ async function checkDocSelection() {
 }
 
 /**
+ * 一键迁移：旧配置与多脚本收编为 base + docs 与单一 api，支持复检与备份恢复。
+ * @return {number} 退出码
+ */
+async function checkUpgrade() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 一键迁移：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-upgrade-"))
+  const issues = []
+  const home = join(out, "home")
+  mkdirSync(home, { recursive: true })
+  const run = (args) =>
+    spawnSync(process.execPath, [cli, "upgrade", ...args], {
+      cwd: out,
+      encoding: "utf8",
+      env: { ...process.env, HOME: home, USERPROFILE: home }
+    })
+  try {
+    const appDir = join(out, "apps", "api")
+    mkdirSync(appDir, { recursive: true })
+    writeFileSync(join(appDir, "saconfig.json"), JSON.stringify({ url: "https://example.com/a.json", output: "./src/api/base", name: "index", client: "axios" }, null, 2))
+    writeFileSync(join(appDir, "saconfig.lc.json"), JSON.stringify({ url: "https://example.com/lc.json", output: "./src/api/lc" }, null, 2))
+    writeFileSync(
+      join(appDir, "package.json"),
+      JSON.stringify({
+        scripts: {
+          api: "swagger2api --config saconfig.json --axios --responses",
+          "api:lc": "swagger2api --config saconfig.lc.json --name lcApi",
+          "api:check": "swagger2api --config saconfig.json --check",
+          grouping: "swagger2api grouping"
+        }
+      }, null, 2)
+    )
+
+    const legacyDir = join(out, "apps", "legacy")
+    mkdirSync(legacyDir, { recursive: true })
+    writeFileSync(
+      join(legacyDir, "swagger2api.json"),
+      JSON.stringify({
+        defaults: { output: { mode: "grouped" }, client: "axios" },
+        targets: [
+          { id: "base", url: "https://example.com/base.json", output: "./src/api/base" },
+          { id: "lc", url: "https://example.com/lc.json", output: "./src/api/lc" }
+        ]
+      }, null, 2)
+    )
+    writeFileSync(join(legacyDir, "package.json"), JSON.stringify({ scripts: { api: "swagger2api --config swagger2api.json" } }, null, 2))
+
+    const dry = run(["--dry-run", "--json"])
+    if (dry.status !== 0) issues.push(`--dry-run 未以退出码 0 结束（实际 ${dry.status}）`)
+    else {
+      try {
+        const plan = JSON.parse(dry.stdout)
+        if ((plan.units ?? []).length !== 2) issues.push("--dry-run 未识别两个配置目录")
+        if (!(plan.changes ?? []).length) issues.push("--dry-run 未输出文件变更")
+      } catch (error) {
+        issues.push(`--dry-run JSON 无法解析：${error.message}`)
+      }
+    }
+
+    const applied = run(["--yes"])
+    if (applied.status !== 0) {
+      issues.push(`--yes 未以退出码 0 结束（实际 ${applied.status}）`)
+      console.error(`${applied.stdout ?? ""}${applied.stderr ?? ""}`)
+    }
+
+    const appConfig = JSON.parse(readFileSync(join(appDir, "swagger2api.json"), "utf8"))
+    if (appConfig.docs?.map((doc) => doc.id).join(",") !== "main,lc") issues.push("旧配置未按文件生成 main / lc 文档")
+    if (appConfig.base?.client !== "axios") issues.push("脚本参数 client 未进入 base")
+    const lcDoc = (appConfig.docs ?? []).find((doc) => doc.id === "lc")
+    if (lcDoc?.output?.name !== "lcApi") issues.push("--name 未落到对应文档的 output.name")
+    const appPkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8"))
+    if (appPkg.scripts?.api !== "swagger2api") issues.push("生成脚本未收编为单一 api")
+    if (appPkg.scripts?.["api:lc"] !== undefined || appPkg.scripts?.["api:check"] !== undefined) issues.push("分文档 / 检查脚本未删除")
+    if (appPkg.scripts?.grouping !== "swagger2api grouping") issues.push("非生成脚本被误改")
+    if (existsSync(join(appDir, "saconfig.json"))) issues.push("旧配置未删除")
+
+    const legacyConfig = JSON.parse(readFileSync(join(legacyDir, "swagger2api.json"), "utf8"))
+    if (!Array.isArray(legacyConfig.docs) || legacyConfig.docs.length !== 2) issues.push("defaults + targets 未迁移为 docs")
+    if (legacyConfig.defaults || legacyConfig.targets) issues.push("旧 schema 键未清理")
+
+    if (run(["--check"]).status !== 0) issues.push("迁移后 --check 未通过")
+    if (run(["--yes"]).status !== 0) issues.push("二次 --yes 未零改动结束")
+
+    const restored = run(["--restore", "latest"])
+    if (restored.status !== 0) issues.push("--restore latest 失败")
+    if (!existsSync(join(appDir, "saconfig.json")) || !existsSync(join(appDir, "saconfig.lc.json"))) issues.push("备份恢复未还原旧配置")
+    if (existsSync(join(appDir, "swagger2api.json"))) issues.push("备份恢复未删除迁移新增配置")
+
+    // 失败注入：未知参数不自动迁移并退出 1
+    const blockedDir = join(out, "blocked")
+    mkdirSync(blockedDir, { recursive: true })
+    writeFileSync(join(blockedDir, "saconfig.json"), JSON.stringify({ url: "https://example.com/a.json", output: "./api" }, null, 2))
+    writeFileSync(join(blockedDir, "package.json"), JSON.stringify({ scripts: { api: "swagger2api --unknown-flag" } }, null, 2))
+    const blocked = run(["--yes", "--cwd", blockedDir])
+    if (blocked.status !== 1) issues.push(`未知参数未以退出码 1 结束（实际 ${blocked.status}）`)
+    if (existsSync(join(blockedDir, "swagger2api.json"))) issues.push("未知参数仍写入了配置")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 一键迁移未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 能力清单漂移门禁：命令注册表与 --help、技能能力地图、docs 能力总览、README 命令表保持一致。
  * @return {number} 退出码
  */
@@ -2406,6 +2516,7 @@ const steps = [
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
   { label: "文档选择（单文档 / --all / --target / 非交互）", run: checkDocSelection },
+  { label: "一键迁移（旧配置 / 脚本收编 / 复检 / 恢复）", run: checkUpgrade },
   { label: "拉取超时与版本（慢响应 / --timeout / --version）", run: checkTimeoutAndVersion },
   { label: "能力清单漂移（注册表 / 帮助 / 技能地图 / docs / README）", run: checkCapabilityDrift },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },

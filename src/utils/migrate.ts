@@ -75,20 +75,51 @@ export function argsToConfig(args: string[]) {
     "-rd": () => set("types", "removeDts", true),
     "--remove-dts": () => set("types", "removeDts", true),
     "--modular": () => set("output", "mode", "grouped"),
-    "--clean-output": () => set("output", "clean", true)
+    "--clean-output": () => set("output", "clean", true),
+    "--prune": () => set("output", "prune", true)
   }
   const valueFlags: Record<string, (value: string) => void> = {
     "-rpi": (value) => set("naming", "pathPrefixIndex", Number(value)),
     "--remove-prefix-index": (value) => set("naming", "pathPrefixIndex", Number(value)),
     "-erq": (value) => set("types", "extractQuery", value),
     "--extract-request-query": (value) => set("types", "extractQuery", value),
-    "--module-name-index": (value) => set("grouping", "pathDepth", Number(value))
+    "--module-name-index": (value) => set("grouping", "pathDepth", Number(value)),
+    "--url": (value) => set("input", "url", value),
+    "--output": (value) => set("output", "dir", value),
+    "--name": (value) => set("output", "name", value),
+    "--language": (value) => set("language", "target", value),
+    "--client": (value) => set("client", "type", value),
+    "--type-check": (value) => set("output", "typeCheck", value),
+    "--query": (value) => set("types", "extractQuery", value),
+    "--timeout": (value) => set("input", "timeout", Number(value)),
+    "--banner": (value) => set("output", "banner", value)
   }
+  /** 仅工具自身使用、不进入配置的参数 */
+  const ignored = new Set([
+    "--config",
+    "-c",
+    "--quick",
+    "-q",
+    "--json",
+    "--check",
+    "--dry-run",
+    "--yes",
+    "--all",
+    "--no-interactive",
+    "--keep-legacy"
+  ])
+  /** 带值但不是配置项的参数 */
+  const valueIgnored = new Set(["--profile", "--target", "--cwd", "--only", "--skip", "--restore"])
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
-    // shell 占位符与配置文件参数不属于配置项
-    if (arg === "$1" || arg === "--config" || arg === "-c" || arg === "--quick" || arg === "-q") {
+    // shell 占位符与工具自身参数不属于配置项
+    if (arg === "$1") continue
+    if (ignored.has(arg)) {
       if (arg === "--config" || arg === "-c") index += 1
+      continue
+    }
+    if (valueIgnored.has(arg)) {
+      index += 1
       continue
     }
     if (arg === "-rt" || arg === "--replace-tags") {

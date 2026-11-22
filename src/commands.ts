@@ -17,7 +17,7 @@ import { pickDocFlags, resolveDocs } from "./utils/docs"
 import { PromptCancelled, askConfirm, askNumber, askSelect, askText } from "./utils/cli-ui"
 import { SURFACE_FORMAT_VERSION, collectSurface, compareSurface, type SurfacePayload } from "./utils/surface"
 import { formatInspectReport, inspectLayout, resolveInspectThresholds } from "./utils/inspect"
-import { migrateFromPackage } from "./utils/migrate"
+import { parseUpgradeOptions, runUpgrade } from "./utils/upgrade"
 import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/grouping"
 import { DIAGNOSTIC_SCHEMA_VERSION, canPrompt, normalizeTimeout, readToolVersion, writeJson } from "./utils"
 import { COMMAND_CAPABILITIES, CONFIG_KEYS, EXIT_CODES, SKILL_REFERENCES } from "./utils/capabilities"
@@ -145,21 +145,6 @@ export async function runInit() {
   const argv = process.argv.slice(2)
   const targetIndex = argv.findIndex((item) => item === "--config" || item === "-c")
   const targetFile = targetIndex === -1 ? path.join(process.cwd(), CONFIG_PROJECT_FILE) : path.resolve(argv[targetIndex + 1])
-  const scriptIndex = argv.findIndex((item) => item === "--from-script")
-  const scriptPackage = scriptIndex === -1 ? undefined : path.resolve(argv[scriptIndex + 1] ?? "package.json")
-
-  if (scriptPackage) {
-    const result = migrateFromPackage(scriptPackage)
-    // 脚本参数只覆盖共享配置；输入输出必须由用户在新结构的 docs 中补齐
-    writeConfig(targetFile, { base: result.config, docs: [] })
-    ensureGitignore(process.cwd())
-    console.log(`已从脚本 ${result.scriptName} 迁移共享配置到 ${targetFile}`)
-    console.error("⚠️ 迁移结果缺少文档输入输出：请在 docs 中补充 source 与 output")
-    if (result.unknown.length) {
-      console.error(`⚠️ 以下参数未能识别，请手动补充：${result.unknown.join("、")}`)
-    }
-    return result.unknown.length ? 1 : 2
-  }
 
   if (!canPrompt()) {
     console.error("init 需要交互式终端；非交互环境请用 swagger2api init --from-script package.json 迁移，或手写 swagger2api.json")
@@ -599,7 +584,8 @@ function printUsage() {
       "  swagger2api --all                   生成全部文档（多文档非交互必需）",
       "  swagger2api --dry-run [--json]      只输出分组报表，不写产物",
       "  swagger2api --check                 校验产物与配置是否一致",
-      "  swagger2api init                    交互生成配置（--from-script 迁移旧脚本）",
+      "  swagger2api init                    交互生成配置（--from-script 走 upgrade --yes）",
+      "  swagger2api upgrade [选项]          迁移旧配置与脚本（--dry-run / --diff / --yes / --restore）",
       "  swagger2api grouping                查看分组分布并写入分组配置",
       "  swagger2api config status           查看配置分层与生效结果",
       "  swagger2api surface [选项]          提取接口面或与基线比对",
@@ -750,11 +736,22 @@ export async function dispatch(runGenerate: () => Promise<void>) {
   }
   const [command, subcommand] = argv.filter((item) => !item.startsWith("-"))
   if (command === "init") {
+    // 兼容别名：init --from-script 统一走 upgrade --yes，避免两套迁移行为
+    const scriptIndex = argv.findIndex((item) => item === "--from-script")
+    if (scriptIndex !== -1) {
+      const pkg = path.resolve(argv[scriptIndex + 1] ?? "package.json")
+      process.exitCode = await runInteractive(() => runUpgrade({ ...parseUpgradeOptions(argv), cwd: path.dirname(pkg), yes: true }))
+      return
+    }
     process.exitCode = await runInteractive(runInit)
     return
   }
   if (command === "grouping") {
     process.exitCode = await runInteractive(runGrouping)
+    return
+  }
+  if (command === "upgrade") {
+    process.exitCode = await runInteractive(() => runUpgrade(parseUpgradeOptions(argv)))
     return
   }
   if (command === "config" && subcommand === "status") {
