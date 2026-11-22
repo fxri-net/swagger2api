@@ -91,6 +91,57 @@ export function pruneGeneratedOutput(dir: string, keep: string[]) {
 }
 
 /**
+ * 记录输出目录内的全部文件（相对路径，统一 / 分隔），用于生成失败时回滚。
+ * @param dir 输出目录
+ * @return 相对路径集合
+ */
+export function snapshotOutputFiles(dir: string) {
+  const files = new Set<string>()
+  if (!fs.existsSync(dir)) return files
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue
+      const full = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (entry.isFile()) files.add(path.relative(dir, full).split(path.sep).join("/"))
+    }
+  }
+  walk(dir)
+  return files
+}
+
+/**
+ * 删除本轮新增的文件并清理空目录；快照内的原有文件保持不动。
+ * @param dir 输出目录
+ * @param before 生成前快照
+ * @return 已删除的相对路径（排序）
+ */
+export function removeNewOutputFiles(dir: string, before: Set<string>) {
+  if (!fs.existsSync(dir)) return []
+  const removed: string[] = []
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue
+      const full = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        walk(full)
+        if (fs.readdirSync(full).length === 0) fs.rmdirSync(full)
+        continue
+      }
+      const relative = path.relative(dir, full).split(path.sep).join("/")
+      if (before.has(relative)) continue
+      fs.rmSync(full)
+      removed.push(relative)
+    }
+  }
+  walk(dir)
+  return removed.sort()
+}
+
+/**
  * 首字母大写并去掉分隔符，与模板里的 pascalCase 保持一致。
  * 仅在未提供命名表的兼容场景使用（按路径索引分组时依赖库自行命名）。
  * @param value 原始名称

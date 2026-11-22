@@ -14,7 +14,9 @@ import {
   findHandwrittenConflicts,
   findStaleOutputFiles,
   isGeneratedFile,
-  pruneGeneratedOutput
+  pruneGeneratedOutput,
+  removeNewOutputFiles,
+  snapshotOutputFiles
 } from "../utils/modular"
 
 /** 模块列表：含与聚合类同名的模块，覆盖别名分支 */
@@ -231,5 +233,66 @@ describe("分片门面", () => {
     const declarations = buildSplitFacadeDeclarations(facade)
     expect(declarations).toContain("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")
     expect(declarations).toContain("export declare class DgAdmin<SecurityDataType = unknown>")
+  })
+})
+
+describe("生成失败回滚", () => {
+  /** 用例创建的临时目录，结束后清理 */
+  const roots: string[] = []
+
+  afterEach(() => {
+    while (roots.length) fs.rmSync(roots.pop() as string, { recursive: true, force: true })
+  })
+
+  /**
+   * 创建用例目录。
+   * @return 目录绝对路径
+   */
+  const makeDir = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "s2a-rollback-"))
+    roots.push(dir)
+    return dir
+  }
+
+  /**
+   * 写入文件（自动建目录）。
+   * @param dir 目录
+   * @param file 相对路径
+   * @param content 内容
+   * @return 无
+   */
+  const write = (dir: string, file: string, content: string) => {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+    fs.writeFileSync(path.join(dir, file), content)
+  }
+
+  it("只删除本轮新增文件与空目录，原有产物保留", () => {
+    const dir = makeDir()
+    write(dir, "index.ts", "old")
+    write(dir, "types/shared.ts", "old")
+    const before = snapshotOutputFiles(dir)
+    write(dir, "Modules.ts", "new")
+    write(dir, "types/index.ts", "new")
+    fs.mkdirSync(path.join(dir, "empty", "nested"), { recursive: true })
+
+    const removed = removeNewOutputFiles(dir, before)
+
+    expect(removed).toEqual(["Modules.ts", "types/index.ts"])
+    expect(fs.existsSync(path.join(dir, "empty"))).toBe(false)
+    expect(fs.readFileSync(path.join(dir, "index.ts"), "utf8")).toBe("old")
+    expect(fs.existsSync(path.join(dir, "types/shared.ts"))).toBe(true)
+  })
+
+  it("已有目录中的新增文件被删除，目录本身保留", () => {
+    const dir = makeDir()
+    write(dir, "types/shared.ts", "old")
+    const before = snapshotOutputFiles(dir)
+    write(dir, "types/new.ts", "new")
+
+    const removed = removeNewOutputFiles(dir, before)
+
+    expect(removed).toEqual(["types/new.ts"])
+    expect(fs.existsSync(path.join(dir, "types/shared.ts"))).toBe(true)
+    expect(fs.existsSync(path.join(dir, "types"))).toBe(true)
   })
 })

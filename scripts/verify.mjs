@@ -1493,6 +1493,60 @@ async function checkSpecShape() {
 }
 
 /**
+ * 生成失败回滚：后处理失败时清理本轮新增产物、保留原有文件，且可直接重跑。
+ * @return {number} 退出码
+ */
+async function checkGenerationRollback() {
+  const cli = join(root, "dist", "cli.js")
+  if (!existsSync(cli)) {
+    console.error("✖ 生成失败回滚：未找到 dist/cli.js，需先构建或提供构建产物")
+    return 1
+  }
+  const out = mkdtempSync(join(tmpdir(), "s2a-rollback-verify-"))
+  const issues = []
+  try {
+    const api = join(out, "api")
+    mkdirSync(join(api, "types"), { recursive: true })
+    const hand = join(api, "types", "Modules.ts")
+    writeFileSync(hand, "// 手写契约\n")
+    const config = join(out, "swagger2api.json")
+    writeFileSync(config, JSON.stringify({ file: join(root, "fixtures", "swagger.json"), output: "./api", name: "index", mode: "grouped" }, null, 2))
+    const run = (extra = []) => spawnSync(process.execPath, [cli, "-c", config, ...extra], { cwd: out, encoding: "utf8" })
+    const output = (result) => `${result.stdout ?? ""}${result.stderr ?? ""}`
+
+    // 后处理阶段失败：提示手写冲突，回滚本轮新增文件，原有手写文件保持不动
+    const failed = run()
+    if (failed.status === 0) issues.push("手写契约冲突未终止生成")
+    if (!output(failed).includes("手写文件")) issues.push("手写契约冲突缺少提示")
+    if (!output(failed).includes("回滚：")) issues.push("失败后未执行产物回滚")
+    const leftovers = collectFiles(api).filter((file) => file !== "types/Modules.ts")
+    if (leftovers.length > 0) issues.push(`失败后仍残留新增产物：${leftovers.join("、")}`)
+    if (!readFileSync(hand, "utf8").includes("手写契约")) issues.push("回滚删除了原有手写文件")
+
+    // 移除冲突后可直接重跑，且 --check 通过
+    rmSync(hand)
+    const retry = run()
+    if (retry.status !== 0) issues.push(`失败后重跑未成功：${output(retry)}`)
+    else if (run(["--check"]).status !== 0) issues.push("失败重跑后 --check 未通过")
+
+    // --check 失败路径不创建真实产物目录
+    const missingDir = join(out, "missing")
+    const missingConfig = join(out, "missing.json")
+    writeFileSync(missingConfig, JSON.stringify({ file: join(root, "fixtures", "swagger.json"), output: "./missing", name: "index", mode: "grouped" }, null, 2))
+    const missing = spawnSync(process.execPath, [cli, "-c", missingConfig, "--check"], { cwd: out, encoding: "utf8" })
+    if (missing.status === 0) issues.push("--check 缺少产物目录时未报错")
+    if (existsSync(missingDir)) issues.push("--check 失败时创建了真实产物目录")
+
+    if (issues.length === 0) return 0
+    console.error(`\n✖ 生成失败回滚未通过：${issues.length} 项`)
+    for (const issue of issues) console.error(`  - ${issue}`)
+    return 1
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
+
+/**
  * 自适应分桶与分片：桶内多类、分片门面、聚合导入、横幅归属与关闭开关回滚。
  * 生成后编译类型探针，断言分片合并后的调用形态与单文件产物一致。
  * @return {number} 退出码
@@ -2233,6 +2287,7 @@ const steps = [
   { label: "保留名护栏（驼峰聚合成员 / 单文件命名空间）", run: checkReservedNaming },
   { label: "契约冲突（类名避让 / 根出口显式导出）", run: checkContractCollision },
   { label: "文档形态（缺字段 / 空文档 / 无契约）", run: checkSpecShape },
+  { label: "生成失败回滚（残留 / 重入 / --check 不动真实目录）", run: checkGenerationRollback },
   { label: "产物清理与可复现（横幅清理 / 手写护栏 / 两次一致）", run: checkGroupedPrune },
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },

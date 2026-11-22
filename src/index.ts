@@ -16,8 +16,11 @@ import {
   collectGeneratedFilesOf,
   findHandwrittenConflicts,
   findStaleOutputFiles,
+  pascalCase,
   pruneGeneratedOutput,
   removeLegacyOutput,
+  removeNewOutputFiles,
+  snapshotOutputFiles,
   toModuleEntries,
   verifyGroupedOutput,
   writeAggregateEntry,
@@ -520,6 +523,18 @@ function plannedFileNames(entries: GroupNameInfo[], plan: SplitPlan | null) {
 }
 
 /**
+ * 手动模块化：按本轮生成的文件名构造聚合入口条目，避免扫描到尚未清理的旧模块。
+ * @param bases 模块文件名（不含扩展名）
+ * @return 聚合入口条目
+ */
+function entriesOf(bases: string[]) {
+  return bases.map((base) => {
+    const className = pascalCase(base)
+    return { base, className, property: className.charAt(0).toLowerCase() + className.slice(1) }
+  })
+}
+
+/**
  * 递归收集目录下的文件（相对路径，统一 / 分隔）。
  * @param dir 目录
  * @param base 基准目录
@@ -863,120 +878,128 @@ async function onGenerateApi(data: Defines["data"]) {
   // 保存文档
   saveFile(datas.docFile, JSON.stringify(data))
   // 固定布局：客户端底座为 client，契约出口为 types/index；先建目录，生成器按嵌套路径直接落盘
-  if (datas.config.modular) {
-    const modularConfig = datas.config as Record<string, any>
-    modularConfig.fileNames = { ...(modularConfig.fileNames ?? {}), dataContracts: `${TYPES_DIR}/index`, httpClient: CLIENT_BASE }
-    fs.mkdirSync(path.join(path.resolve(confs.param.output), TYPES_DIR), { recursive: true })
-  }
-  // 生成接口
-  console.log("执行：", confs.file)
-  // 分组模式按命名空间判重；单文件模式保证聚合属性不覆盖底座成员
-  const namingHooks = datas.config.modular ? createSplitRouteNameHook() : createSingleNamespaceHook(data.paths)
-  const generated = await generateApi({
-    fileName: `${confs.param.name}.ts`, // 输出类型的 API 文件名称（默认："Api.ts"）
-    output: path.resolve(confs.param.output), // TypeScript API 文件的输出路径（默认："./"）
-    input: datas.docFile, // 路径/链接到Swagger方案
-    ...datas.config,
-    ...(Object.keys(namingHooks).length ? { hooks: namingHooks } : {}),
-    ...{ param: datas.param }
-  })
-  console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
-  // 模块化输出：分组模式按命名表校验并挂载；未分组时沿用目录扫描
-  if (datas.config.modular) {
-    const dir = path.resolve(confs.param.output)
-    const apiClassName = String((datas.config as Record<string, any>).apiClassName ?? "Api")
-    const toJS = Boolean(datas.config.toJS)
-    // 清理安全护栏：输出目录为仓库根、配置目录或两者的祖先时，横幅扫描会误伤整个仓库
-    const blocked = checkMode() ? null : cleanupBlockedReason(dir)
-    if (blocked) {
-      console.error(`失败：${blocked}；本次仅生成，不删除任何文件`)
-      failures += 1
+  const outputDir = path.resolve(confs.param.output)
+  // 生成前快照：后处理失败时只回滚本轮新增文件，保留原有产物
+  const snapshot = checkMode() ? null : snapshotOutputFiles(outputDir)
+  let completed = false
+  try {
+    if (datas.config.modular) {
+      const modularConfig = datas.config as Record<string, any>
+      modularConfig.fileNames = { ...(modularConfig.fileNames ?? {}), dataContracts: `${TYPES_DIR}/index`, httpClient: CLIENT_BASE }
+      fs.mkdirSync(path.join(outputDir, TYPES_DIR), { recursive: true })
     }
-    // 升级退场：旧版固定产物已不再生成，成功落盘后删除残留（校验模式不动真实目录）
-    if (!checkMode()) removeLegacyOutput(dir, toJS).forEach((file) => console.log("清理：", path.resolve(dir, file)))
-    if (namingEntries.length) {
-      const extraFiles = plannedFileNames(namingEntries, splitPlan)
-      // 分片门面由本工具补写，必须先于产物校验与聚合入口
-      if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS, bannerLanguage)
-      // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
-      const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS, language: bannerLanguage })
-      if (contracts.errors.length > 0) {
-        contracts.errors.forEach((error) => console.error("失败：", error))
+    // 生成接口
+    console.log("执行：", confs.file)
+    // 分组模式按命名空间判重；单文件模式保证聚合属性不覆盖底座成员
+    const namingHooks = datas.config.modular ? createSplitRouteNameHook() : createSingleNamespaceHook(data.paths)
+    const generated = await generateApi({
+      fileName: `${confs.param.name}.ts`, // 输出类型的 API 文件名称（默认："Api.ts"）
+      output: outputDir, // TypeScript API 文件的输出路径（默认："./"）
+      input: datas.docFile, // 路径/链接到Swagger方案
+      ...datas.config,
+      ...(Object.keys(namingHooks).length ? { hooks: namingHooks } : {}),
+      ...{ param: datas.param }
+    })
+    console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}${!datas.config.toJS ? ".ts" : ".js"}`))
+    // 横幅前置：后处理失败时产物仍带当前横幅，下一轮可直接覆盖，不会被手写护栏阻断
+    rewriteGeneratedBanners(outputDir, bannerLanguage).forEach((file) => console.log("处理：", path.resolve(outputDir, file)))
+    // 模块化输出：分组模式按命名表校验并挂载；未分组时沿用目录扫描
+    if (datas.config.modular) {
+      const dir = outputDir
+      const apiClassName = String((datas.config as Record<string, any>).apiClassName ?? "Api")
+      const toJS = Boolean(datas.config.toJS)
+      // 清理安全护栏：输出目录为仓库根、配置目录或两者的祖先时，横幅扫描会误伤整个仓库
+      const blocked = checkMode() ? null : cleanupBlockedReason(dir)
+      if (blocked) {
+        console.error(`失败：${blocked}；本次仅生成，不删除任何文件`)
         failures += 1
-        return
       }
-      const modules = verifyGroupedOutput(dir, namingEntries, toJS, { aggregate: false, extraFiles })
-      if (modules.errors.length > 0) {
-        modules.errors.forEach((error) => console.error("失败：", error))
-        failures += 1
-        return
+      if (namingEntries.length) {
+        const extraFiles = plannedFileNames(namingEntries, splitPlan)
+        // 分片门面由本工具补写，必须先于产物校验与聚合入口
+        if (splitPlan) writeSplitFacades(dir, splitPlan.namespaces, toJS, bannerLanguage)
+        // 契约按业务文件拆分：barrel 仍是 types/index，业务文件的导入路径不变
+        const contracts = splitContractOutput({ dir, moduleFiles: extraFiles, toJS, language: bannerLanguage })
+        if (contracts.errors.length > 0) {
+          contracts.errors.forEach((error) => console.error("失败：", error))
+          failures += 1
+          return
+        }
+        const modules = verifyGroupedOutput(dir, namingEntries, toJS, { aggregate: false, extraFiles })
+        if (modules.errors.length > 0) {
+          modules.errors.forEach((error) => console.error("失败：", error))
+          failures += 1
+          return
+        }
+        writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries), bannerLanguage, buildCollisionExports(dir, apiClassName))
+        const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS, { extraFiles })
+        if (errors.length > 0) {
+          errors.forEach((error) => console.error("失败：", error))
+          failures += 1
+          return
+        }
+        orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.prune）：", file))
+        // 横幅清理：删除本轮不再生成的旧产物；开关关闭时只报告不删除
+        const keep = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, extraFiles)
+        const stale = findStaleOutputFiles(dir, keep)
+        if (stale.length > 0 && datas.config.pruneOutput && !checkMode() && !blocked) {
+          pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
+        } else if (stale.length > 0 && !checkMode()) {
+          console.error(`⚠️ 产物多余（未开启 output.prune，未删除）：${stale.join("、")}`)
+        }
+      } else {
+        // 手动模块化没有命名表：按本轮实际生成的文件确定模块集合
+        const generatedFiles = ((generated as { files?: Array<{ fileName?: string; fileExtension?: string }> }).files ?? [])
+          .map((file) => `${String(file.fileName ?? "").replace(/\\/g, "/")}${file.fileExtension ?? ""}`)
+          .filter((name) => Boolean(name) && !name.startsWith("."))
+        const modules = generatedFiles
+          .filter((name) => !name.includes("/") && !name.endsWith(".d.ts"))
+          .map((name) => name.slice(0, name.lastIndexOf(".")))
+          .filter((base) => Boolean(base) && !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
+        const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS, language: bannerLanguage })
+        if (contracts.errors.length > 0) {
+          contracts.errors.forEach((error) => console.error("失败：", error))
+          failures += 1
+          return
+        }
+        writeAggregateEntry(dir, apiClassName, toJS, entriesOf(modules), bannerLanguage)
+        if (!checkMode() && !blocked) {
+          // keep 在补写聚合入口与契约之后计算，避免把本轮刚写的产物误判为多余
+          const keep = collectGeneratedFiles(dir, [], toJS, modules)
+          pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
+        }
       }
-      writeAggregateEntry(dir, apiClassName, toJS, toModuleEntries(namingEntries), bannerLanguage, buildCollisionExports(dir, apiClassName))
-      const { errors, orphans } = verifyGroupedOutput(dir, namingEntries, toJS, { extraFiles })
-      if (errors.length > 0) {
-        errors.forEach((error) => console.error("失败：", error))
-        failures += 1
-        return
-      }
-      orphans.forEach((file) => console.error("⚠️ 表外产物（建议开启 output.prune）：", file))
-      // 横幅清理：删除本轮不再生成的旧产物；开关关闭时只报告不删除
-      const keep = collectGeneratedFiles(dir, splitPlan ? [] : namingEntries, toJS, extraFiles)
-      const stale = findStaleOutputFiles(dir, keep)
-      if (stale.length > 0 && datas.config.pruneOutput && !checkMode() && !blocked) {
-        pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
-      } else if (stale.length > 0 && !checkMode()) {
-        console.error(`⚠️ 产物多余（未开启 output.prune，未删除）：${stale.join("、")}`)
-      }
-    } else {
-      // 手动模块化没有命名表：按本轮实际生成的文件确定模块集合，先按横幅清掉旧产物再补写聚合入口
-      const generatedFiles = ((generated as { files?: Array<{ fileName?: string; fileExtension?: string }> }).files ?? [])
-        .map((file) => `${String(file.fileName ?? "").replace(/\\/g, "/")}${file.fileExtension ?? ""}`)
-        .filter((name) => Boolean(name) && !name.startsWith("."))
-      const modules = generatedFiles
-        .filter((name) => !name.includes("/") && !name.endsWith(".d.ts"))
-        .map((name) => name.slice(0, name.lastIndexOf(".")))
-        .filter((base) => Boolean(base) && !["index", CLIENT_BASE, "route-types"].includes(base) && !base.endsWith("Route"))
-      const keep = collectGeneratedFiles(dir, [], toJS, modules)
-      if (!checkMode() && !blocked) {
-        // keep 内的文件本轮会重建，留旧产物会让聚合入口继续引用幽灵模块
-        pruneGeneratedOutput(dir, keep).forEach((file) => console.log("清理：", path.resolve(dir, file)))
-      }
-      const contracts = splitContractOutput({ dir, moduleFiles: modules, toJS, language: bannerLanguage })
-      if (contracts.errors.length > 0) {
-        contracts.errors.forEach((error) => console.error("失败：", error))
-        failures += 1
-        return
-      }
-      writeAggregateEntry(dir, apiClassName, toJS, undefined, bannerLanguage)
+      // 升级退场：全部产物校验通过后再删除旧版固定产物，失败时保持原样
+      if (!checkMode()) removeLegacyOutput(dir, toJS).forEach((file) => console.log("清理：", path.resolve(dir, file)))
     }
+    // 单文件模式：不自动删除旧分组产物，检测到遗留时提示清理方式，避免模式切换时静默大删
+    if (!datas.config.modular && !checkMode()) {
+      const hint = groupedLeftoverHint(targetDir, Boolean(datas.config.toJS))
+      if (hint) console.error(`⚠️ ${hint}`)
+    }
+    // 类型检查策略：写盘完成后剥离 @ts-nocheck；--check 的临时产物走同一处理再比对
+    if (datas.typeCheck === "enforce") {
+      stripTsNoCheck(outputDir).forEach((file) => console.log("处理：", path.resolve(outputDir, file)))
+    }
+    if (datas.config.toJS) {
+      console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))
+    }
+    // 产物校验：临时目录与现有产物逐文件比对
+    if (checkDir) onCheckOutput(collectCheckResult(targetDir, checkDir), targetDir, checkDir, datas.config.grouping?.split)
+    // 移除使用--js参数时生成的d.ts文件（校验模式不动真实目录）
+    if (datas.param.removeDts && !checkMode()) {
+      console.log("清理：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
+      execSync(`npx rimraf ${path.resolve(confs.param.output, `${confs.param.name}.d.ts`)}`, { cwd: datas.home }).toString()
+    }
+    // 保存配置（rc 驱动时不回写 saconfig）
+    if (!datas.rcDriven) saveFile(confs.file, JSON.stringify(confs.param, null, 2))
+    completed = true
+  } finally {
+    // 失败回滚：只删除本轮新增的文件与空目录，原有产物保留
+    if (!completed && snapshot) removeNewOutputFiles(outputDir, snapshot).forEach((file) => console.log("回滚：", file))
+    // 临时文档在任何返回路径都清理
+    if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
   }
-  // 单文件模式：不自动删除旧分组产物，检测到遗留时提示清理方式，避免模式切换时静默大删
-  if (!datas.config.modular && !checkMode()) {
-    const hint = groupedLeftoverHint(targetDir, Boolean(datas.config.toJS))
-    if (hint) console.error(`⚠️ ${hint}`)
-  }
-  // 横幅语言：统一改写本轮产物文件头（含上游生成器写入的英文块）
-  const bannerDir = path.resolve(confs.param.output)
-  rewriteGeneratedBanners(bannerDir, bannerLanguage).forEach((file) => console.log("处理：", path.resolve(bannerDir, file)))
-  // 类型检查策略：写盘完成后剥离 @ts-nocheck；--check 的临时产物走同一处理再比对
-  if (datas.typeCheck === "enforce") {
-    const dir = path.resolve(confs.param.output)
-    stripTsNoCheck(dir).forEach((file) => console.log("处理：", path.resolve(dir, file)))
-  }
-  if (datas.config.toJS) {
-    console.log(checkMode() ? "校验：" : "完成：", path.resolve(checkMode() ? targetDir : confs.param.output, `${confs.param.name}.d.ts`))
-  }
-  // 产物校验：临时目录与现有产物逐文件比对
-  if (checkDir) onCheckOutput(collectCheckResult(targetDir, checkDir), targetDir, checkDir, datas.config.grouping?.split)
-  // 删除临时文档
-  if (fs.existsSync(datas.docFile)) fs.unlinkSync(datas.docFile)
-  // 移除使用--js参数时生成的d.ts文件（校验模式不动真实目录）
-  if (datas.param.removeDts && !checkMode()) {
-    console.log("清理：", path.resolve(confs.param.output, `${confs.param.name}.d.ts`))
-    execSync(`npx rimraf ${path.resolve(confs.param.output, `${confs.param.name}.d.ts`)}`, { cwd: datas.home }).toString()
-  }
-  // 保存配置（rc 驱动时不回写 saconfig）
-  if (!datas.rcDriven) saveFile(confs.file, JSON.stringify(confs.param, null, 2))
 }
 /**
  * 多目标：逐目标复位运行时后生成；单个失败不阻断其余目标，最终聚合退出码。
