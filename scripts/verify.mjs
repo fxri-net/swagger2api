@@ -342,7 +342,8 @@ function smokeExports() {
  * @return {number} 退出码
  */
 function checkSkillsLint() {
-  const minVersion = "1.17.6"
+  // 下限取引入单数域 skill 命令的版本，低于它探测必然失败、只能降级
+  const minVersion = "2.0.0"
   const probe = spawnCli("toolkit", ["skill", "lint", "--help"], { encoding: "utf8" })
   const versionRun = spawnCli("toolkit", ["--version"], { encoding: "utf8" })
   const version = versionRun.status === 0 ? (versionRun.stdout ?? "").trim() : ""
