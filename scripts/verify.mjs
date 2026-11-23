@@ -337,13 +337,13 @@ function smokeExports() {
 }
 
 /**
- * 技能规范校验：全局 toolkit 达到下限时调用 skills lint；缺失或过旧时降级为本仓硬断言并提示升级。
+ * 技能规范校验：全局 toolkit 达到下限时调用 skill lint；缺失或过旧时降级为本仓硬断言并提示升级。
  * 规范真源在 @fxri/toolkit，本仓不复制命名、篇幅与版本规则。
  * @return {number} 退出码
  */
 function checkSkillsLint() {
   const minVersion = "1.17.6"
-  const probe = spawnCli("toolkit", ["skills", "lint", "--help"], { encoding: "utf8" })
+  const probe = spawnCli("toolkit", ["skill", "lint", "--help"], { encoding: "utf8" })
   const versionRun = spawnCli("toolkit", ["--version"], { encoding: "utf8" })
   const version = versionRun.status === 0 ? (versionRun.stdout ?? "").trim() : ""
   if (probe.status !== 0 || !version) {
@@ -355,7 +355,7 @@ function checkSkillsLint() {
     return 0
   }
   const base = resolveBaseline() ?? "HEAD"
-  return spawnCli("toolkit", ["skills", "lint", "skills", "--base", base], { cwd: root, stdio: "inherit" }).status ?? 1
+  return spawnCli("toolkit", ["skill", "lint", "skills", "--base", base], { cwd: root, stdio: "inherit" }).status ?? 1
 }
 
 /**
@@ -2724,7 +2724,7 @@ const steps = [
   { label: "文档站产物（404 排除站点地图与搜索索引）", run: checkDocsDist, skip: runtimeOnly ? "运行时回归模式" : skipDocs ? "--skip-docs" : docsNeeded ? "" : "未触及 docs/、README.md、依赖清单" },
   { label: "包导出冒烟（dist/index.js）", run: smokeExports },
   { label: "技能打包与定位（skills/** / skill 命令）", run: checkSkillPackage, skip: runtimeOnly ? "运行时回归模式" : "" },
-  { label: "技能规范校验（toolkit skills lint）", run: checkSkillsLint, skip: runtimeOnly ? "运行时回归模式" : "" },
+  { label: "技能规范校验（toolkit skill lint）", run: checkSkillsLint, skip: runtimeOnly ? "运行时回归模式" : "" },
   { label: "生成产物一致性（夹具）", run: checkGeneratedOutput },
   { label: "产物一致性（分组 axios / fetch + 单文件 fetch）", run: checkGroupedOutput },
   { label: "分组产物对外面（导出面 / 类型链 / 共享实例）", run: checkGroupedContract },

@@ -137,7 +137,7 @@ client.instance.interceptors.response.use(
 - **配置决策项**：`docs[].source` / `docs[].output` / `base.output.mode` / `base.client` / `base.language` / `base.output.typeCheck` / `base.types.responses` / `base.naming`；
   先定文档输入输出，其余按默认，逐项加完各跑一次预览。
 - **既有边界**：生成物默认沿用 `// @ts-nocheck`，类型错误不进入下游检查；需要类型检查接管时用 `typeCheck: "enforce"`，由工具剥离后再校验，不手改生成物。
-- **规范来源**：技能结构与版本递增的机械真源是全局 `@fxri/toolkit` 的 `skills lint` / `skills bump`；本仓只保留打包与定位硬断言。
+- **规范来源**：技能结构与版本递增的机械真源是全局 `@fxri/toolkit` 的 `skill lint` / `skill bump`；本仓只保留打包与定位硬断言。
 
 ## 配置文件
 

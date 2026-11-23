@@ -21,7 +21,7 @@ if (probe.status !== 0) {
   process.exit(0)
 }
 
-const result = spawnToolkit(["changelog", "doc", "--check"], {
+const result = spawnToolkit(["release", "mirror", "--check"], {
   stdio: "inherit",
 })
 process.exit(result.status ?? 1)
