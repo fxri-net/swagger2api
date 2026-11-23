@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
+import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
 
 // 双产物同源比对：同一份 swagger 快照，分别用旧版 CLI 与当前 CLI 生成产物，比较导出契约与业务调用点。
@@ -36,7 +37,7 @@ function parseArgs(argv) {
     else if (arg === "--timeout") result.timeout = Number(argv[(index += 1)])
     else if (arg === "--json") result.json = true
     else if (arg === "--keep") result.keep = true
-    else if (arg === "--generate" || arg === "--compare") result.phases.add(arg.slice(2))
+    else if (arg === "--generate" || arg === "--compare" || arg === "--snapshot") result.phases.add(arg.slice(2))
     else if (arg === "--all") ["generate", "compare"].forEach((phase) => result.phases.add(phase))
     else if (arg === "--help" || arg === "-h") result.help = true
     else throw new Error(`未知参数：${arg}`)
@@ -50,6 +51,7 @@ function printHelp() {
   console.log(`用法：node scripts/product-contrast.mjs --manifest <清单> [阶段]
 
 阶段（缺省 generate + compare）：
+  --snapshot   从清单对应文档的 source 下载 swagger 快照到临时目录（显式执行即刷新）
   --generate   用旧版 CLI 与当前 CLI 各生成一份产物（读同一份本地快照）
   --compare    比较导出契约与业务调用点，输出报告
 
@@ -331,6 +333,82 @@ function compareCalls(repoPath, namespaces, oldSurface, newSurface) {
 }
 
 /**
+ * 取目标文档的 source：以清单 newConfig 中同 id 的文档为准，缺该 id 时取第一项。
+ * @param {object} repo 仓库
+ * @param {object} doc 文档
+ * @return {string | object | undefined}
+ */
+function pickDocSource(repo, doc) {
+  const config = JSON.parse(readFileSync(join(repo.path, doc.newConfig), "utf8"))
+  const target = (config.docs ?? []).find((item) => item.id === doc.id) ?? (config.docs ?? [])[0]
+  return target?.source
+}
+
+/**
+ * 地址脱敏：去掉 URL 内的账号密码，只留协议、主机与路径。
+ * @param {string} value 原始地址
+ * @return {{ text: string, hasAuth: boolean }}
+ */
+function maskUrl(value) {
+  const url = new URL(value)
+  const hasAuth = Boolean(url.username || url.password)
+  url.username = ""
+  url.password = ""
+  return { text: url.toString(), hasAuth }
+}
+
+/**
+ * 地址展示文案：本地文件只留文件名，远程地址脱敏后标注是否带凭据。
+ * @param {string | object} source 输入来源
+ * @return {string}
+ */
+function describeSource(source) {
+  const text = String(isObject(source) ? (source.url ?? source.file ?? "") : source)
+  if (!/^https?:\/\//i.test(text)) return `本地文件 ${basename(text)}`
+  const masked = maskUrl(text)
+  return `${masked.text}${masked.hasAuth ? "（含凭据）" : ""}`
+}
+
+/**
+ * 下载快照：URL 走 axios（与 CLI 同源，URL 内 userinfo 由 Node http 层转 Basic），本地文件直接复制。
+ * @param {object} repo 仓库
+ * @param {object} doc 文档
+ * @param {string | object} source 输入来源
+ * @param {string} file 快照路径
+ * @param {number} timeout 超时
+ * @return {Promise<void>}
+ */
+async function downloadSnapshot(repo, doc, source, file, timeout) {
+  const axios = require("axios")
+  const text = String(isObject(source) ? (source.url ?? source.file ?? "") : source)
+  if (!/^https?:\/\//i.test(text)) {
+    // 相对路径按配置文件所在目录解析
+    cpSync(resolve(dirname(join(repo.path, doc.newConfig)), text), file)
+    return
+  }
+  const options = {
+    timeout: (isObject(source) && source.timeout) || timeout,
+    responseType: "json",
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity
+  }
+  if (isObject(source) && source.headers) options.headers = source.headers
+  const response = await axios.get(text, options)
+  writeFileSync(file, `${JSON.stringify(response.data)}\n`)
+}
+
+/**
+ * 快照指纹：字节数与 sha256 前 12 位，作为新旧产物同源证据。
+ * @param {string} file 快照路径
+ * @return {{ bytes: number, sha: string }}
+ */
+function snapshotFingerprint(file) {
+  if (!existsSync(file)) return { bytes: 0, sha: "" }
+  const buffer = readFileSync(file)
+  return { bytes: buffer.length, sha: createHash("sha256").update(buffer).digest("hex").slice(0, 12) }
+}
+
+/**
  * 安装旧版 CLI 并返回入口。
  * @param {string} version 版本
  * @param {number} timeout 超时
@@ -426,11 +504,51 @@ async function main() {
   const repos = (manifest.repos ?? []).filter((repo) => !args.only || String(repo.name).includes(args.only))
   const report = { tool: "swagger2api", phases: [...args.phases], repos: [] }
   let failed = 0
-  for (const repo of repos) {
+
+  // 快照阶段：显式执行即刷新，覆盖已有快照
+  if (args.phases.has("snapshot")) {
+    mkdirSync(snapshotRoot, { recursive: true })
+    for (const repo of repos) {
+      for (const doc of repo.docs ?? []) {
+        const file = join(snapshotRoot, `${doc.snapshot}.json`)
+        try {
+          const source = pickDocSource(repo, doc)
+          if (!source) throw new Error(`配置缺少文档 ${doc.id} 的 source`)
+          const label = describeSource(source)
+          await downloadSnapshot(repo, doc, source, file, args.timeout)
+          const { bytes } = snapshotFingerprint(file)
+          console.log(`✔ 快照 ${doc.snapshot} ← ${label}（${bytes} 字节）`)
+        } catch (error) {
+          failed += 1
+          console.error(`✖ 快照 ${doc.snapshot} 失败：${error.message}`)
+        }
+      }
+    }
+  }
+
+  // 生成与比对前先确认快照齐备，避免落到下游「读取旧配置失败」
+  if (args.phases.has("generate") || args.phases.has("compare")) {
+    const missing = []
+    for (const repo of repos) {
+      for (const doc of repo.docs ?? []) {
+        if (!existsSync(join(snapshotRoot, `${doc.snapshot}.json`))) missing.push(`${repo.name} / ${doc.id}（${doc.snapshot}）`)
+      }
+    }
+    if (missing.length > 0) {
+      console.error(`失败：缺少 ${missing.length} 份本地快照：`)
+      for (const item of missing) console.error(`  - ${item}`)
+      console.error("  - 先运行 --snapshot 从配置 source 拉取")
+      process.exit(1)
+    }
+  }
+
+  const comparePhases = args.phases.has("generate") || args.phases.has("compare")
+  for (const repo of comparePhases ? repos : []) {
     const entry = { name: repo.name, path: repo.path, toolVersion: repo.toolVersion, ok: true, docs: [] }
     for (const doc of repo.docs ?? []) {
       const dir = join(workRoot, `${basename(repo.path)}-${doc.id}`)
-      const item = { id: doc.id, snapshot: doc.snapshot, ok: true }
+      const fingerprint = snapshotFingerprint(join(snapshotRoot, `${doc.snapshot}.json`))
+      const item = { id: doc.id, snapshot: doc.snapshot, snapshotBytes: fingerprint.bytes, snapshotSha: fingerprint.sha, ok: true }
       try {
         if (args.phases.has("generate")) {
           item.oldDir = generateLegacy(repo, doc, dir, args.timeout)
@@ -467,10 +585,11 @@ async function main() {
   writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`)
   if (args.json) console.log(JSON.stringify(report, null, 2))
   if (failed > 0) {
-    console.error(`\n✖ 同源比对未通过：${failed} 个仓库存在破坏性差异（报告：${reportFile}）`)
+    console.error(`\n✖ 执行未通过：${failed} 项失败（报告：${reportFile}）`)
     process.exit(1)
   }
-  console.log(`\n✔ 同源比对通过：${repos.length} 个仓库（报告：${reportFile}）`)
+  const summary = args.phases.has("generate") || args.phases.has("compare") ? "同源比对通过" : "快照已刷新"
+  console.log(`\n✔ ${summary}：${repos.length} 个仓库（报告：${reportFile}）`)
 }
 
 main().catch((error) => {
