@@ -95,4 +95,11 @@ function stripSectionDefaults(section: unknown) {
     if (input.timeout === CONFIG_DEFAULTS.input.timeout) delete input.timeout
     if (Object.keys(input).length === 0) delete section.input
   }
+  const types = section.types
+  if (isPlainObject(types)) {
+    for (const [key, value] of Object.entries(CONFIG_DEFAULTS.types)) {
+      if (types[key] === value) delete types[key]
+    }
+    if (Object.keys(types).length === 0) delete section.types
+  }
 }

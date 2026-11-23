@@ -63,8 +63,9 @@ describe("旧配置与脚本迁移", () => {
     expect(await runUpgrade({ cwd: root, yes: true })).toBe(0)
     const config = JSON.parse(fs.readFileSync(path.join(root, "swagger2api.json"), "utf8"))
     const mainDoc = config.docs.find((doc: { id: string }) => doc.id === "main")
-    expect(mainDoc.client).toBe("axios")
-    expect(mainDoc.types.responses).toBe(true)
+    // 默认值不落盘：client 与 responses 等于工具默认值，写盘时剔除
+    expect(mainDoc.client).toBeUndefined()
+    expect(mainDoc.types).toBeUndefined()
     expect(config.docs.map((doc: { id: string }) => doc.id)).toEqual(["main", "tim"])
     expect(config.docs.find((doc: { id: string }) => doc.id === "tim").output).toEqual({ dir: "./api/tim", name: "timApi" })
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
@@ -102,8 +103,8 @@ describe("旧配置与脚本迁移", () => {
     })
     expect(await runUpgrade({ cwd: root, yes: true })).toBe(0)
     const config = JSON.parse(fs.readFileSync(path.join(root, "swagger2api.json"), "utf8"))
-    // 默认值不落盘：output.name 为默认 index，写盘时剔除
-    expect(config.base).toEqual({ client: "axios", output: { mode: "grouped" } })
+    // 默认值不落盘：output.name 为默认 index、client 已是默认 axios，写盘时剔除
+    expect(config.base).toEqual({ output: { mode: "grouped" } })
     expect(config.docs).toEqual([
       { id: "a", source: { url: "https://example.com/a.json" }, output: "./api/a" },
       { id: "b", source: { file: "./b.json" }, output: "./api/b" }

@@ -110,7 +110,7 @@ npm / yarn 用户、同名工具冲突说明见 [新手指南 · 安装](./docs/
 
 ```json
 {
-  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "base": { "output": { "mode": "grouped" } },
   "docs": [
     { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
     { "id": "lc", "source": "./swagger/lc.json", "output": "./src/api/lc" }

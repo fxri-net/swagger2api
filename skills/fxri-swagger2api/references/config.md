@@ -6,7 +6,7 @@
 
 ```json
 {
-  "base": { "output": { "name": "index" }, "client": "axios" },
+  "base": { "output": { "mode": "grouped" } },
   "docs": [
     { "id": "main", "source": "https://example.com/v3/api-docs", "output": "./src/api" }
   ]
@@ -21,12 +21,12 @@
 | --- | --- | --- |
 | `base.output.name` | 字符串，默认 `index` | 需要自定义入口文件名时；文档项 `output.name` 优先 |
 | `base.output.mode` | `single`（默认）/ `grouped` | 接口多、单文件过大时切 `grouped` |
-| `base.client` | `fetch`（默认）/ `axios` | 项目已用 axios 或需要拦截器时选 `axios` |
+| `base.client` | `axios`（默认）/ `fetch` | 需要 fetch 客户端时显式配置 |
 | `base.language` | `ts`（默认）/ `js` | 产物要与现有 JS 代码共存时选 `js`（同时生成声明） |
 | `base.output.typeCheck` | `skip`（默认）/ `enforce` | 需要项目类型检查覆盖生成物时选 `enforce`（工具剥离 `@ts-nocheck`） |
-| `base.types.responses` | 布尔 | 需要响应类型信息时开启 |
+| `base.types.responses` | 布尔，默认 `true` | 不需要响应类型信息时设 `false` |
 | `base.types.extractQuery` | 字段名数组 | 后端把分页 / 筛选包在 query 对象里，需要提到根部时 |
-| `base.types.extractResponseRaw` | 布尔 | 需要在响应里保留原始 `raw` 时 |
+| `base.types.extractResponseRaw` | 布尔，默认 `true` | 不需要 `raw` 字段时设 `false` |
 | `base.naming.pathPrefixIndex` | 非负整数 | 路径首段是网关前缀、不该进命名时去掉 |
 | `base.naming.tagRewrite` | `[匹配, 替换]` | 标签带环境前缀或需要统一命名时 |
 | `base.grouping.split` | 默认（自适应分桶）/ 对象覆写阈值 / `false` | 通常保持默认；需要固定模块文件数或调整桶大小时覆写，`false` 仅作逃生口 |
@@ -40,7 +40,7 @@
 
 ```json
 {
-  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "base": { "output": { "mode": "grouped" } },
   "docs": [
     { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
     { "id": "lc", "source": "https://example.com/lc/v3/api-docs", "output": "./src/api/lc" }
@@ -49,7 +49,7 @@
 ```
 
 - `id` 唯一，用于 `--target`、日志与本地层覆盖；`name` 仍是入口文件名，文档项优先
-- 工具写盘（`init` / `grouping` / `upgrade`）只写个性化配置：默认值不落盘（`client=fetch`、`language=ts`、`output.name=index`、`output.mode=single`、`output.typeCheck=skip`、`output.banner=zh`、`input.timeout=0`），`docs` 与 `base` 重复项上提，短对象单行；`naming` / `types` / `grouping` 不省略
+- 工具写盘（`init` / `grouping` / `upgrade`）只写个性化配置：默认值不落盘（`client=axios`、`language=ts`、`output.name=index`、`output.mode=single`、`output.typeCheck=skip`、`output.banner=zh`、`types.responses=true`、`types.extractResponseRaw=true`、`input.timeout=0`），`docs` 与 `base` 重复项上提，短对象单行；`naming` / `grouping` 与 `types.extractQuery` 不省略
 - 单文档直接生成；多文档交互勾选（默认全不选），非交互必须 `--target <id[,id]>` 或 `--all`
 - `--check` / `--dry-run` 与生成共用同一选择结果
 - 输出目录相同或互相嵌套会被拒绝（退出码 2，不落盘）

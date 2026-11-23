@@ -85,11 +85,11 @@ request.getUsers().then((res) => console.log(res))
 
 ### fetch 还是 axios 客户端？
 
-客户端类型默认 fetch；需要 axios（如配合响应拦截器使用）时，透传 swagger-typescript-api 原生参数 `--axios` 即可切换。
+客户端类型默认 axios；需要 fetch 时在配置里写 `client: "fetch"`，或命令行传 `--fetch`。
 
 ### 使用 --extract-response-raw 不生效？
 
-先确认是否传了 `--axios`：该参数仅 axios 客户端模板生效，客户端类型默认 fetch，不传 `--axios` 时该参数无效。生效后返回值结构会变化，需自行声明根部字段并在响应拦截器中设计实际返回值，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err)。
+该参数默认开启，且仅 axios 客户端模板生效：配置 `client: "fetch"` 或传 `--fetch` 时不生效。生效后返回值结构会变化，需自行声明根部字段并在响应拦截器中设计实际返回值，详见[完整攻略 · 提取响应](./guide#提取响应--extract-response-raw-err)。
 
 ### 使用 --extract-response-raw 后返回值结构变了？
 

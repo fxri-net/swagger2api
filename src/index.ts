@@ -164,14 +164,14 @@ async function onLoadParam() {
     timeout: getPValue("--timeout"),
     removeEmptyComponents: getPKey(["--remove-empty-components", "-rec"]) ?? true,
     extractRequestQuery: getPValue(["--extract-request-query", "-erq"]),
-    extractResponseRaw: getPKey(["--extract-response-raw", "-err"]),
+    extractResponseRaw: !getPKey(["--no-extract-response-raw"]),
     template: path.resolve(getDirname(), "./templates")
   }
   /** 配置 */
   datas.config = {
     templates: getPValue(["--templates", "-t"]) ?? datas.param.template, // 路径到包含模板的文件夹
     defaultResponseAsSuccess: getPKey(["--default-as-success", "-d"]), // 将“默认”响应状态码也用作成功响应
-    generateResponses: getPKey(["--responses", "-r"]), // 生成有关请求响应的附加信息
+    generateResponses: !getPKey(["--no-responses"]), // 生成有关请求响应的附加信息（默认开启）
     generateUnionEnums: getPKey("--union-enums"), // 生成所有“枚举”类型为联合类型 (T1 | T2 | TN)
     addReadonly: getPKey("--add-readonly"), // 生成只读属性
     generateRouteTypes: getPKey("--route-types"), // 生成 API 路由的类型定义
@@ -185,7 +185,7 @@ async function onLoadParam() {
     toJS: getPKey("--js"), // 生成带有声明文件的js api模块
     moduleNameIndex: Number(getPValue("--module-name-index") ?? 0), // 确定用于路由分离的路径索引
     moduleNameFirstTag: getPKey("--module-name-first-tag"), // 根据第一个标签拆分路线
-    httpClientType: getPKey("--axios") ? "axios" : "fetch", // 生成 axios http 客户端
+    httpClientType: getPKey("--fetch") ? "fetch" : "axios", // 生成 http 客户端（默认 axios）
     unwrapResponseData: getPKey("--unwrap-response-data"), // 从响应中提取数据项
     disableThrowOnError: getPKey("--disable-throw-on-error"), // 当 response.ok 不为真时，不要抛出错误（默认：false）
     singleHttpClient: getPKey("--single-http-client"), // 能够将HttpClient实例传递给Api构造函数（默认：false）
@@ -251,13 +251,13 @@ function applyRcConfig(rc: Record<string, any>) {
   if (!hasFlag(["--convert-get", "-cg"]) && naming.convertGetToQuery !== undefined) param.convertGet = naming.convertGetToQuery
   if (!hasFlag(["--remove-param", "-rp"]) && naming.dropPathParams !== undefined) param.removeParam = naming.dropPathParams
   if (!hasFlag(["--extract-request-query", "-erq"]) && types.extractQuery !== undefined) param.extractRequestQuery = types.extractQuery
-  if (!hasFlag(["--extract-response-raw", "-err"]) && types.extractResponseRaw !== undefined) param.extractResponseRaw = Boolean(types.extractResponseRaw)
+  if (!hasFlag(["--extract-response-raw", "-err", "--no-extract-response-raw"]) && types.extractResponseRaw !== undefined) param.extractResponseRaw = Boolean(types.extractResponseRaw)
   if (!hasFlag(["--remove-dts", "-rd"]) && types.removeDts !== undefined) param.removeDts = types.removeDts
   if (!hasFlag(["--replace-tags", "-rt"]) && naming.tagRewrite) param.replaceTags = naming.tagRewrite
   const config = datas.config as Record<string, any>
-  if (!hasFlag(["--axios"]) && rc.client?.type) config.httpClientType = rc.client.type === "axios" ? "axios" : "fetch"
+  if (!hasFlag(["--axios", "--fetch"]) && rc.client?.type) config.httpClientType = rc.client.type === "axios" ? "axios" : "fetch"
   if (!hasFlag(["--js"]) && rc.language?.target) config.toJS = rc.language.target === "js"
-  if (!hasFlag(["--responses", "-r"]) && types.responses !== undefined) config.generateResponses = Boolean(types.responses)
+  if (!hasFlag(["--responses", "-r", "--no-responses"]) && types.responses !== undefined) config.generateResponses = Boolean(types.responses)
   if (!hasFlag(["--unwrap-response-data"]) && types.unwrapData !== undefined) config.unwrapResponseData = Boolean(types.unwrapData)
   if (!hasFlag(["--extract-request-params"]) && types.extractParams !== undefined) config.extractRequestParams = Boolean(types.extractParams)
   if (!hasFlag(["--clean-output"]) && output.clean !== undefined) config.cleanOutput = Boolean(output.clean)

@@ -6,9 +6,9 @@ describe("配置默认值剔除", () => {
   it("剔除等于默认值的字段", () => {
     const config = {
       base: {
-        client: "fetch",
+        client: "axios",
         language: "ts",
-        types: { responses: true },
+        types: { responses: true, extractResponseRaw: true },
         naming: { pathPrefixIndex: 0 },
         output: { name: "index", mode: "single", typeCheck: "skip", banner: "zh" },
         input: { timeout: 0 }
@@ -16,16 +16,21 @@ describe("配置默认值剔除", () => {
       docs: [{ id: "main", source: "https://example.com/a.json", output: { dir: "./src/api", name: "index" } }]
     }
     const result = stripDefaults(config)
-    expect(result.base).toEqual({ types: { responses: true }, naming: { pathPrefixIndex: 0 } })
+    expect(result.base).toEqual({ naming: { pathPrefixIndex: 0 } })
     expect(result.docs[0].output).toEqual({ dir: "./src/api" })
+  })
+
+  it("types 只剩默认键时整段删除", () => {
+    const result = stripDefaults({ base: { types: { responses: true, extractResponseRaw: true } } })
+    expect(result.base).toEqual({})
   })
 
   it("保留非默认值与看似默认的个性化项", () => {
     const config = {
       base: {
-        client: "axios",
+        client: "fetch",
         language: "js",
-        types: { responses: true, extractQuery: "arg0" },
+        types: { responses: false, extractResponseRaw: false, extractQuery: "arg0" },
         naming: { pathPrefixIndex: 0, convertGetToQuery: true },
         output: { mode: "grouped", typeCheck: "enforce", name: "sdk" }
       },

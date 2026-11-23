@@ -71,23 +71,22 @@ swagger2api        # 之后：读取最近的 swagger2api.json 直接生成
 
 ```json
 {
-  "url": "https://example.com/v3/api-docs",
-  "output": "./src/api",
-  "mode": "grouped",
-  "client": "axios",
-  "language": "ts",
-  "responses": true,
-  "query": "arg0"
+  "base": {
+    "output": { "mode": "grouped" }
+  },
+  "docs": [
+    { "id": "main", "source": "https://example.com/v3/api-docs", "output": "./src/api" }
+  ]
 }
 ```
 
 | 字段 | 说明 |
 | --- | --- |
-| `url` / `file` | Swagger JSON 地址或本地文件 |
-| `output` | 生成代码的输出目录，相对配置文件所在目录解析 |
-| `mode` | `single` / `grouped`；分组模式自动分桶与分片 |
-| `client` / `language` | `axios` / `fetch`、`ts` / `js` |
-| `responses` / `query` 等 | 项目自己的口径，按需保留 |
+| `docs[].source` | Swagger JSON 地址或本地文件 |
+| `docs[].output` | 生成代码的输出目录，相对配置文件所在目录解析 |
+| `base.output.mode` | `single` / `grouped`；分组模式自动分桶与分片 |
+| `base.client` / `base.language` | 默认 `axios` / `ts`；需要时写 `fetch` / `js` |
+| `base.types.extractQuery` 等 | 项目自己的口径，按需保留 |
 
 分桶阈值、清理与产物校验由工具默认，不需要写进配置；产物归属靠文件头的生成横幅识别，不落任何持久状态。`swagger2api --check` 可校验产物是否与当前配置一致。
 

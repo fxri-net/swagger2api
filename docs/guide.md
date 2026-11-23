@@ -14,7 +14,7 @@
 
 ```json
 {
-  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "base": { "output": { "mode": "grouped" } },
   "docs": [
     { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
     { "id": "lc", "source": "./swagger/lc.json", "output": "./src/api/lc" }
@@ -41,7 +41,7 @@
 
 ## 提取响应（--extract-response-raw,-err）
 
-> ⚠️ 该参数仅 axios 客户端生效：需搭配 swagger-typescript-api 原生参数 `--axios` 使用。客户端类型默认 fetch，不传 `--axios` 时该参数无效。
+> ⚠️ 该参数仅 axios 客户端生效：默认客户端即 axios，不需要额外参数；配置 `client: "fetch"` 或传 `--fetch` 时不生效。默认已开启，需要关闭时传 `--no-extract-response-raw`。
 
 使用 `--extract-response-raw,-err` 后，AxiosResponse 返回值转移到 raw 字段，需两步配合：
 
@@ -121,10 +121,10 @@ client.instance.interceptors.response.use(
 
 ```json
 {
-  "url": "https://example.com/v3/api-docs",
-  "output": "./src/api",
-  "mode": "grouped",
-  "client": "axios"
+  "base": { "output": { "mode": "grouped" } },
+  "docs": [
+    { "id": "main", "source": "https://example.com/v3/api-docs", "output": "./src/api" }
+  ]
 }
 ```
 

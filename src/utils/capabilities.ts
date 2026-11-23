@@ -51,7 +51,7 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
     purpose: "按配置生成文档产物；单文档直接执行，多文档交互勾选或 --target / --all",
     readOnly: false,
     destructive: false,
-    params: ["--config <文件>", "--target <id[,id]>", "--all", "--profile <name>", "--timeout <ms>", "--no-interactive"],
+    params: ["--config <文件>", "--target <id[,id]>", "--all", "--profile <name>", "--timeout <ms>", "--no-interactive", "--fetch", "--no-responses", "--no-extract-response-raw"],
     examples: ["swagger2api --config swagger2api.json", "swagger2api --config swagger2api.json --target lc"],
     next: "check"
   },
@@ -188,9 +188,10 @@ export const CONFIG_KEYS: ConfigKeyCapability[] = [
   { key: "base.output.clean", type: "boolean", default: "false", usage: "生成前清空整个输出目录，仅适合纯生成目录" },
   { key: "base.output.typeCheck", type: "string", default: "skip", values: ["skip", "enforce"], usage: "是否剥离生成物的 @ts-nocheck" },
   { key: "base.output.banner", type: "string", default: "zh", values: ["zh", "en"], usage: "产物文件头横幅语言" },
-  { key: "base.client", type: "string", default: "fetch", values: ["fetch", "axios"], usage: "HTTP 客户端" },
+  { key: "base.client", type: "string", default: "axios", values: ["axios", "fetch"], usage: "HTTP 客户端" },
   { key: "base.language", type: "string", default: "ts", values: ["ts", "js"], usage: "产物语言，JS 同时生成声明" },
-  { key: "base.types.responses", type: "boolean", default: "false", usage: "生成响应类型信息" },
+  { key: "base.types.responses", type: "boolean", default: "true", usage: "生成响应类型信息" },
+  { key: "base.types.extractResponseRaw", type: "boolean", default: "true", usage: "响应体转移到 raw 字段" },
   { key: "base.grouping.split", type: "boolean | object", default: "true", usage: "自适应分桶与分片阈值" },
   { key: "base.grouping.names", type: "object", default: "{}", usage: "原始组名到模块名的覆盖表" }
 ]

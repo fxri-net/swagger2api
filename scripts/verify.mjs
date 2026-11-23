@@ -470,8 +470,8 @@ function checkGeneratedOutput() {
       output: out,
       base: { output: { name: "index" } }
     })
-    // 与 pnpm api 一致的主力参数组合；配置写到临时目录，避免回写夹具
-    const result = spawnSync(process.execPath, [cli, "-c", config, "--axios", "--responses", "-rpi", "0", "-err"], { cwd: root, stdio: "inherit" })
+    // 默认参数组合（axios + 响应类型 + raw）；配置写到临时目录，避免回写夹具
+    const result = spawnSync(process.execPath, [cli, "-c", config, "-rpi", "0"], { cwd: root, stdio: "inherit" })
     if (result.status !== 0) return result.status ?? 1
 
     const issues = []
@@ -577,8 +577,8 @@ async function checkGroupedOutput() {
   }
   const ts = await import("typescript")
   const clients = [
-    { name: "axios", args: ["--axios"] },
-    { name: "fetch", args: [] }
+    { name: "axios", args: [] },
+    { name: "fetch", args: ["--fetch"] }
   ]
   // 空目录 + clean：清理不能删掉预建的契约目录（回归：types/index 丢失导致生成失败）
   {
@@ -702,7 +702,7 @@ async function checkGroupedOutput() {
       rmSync(out, { recursive: true, force: true })
     }
   }
-  // 单文件 fetch：不传 --axios 时按 fetch 模板输出，产物不得引入 axios
+  // 单文件 fetch：配置显式 client: "fetch"，产物不得引入 axios
   const fetchOut = mkdtempSync(join(tmpdir(), "s2a-fetch-"))
   try {
     const config = writeProjectConfig(join(fetchOut, "swagger2api.json"), {
@@ -1242,7 +1242,9 @@ async function checkUpgrade() {
 
     const appConfig = JSON.parse(readFileSync(join(appDir, "swagger2api.json"), "utf8"))
     if (appConfig.docs?.map((doc) => doc.id).join(",") !== "main,lc") issues.push("旧配置未按文件生成 main / lc 文档")
-    if (appConfig.base?.client !== "axios") issues.push("脚本参数 client 未进入 base")
+    // 默认值不落盘：client / responses 已是默认值，写盘时应剔除
+    if (appConfig.base?.client !== undefined) issues.push("迁移产物仍写出默认值 client")
+    if (appConfig.base?.types !== undefined) issues.push("迁移产物仍写出默认值 types")
     // 默认值不落盘：旧 saconfig 的 name 为 index，写盘时应剔除
     if (appConfig.base?.output?.name !== undefined) issues.push("迁移产物仍写出默认值 output.name")
     const lcDoc = (appConfig.docs ?? []).find((doc) => doc.id === "lc")

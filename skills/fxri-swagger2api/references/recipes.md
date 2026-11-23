@@ -18,7 +18,7 @@ swagger2api --check --json
 
 ```json
 {
-  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "base": { "output": { "mode": "grouped" } },
   "docs": [
     { "id": "main", "source": "https://example.com/v3/api-docs", "output": "./src/api" }
   ]
@@ -29,7 +29,7 @@ swagger2api --check --json
 
 ```json
 {
-  "base": { "output": { "mode": "grouped" }, "client": "axios" },
+  "base": { "output": { "mode": "grouped" } },
   "docs": [
     { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
     { "id": "lc", "source": "https://example.com/lc/v3/api-docs", "output": "./src/api/lc" }

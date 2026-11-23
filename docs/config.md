@@ -7,10 +7,7 @@
 ```json
 {
   "base": {
-    "output": { "name": "index", "mode": "grouped" },
-    "client": "axios",
-    "language": "ts",
-    "types": { "responses": true }
+    "output": { "mode": "grouped" }
   },
   "docs": [
     { "id": "base", "source": "https://example.com/base/v3/api-docs", "output": "./src/api/base" },
@@ -30,10 +27,10 @@
 
 工具写盘（`init`、`grouping`、`upgrade`）只保留非默认值：
 
-- 等于默认值的字段不写出：`client: "fetch"`、`language: "ts"`、`output.name: "index"`、`output.mode: "single"`、`output.typeCheck: "skip"`、`output.banner: "zh"`、`input.timeout: 0`。
+- 等于默认值的字段不写出：`client: "axios"`、`language: "ts"`、`output.name: "index"`、`output.mode: "single"`、`output.typeCheck: "skip"`、`output.banner: "zh"`、`types.responses: true`、`types.extractResponseRaw: true`、`input.timeout: 0`。
 - `docs` 中与 `base` 相同的配置上提到 `base`，文档项只留 `id`、`output` 与 `source`。
 - 短对象保持单行（阈值 160 字符），是否展开交给项目格式化规范。
-- `naming`、`types`、`grouping` 不参与省略：`pathPrefixIndex: 0` 这类值与「不配置」语义不同。
+- `naming`、`grouping` 与 `types.extractQuery` 不参与省略：`pathPrefixIndex: 0` 这类值与「不配置」语义不同。
 
 ## 生成与选择
 
