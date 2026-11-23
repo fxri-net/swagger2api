@@ -53,7 +53,7 @@ swagger2api skill --json        # 输出入口、references 目录与技能版�
 | `toolVersion` | 工具版本 |
 | `command` | `check` / `inspect` / `prune` / `generate` |
 | `ok` | 是否通过 |
-| `errorCode` | `E_CHECK_FAILED` / `E_LAYOUT_ISSUES` / `E_DIR_NOT_FOUND` / `E_UNSAFE_DIR` / `E_ARGS_MISSING` / `E_DOC_SELECTION_REQUIRED`，成功为 `null` |
+| `errorCode` | `E_CHECK_FAILED` / `E_LAYOUT_ISSUES` / `E_DIR_NOT_FOUND` / `E_UNSAFE_DIR` / `E_ARGS_MISSING` / `E_DOC_SELECTION_REQUIRED` / `E_SPEC_INVALID` / `E_NO_ENDPOINTS`，成功为 `null` |
 | `missing` / `mismatched` / `extra` | check 的三类清单 |
 | `files` | prune 的生成物清单 |
 | `actions` | 建议的下一步命令，可直接复制；带 `--yes` 的须用户确认 |

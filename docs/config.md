@@ -63,6 +63,7 @@
 - 自适应分桶：总量 ≤ `minRoutes`（默认 150）时只生成一个 `Modules` 文件；超过后按命名空间装箱，小桶并入相邻桶，超大命名空间分片并由门面合并实例与类型。
 - 保留名（`index`、`types`、`client`、`shared`、`instance`、`request`、`setSecurityData` 等）自动追加序号；契约与模块同名时只改类名与文件名。
 - `output.clean` 清空整个输出目录；分组模式默认按横幅清理已消失产物，手写文件不受影响。关闭清理时只报告多余产物。
+- `output.prune`：分组模式默认开启，按生成横幅清理本轮不再产生的模块；设为 `false` 时只报告多余产物、不删除（等价 `--prune-output`）。
 - 失败回滚：后处理失败时删除本轮新增文件、保留原有产物，修正配置后可直接重跑。
 - 同目录只维护一份 `swagger2api.json`；同一配置内文档输出目录不得相同或互相嵌套，违反时退出 2 且不生成任何文档。
 
@@ -74,6 +75,7 @@
 | `docs[].source` | 文档项 | URL、本地文件或 `{ url / file, headers, timeout }` |
 | `docs[].output` | 文档项 | 目录字符串或 `{ dir, name, mode, ... }` |
 | `base.output.name` | 共享段 | 入口文件名默认值，缺省 `index` |
+| `base.output.prune` | 共享段 | 分组模式默认开启；`false` 只报告多余产物、不删除 |
 | `base.client` | 共享段 | `axios` / `fetch` |
 | `base.language` | 共享段 | `ts` / `js` |
 | `base.types` | 共享段 | `responses`、`extractQuery`、`extractResponseRaw` 等 |

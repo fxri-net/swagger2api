@@ -155,7 +155,7 @@ swagger2api prune --dir ./src/api/old --json
 | `actions` | 建议的下一步命令 |
 
 - JSON 模式下 stdout 只输出一份 JSON，人类可读日志走 stderr；输出为 UTF-8 无 BOM。
-- 错误码：`E_CHECK_FAILED`、`E_LAYOUT_ISSUES`、`E_DIR_NOT_FOUND`、`E_UNSAFE_DIR`、`E_ARGS_MISSING`、`E_DOC_SELECTION_REQUIRED`。
+- 错误码：`E_CHECK_FAILED`、`E_LAYOUT_ISSUES`、`E_DIR_NOT_FOUND`、`E_UNSAFE_DIR`、`E_ARGS_MISSING`、`E_DOC_SELECTION_REQUIRED`、`E_SPEC_INVALID`、`E_NO_ENDPOINTS`。
 
 | 退出码 | 含义 |
 | --- | --- |
