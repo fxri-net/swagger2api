@@ -102,7 +102,8 @@ describe("旧配置与脚本迁移", () => {
     })
     expect(await runUpgrade({ cwd: root, yes: true })).toBe(0)
     const config = JSON.parse(fs.readFileSync(path.join(root, "swagger2api.json"), "utf8"))
-    expect(config.base).toEqual({ client: "axios", output: { name: "index", mode: "grouped" } })
+    // 默认值不落盘：output.name 为默认 index，写盘时剔除
+    expect(config.base).toEqual({ client: "axios", output: { mode: "grouped" } })
     expect(config.docs).toEqual([
       { id: "a", source: { url: "https://example.com/a.json" }, output: "./api/a" },
       { id: "b", source: { file: "./b.json" }, output: "./api/b" }

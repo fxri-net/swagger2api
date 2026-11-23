@@ -26,6 +26,15 @@
 - 入口文件名优先级：文档项 `output.name` > `base.output.name` > `index`。
 - `client` / `language` 支持字符串简写（`axios` / `fetch`、`ts` / `js`），内部会归一为对象。
 
+## 只写个性化配置
+
+工具写盘（`init`、`grouping`、`upgrade`）只保留非默认值：
+
+- 等于默认值的字段不写出：`client: "fetch"`、`language: "ts"`、`output.name: "index"`、`output.mode: "single"`、`output.typeCheck: "skip"`、`output.banner: "zh"`、`input.timeout: 0`。
+- `docs` 中与 `base` 相同的配置上提到 `base`，文档项只留 `id`、`output` 与 `source`。
+- 短对象保持单行（阈值 160 字符），是否展开交给项目格式化规范。
+- `naming`、`types`、`grouping` 不参与省略：`pathPrefixIndex: 0` 这类值与「不配置」语义不同。
+
 ## 生成与选择
 
 - 单文档：直接生成，不提问。

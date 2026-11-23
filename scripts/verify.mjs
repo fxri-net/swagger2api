@@ -1223,6 +1223,8 @@ async function checkUpgrade() {
     const appConfig = JSON.parse(readFileSync(join(appDir, "swagger2api.json"), "utf8"))
     if (appConfig.docs?.map((doc) => doc.id).join(",") !== "main,lc") issues.push("旧配置未按文件生成 main / lc 文档")
     if (appConfig.base?.client !== "axios") issues.push("脚本参数 client 未进入 base")
+    // 默认值不落盘：旧 saconfig 的 name 为 index，写盘时应剔除
+    if (appConfig.base?.output?.name !== undefined) issues.push("迁移产物仍写出默认值 output.name")
     const lcDoc = (appConfig.docs ?? []).find((doc) => doc.id === "lc")
     if (lcDoc?.output?.name !== "lcApi") issues.push("--name 未落到对应文档的 output.name")
     const appPkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8"))

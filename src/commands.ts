@@ -22,6 +22,7 @@ import { applyGrouping, type GroupingConfig, type GroupingRule } from "./utils/g
 import { DIAGNOSTIC_SCHEMA_VERSION, canPrompt, normalizeTimeout, readToolVersion, writeJson } from "./utils"
 import { COMMAND_CAPABILITIES, CONFIG_KEYS, EXIT_CODES, SKILL_REFERENCES } from "./utils/capabilities"
 import { collectGeneratedFilesOf } from "./utils/modular"
+import { stringifyConfig, stripDefaults } from "./utils/config-format"
 
 /**
  * 输出诊断命令的失败结果：JSON 模式给出稳定错误码与可执行下一步，否则打印人类可读错误。
@@ -79,7 +80,7 @@ function writeConfig(file: string, patch: Record<string, any>) {
   const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {}
   const merged = mergeShallow(existing, patch)
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`)
+  fs.writeFileSync(file, stringifyConfig(stripDefaults(merged)))
 }
 
 /**
@@ -96,7 +97,7 @@ function writeDocPatch(file: string, id: string, patch: Record<string, any>) {
   if (index === -1) docs.push({ id, ...patch })
   else docs[index] = { ...docs[index], ...patch }
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, `${JSON.stringify({ ...existing, docs }, null, 2)}\n`)
+  fs.writeFileSync(file, stringifyConfig(stripDefaults({ ...existing, docs })))
 }
 
 /**

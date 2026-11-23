@@ -49,6 +49,7 @@
 ```
 
 - `id` 唯一，用于 `--target`、日志与本地层覆盖；`name` 仍是入口文件名，文档项优先
+- 工具写盘（`init` / `grouping` / `upgrade`）只写个性化配置：默认值不落盘（`client=fetch`、`language=ts`、`output.name=index`、`output.mode=single`、`output.typeCheck=skip`、`output.banner=zh`、`input.timeout=0`），`docs` 与 `base` 重复项上提，短对象单行；`naming` / `types` / `grouping` 不省略
 - 单文档直接生成；多文档交互勾选（默认全不选），非交互必须 `--target <id[,id]>` 或 `--all`
 - `--check` / `--dry-run` 与生成共用同一选择结果
 - 输出目录相同或互相嵌套会被拒绝（退出码 2，不落盘）

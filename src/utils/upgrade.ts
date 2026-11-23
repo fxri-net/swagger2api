@@ -6,6 +6,7 @@ import { askConfirm } from "./cli-ui"
 import { CONFIG_LOCAL_FILE } from "./config"
 import { canPrompt } from "./common"
 import { argsToConfig, tokenizeArgs } from "./migrate"
+import { stringifyConfig, stripDefaults } from "./config-format"
 
 // 一键迁移：发现旧配置与脚本，归一为新版 base + docs，备份后改写 package.json 与配置文件。
 // 只做确定性映射；无法确定的内容列入人工项并阻断该项自动迁移。
@@ -623,7 +624,10 @@ function applyScriptArgs(base: Record<string, any>, doc: Record<string, any> | n
   // 共享口径脚本优先；输入输出只落到目标文档
   for (const [key, value] of Object.entries(argBase)) {
     if (key === "output") {
-      base.output = mergeDeep(base.output ?? {}, value)
+      // 入口文件名属于单个文档，不提升到 base，避免污染其他文档
+      const shared = { ...value }
+      delete shared.name
+      if (Object.keys(shared).length > 0) base.output = mergeDeep(base.output ?? {}, shared)
       continue
     }
     base[key] = isPlainObject(value) && isPlainObject(base[key]) ? mergeDeep(base[key], value) : structuredClone(value)
@@ -701,7 +705,7 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
         upsertDoc(docs, localDoc)
         localConfig = { docs: [localDoc] }
       }
-      const content = `${JSON.stringify(localConfig, null, 2)}\n`
+      const content = stringifyConfig(stripDefaults(localConfig))
       const before = readText(unit.local)
       if (before !== content) changes.push({ path: unit.local, before, after: content, reason: "本地层改为新结构" })
     }
@@ -816,7 +820,7 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
   if (docs.length > 0) {
     const config: Record<string, any> = { base, docs }
     if (profiles && Object.keys(profiles).length > 0) config.profiles = profiles
-    const content = `${JSON.stringify(config, null, 2)}\n`
+    const content = stringifyConfig(stripDefaults(config))
     const file = unit.project ?? path.join(unit.dir, "swagger2api.json")
     const before = readText(file)
     if (before !== content) changes.push({ path: file, before, after: content, reason: "写入新版配置" })
