@@ -1152,7 +1152,7 @@ async function checkDocSelection() {
 }
 
 /**
- * 一键迁移：旧配置与多脚本收编为 base + docs 与单一 api，支持复检与备份恢复。
+ * 一键迁移：旧配置归一为 base + docs，直连脚本按命令值收敛参数且保留脚本，支持复检与备份恢复。
  * @return {number} 退出码
  */
 async function checkUpgrade() {
@@ -1226,14 +1226,17 @@ async function checkUpgrade() {
     const lcDoc = (appConfig.docs ?? []).find((doc) => doc.id === "lc")
     if (lcDoc?.output?.name !== "lcApi") issues.push("--name 未落到对应文档的 output.name")
     const appPkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8"))
-    if (appPkg.scripts?.api !== "swagger2api") issues.push("生成脚本未收编为单一 api")
-    if (appPkg.scripts?.["api:lc"] !== undefined || appPkg.scripts?.["api:check"] !== undefined) issues.push("分文档 / 检查脚本未删除")
+    if (appPkg.scripts?.api !== "swagger2api --target main") issues.push("生成脚本未按目标文档收敛参数")
+    if (appPkg.scripts?.["api:lc"] !== "swagger2api --target lc") issues.push("分文档脚本未按目标文档收敛参数")
+    if (appPkg.scripts?.["api:check"] !== "swagger2api --config saconfig.json --check") issues.push("检查脚本被误改")
     if (appPkg.scripts?.grouping !== "swagger2api grouping") issues.push("非生成脚本被误改")
     if (existsSync(join(appDir, "saconfig.json"))) issues.push("旧配置未删除")
 
     const legacyConfig = JSON.parse(readFileSync(join(legacyDir, "swagger2api.json"), "utf8"))
     if (!Array.isArray(legacyConfig.docs) || legacyConfig.docs.length !== 2) issues.push("defaults + targets 未迁移为 docs")
     if (legacyConfig.defaults || legacyConfig.targets) issues.push("旧 schema 键未清理")
+    const legacyPkg = JSON.parse(readFileSync(join(legacyDir, "package.json"), "utf8"))
+    if (legacyPkg.scripts?.api !== "swagger2api --config swagger2api.json") issues.push("项目配置脚本被误改")
 
     if (run(["--check"]).status !== 0) issues.push("迁移后 --check 未通过")
     if (run(["--yes"]).status !== 0) issues.push("二次 --yes 未零改动结束")
@@ -2719,7 +2722,7 @@ const steps = [
   { label: "废弃目录清理（默认预览 / --yes / 护栏）", run: checkPruneCommand },
   { label: "非交互保护（缺配置 / init / grouping / 显式配置）", run: checkNonInteractive },
   { label: "文档选择（单文档 / --all / --target / 非交互）", run: checkDocSelection },
-  { label: "一键迁移（旧配置 / 脚本收编 / 复检 / 恢复）", run: checkUpgrade },
+  { label: "一键迁移（旧配置 / 脚本参数收敛 / 复检 / 恢复）", run: checkUpgrade },
   { label: "拉取超时与版本（慢响应 / --timeout / --version）", run: checkTimeoutAndVersion },
   { label: "能力清单漂移（注册表 / 帮助 / 技能地图 / docs / README）", run: checkCapabilityDrift },
   { label: "安全夹具（注入可解析 / 私网引用被拒）", run: checkSecurityFixtures },

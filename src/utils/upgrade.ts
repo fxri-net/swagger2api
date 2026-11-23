@@ -481,14 +481,11 @@ function upsertDoc(docs: Array<Record<string, any>>, doc: Record<string, any>) {
   else docs[index] = mergeDeep(docs[index], doc)
 }
 
-/**
- * 判断脚本是否为生成类。
- * @param name 脚本名
- * @return 是否生成类
- */
-function isGenerateScript(name: string) {
-  return name === "api" || name.startsWith("api:")
-}
+/** 重写脚本时原样保留的工具级参数：不进入配置，也不改变生成对象 */
+const KEEP_FLAGS = new Set(["--all", "--json", "--dry-run", "--yes", "--no-interactive", "--keep-legacy"])
+
+/** 带值且原样保留的工具级参数 */
+const KEEP_VALUE_FLAGS = new Set(["--profile"])
 
 /**
  * 脚本里是否含环境变量赋值、复合命令或位置参数。
@@ -496,28 +493,121 @@ function isGenerateScript(name: string) {
  * @return 是否含人工项
  */
 function hasManualShell(command: string) {
-  return /&&|\|\||\s\w+=\S+/.test(command) || /(^|\s)\$1(\s|$)/.test(command)
+  return /&&|\|\||;|\|(?!\|)|(^|\s)&(\s|$)|(^|\s)[A-Za-z_]\w*=|\$\d|\$\{|\$[@*]|%\d/.test(command)
 }
 
 /**
- * 从命令中提取 swagger2api 之后的参数。
+ * 定位命令中的 swagger2api 调用：允许 npx / pnpm exec / 路径前缀与平台后缀。
  * @param command 命令
- * @return 参数列表
+ * @return 调用前缀（含可执行文件）与之后的参数；非直连调用返回 null
  */
-function argsAfterCli(command: string) {
-  const tokens = tokenizeArgs(command)
-  const start = tokens.findIndex((token) => token === "swagger2api" || token.endsWith("/swagger2api") || token.endsWith("\\swagger2api"))
-  return start === -1 ? [] : tokens.slice(start + 1)
+function locateCli(command: string) {
+  const match = /(^|[\s"'`])(?:[^\s"'`]*[\\/])?swagger2api(?:\.(?:cmd|exe|ps1|bat))?(?=$|[\s"'`])/i.exec(command)
+  if (!match) return null
+  const end = match.index + match[0].length
+  return { commandPrefix: command.slice(0, end), args: tokenizeArgs(command.slice(end)) }
 }
 
 /**
- * 判断是否为非生成子命令。
+ * 判断是否为非生成子命令或版本 / 帮助查询。
  * @param args 参数
  * @return 是否跳过
  */
 function isOtherCommand(args: string[]) {
   const command = args.find((arg) => !arg.startsWith("-"))
-  return ["grouping", "skill", "config", "inspect", "prune", "surface", "upgrade"].includes(command ?? "")
+  if (["grouping", "skill", "config", "inspect", "prune", "surface", "upgrade", "init"].includes(command ?? "")) return true
+  return args.some((arg) => ["--version", "-v", "--help", "-h"].includes(arg))
+}
+
+/**
+ * 重写时原样保留的工具级参数。
+ * @param args 参数
+ * @return 保留的参数
+ */
+function keepScriptFlags(args: string[]) {
+  const kept: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (KEEP_FLAGS.has(arg)) kept.push(arg)
+    else if (KEEP_VALUE_FLAGS.has(arg)) {
+      kept.push(arg)
+      if (args[index + 1] !== undefined) kept.push(args[index + 1])
+      index += 1
+    }
+  }
+  return kept
+}
+
+/**
+ * 还原带空格的参数引号。
+ * @param value 参数值
+ * @return 可直接拼进命令行的片段
+ */
+function quoteArg(value: string) {
+  return /[\s"']/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value
+}
+
+/**
+ * 重写脚本：保留前缀，丢弃已收敛进配置的参数，按文档数量补 --target。
+ * @param call 调用信息
+ * @param targetId 目标文档 id（多文档时写入）
+ * @return 新命令
+ */
+function rewriteScript(call: { commandPrefix: string; args: string[] }, targetId: string | null) {
+  const kept = keepScriptFlags(call.args)
+  const parts = [call.commandPrefix, ...kept.map(quoteArg)]
+  // --all 与 --target 互斥，脚本自带 --all 时不补目标
+  if (targetId && !kept.includes("--all")) parts.push("--target", targetId)
+  return parts.join(" ")
+}
+
+/**
+ * 脚本 --config 指向的旧配置文件。
+ * @param args 参数
+ * @param unitDir 单元目录
+ * @param legacy 旧配置文件
+ * @return 命中的旧配置绝对路径；未命中返回 null
+ */
+function legacyConfigRef(args: string[], unitDir: string, legacy: string[]) {
+  const index = args.findIndex((arg) => arg === "--config" || arg === "-c")
+  const value = index === -1 ? undefined : args[index + 1]
+  if (!value) return null
+  return legacy.find((file) => path.resolve(file) === path.resolve(unitDir, value)) ?? null
+}
+
+/**
+ * 按参数确定脚本的目标文档。
+ * @param docs 单元文档
+ * @param unitDir 单元目录
+ * @param legacy 旧配置文件
+ * @param args 参数
+ * @return 目标文档；无法唯一确定返回 null
+ */
+function pickScriptDoc(docs: Array<Record<string, any>>, unitDir: string, legacy: string[], args: string[]) {
+  const valueOf = (flag: string) => {
+    const index = args.indexOf(flag)
+    return index === -1 ? undefined : args[index + 1]
+  }
+  const configFile = legacyConfigRef(args, unitDir, legacy)
+  if (configFile) return docs.find((doc) => doc.id === legacyId(configFile)) ?? null
+  const target = valueOf("--target")
+  if (target) return docs.find((doc) => doc.id === target) ?? null
+  const url = valueOf("--url")
+  const output = valueOf("--output")
+  const name = valueOf("--name")
+  let candidates = docs
+  if (url !== undefined) candidates = candidates.filter((doc) => pickSource(doc)?.url === url)
+  else if (output !== undefined) {
+    const wanted = toPosix(path.resolve(unitDir, output))
+    candidates = candidates.filter((doc) => {
+      const dir = pickOutputDir(doc.output)
+      return dir !== undefined && toPosix(path.resolve(unitDir, dir)) === wanted
+    })
+  } else if (name !== undefined) {
+    candidates = candidates.filter((doc) => isPlainObject(doc.output) && doc.output.name === name)
+  }
+  if (candidates.length === 1) return candidates[0]
+  return null
 }
 
 /**
@@ -617,47 +707,47 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
     }
   }
 
-  // 脚本参数与收编：先判定全部生成脚本，存在人工项时保留原脚本，避免部分迁移
+  // 脚本参数收敛：只看命令值里的 swagger2api 调用，脚本键名不参与判定；无法唯一确定目标时保留原脚本
   let packageAfter: Record<string, any> | null = null
   if (unit.packageFile) {
     const pkg = readJson(unit.packageFile)
     if (pkg) {
       const scripts = isPlainObject(pkg.scripts) ? { ...pkg.scripts } : {}
-      const checks: string[] = []
-      const generated: Array<{ name: string; args: string[] }> = []
+      const pending: Array<{ name: string; call: { commandPrefix: string; args: string[] }; target: Record<string, any> }> = []
       let blocked = false
       for (const [name, command] of Object.entries(scripts)) {
-        if (typeof command !== "string" || !command.includes("swagger2api")) continue
-        if (!isGenerateScript(name)) continue
-        const args = argsAfterCli(command)
-        if (isOtherCommand(args)) continue
-        if (args.includes("--check")) {
-          checks.push(name)
-          continue
-        }
+        if (typeof command !== "string") continue
+        const call = locateCli(command)
+        // 非直连调用、检查类用法与非生成子命令一律不碰
+        if (!call || call.args.includes("--check") || isOtherCommand(call.args)) continue
         if (hasManualShell(command)) {
           manual.push({ path: relOf(unit.packageFile), reason: `脚本 ${name} 含环境变量 / 复合命令 / 位置参数，未自动迁移` })
           blocked = true
           continue
         }
-        const { unknown } = argsToConfig(args)
+        const { config, unknown } = argsToConfig(call.args)
         if (unknown.length > 0) {
           manual.push({ path: relOf(unit.packageFile), reason: `脚本 ${name} 含未识别参数 ${unknown.join("、")}，未自动迁移` })
           blocked = true
           continue
         }
-        generated.push({ name, args })
-      }
-      // 检查脚本始终删除；生成脚本仅在无人工项时收编
-      for (const name of checks) delete scripts[name]
-      if (!blocked && generated.length > 0) {
-        for (const item of generated) {
-          const suffix = item.name === "api" ? "" : item.name.slice(4)
-          const target = suffix ? docs.find((doc) => doc.id === suffix) ?? null : docs.length === 1 ? docs[0] : null
-          applyScriptArgs(base, target, item.args)
-          delete scripts[item.name]
+        // 没有配置类参数也没有指向待删除旧配置时，脚本已无需收敛
+        if (Object.keys(config).length === 0 && !legacyConfigRef(call.args, unit.dir, unit.legacy)) continue
+        const target = pickScriptDoc(docs, unit.dir, unit.legacy, call.args)
+        if (!target) {
+          manual.push({ path: relOf(unit.packageFile), reason: `脚本 ${name} 无法唯一确定目标文档，保留原脚本` })
+          blocked = true
+          continue
         }
-        scripts.api = "swagger2api"
+        pending.push({ name, call, target })
+      }
+      // 存在人工项时整包不动，避免部分收敛
+      if (!blocked && pending.length > 0) {
+        for (const item of pending) {
+          applyScriptArgs(base, item.target, item.call.args)
+          const next = rewriteScript(item.call, docs.length > 1 ? String(item.target.id) : null)
+          if (next !== scripts[item.name]) scripts[item.name] = next
+        }
       }
       if (JSON.stringify(scripts) !== JSON.stringify(pkg.scripts)) {
         packageAfter = { ...pkg, scripts }
@@ -734,7 +824,7 @@ function analyzeUnit(unit: UpgradeUnit, keepLegacy: boolean) {
   if (packageAfter && unit.packageFile) {
     const content = `${JSON.stringify(packageAfter, null, 2)}\n`
     const before = readText(unit.packageFile)
-    if (before !== content) changes.push({ path: unit.packageFile, before, after: content, reason: "收编生成脚本" })
+    if (before !== content) changes.push({ path: unit.packageFile, before, after: content, reason: "收敛生成脚本参数" })
   }
   if (!keepLegacy) {
     for (const file of unit.legacy) changes.push({ path: file, before: readText(file), after: null, reason: "删除旧配置" })
@@ -868,61 +958,7 @@ function restoreBackup(root: string, target: string) {
 }
 
 /**
- * 改写仓库内聚合脚本：`api:<id>` 引用改为内联目标，`api:check` 直接删除。
- * @param root 扫描根
- * @param packages 仓库内 package.json
- * @param unitPackages 已收编的单元 package.json
- * @param ids 已知文档 id
- * @return 变更与人工项
- */
-function rewriteAggregates(root: string, packages: string[], unitPackages: Set<string>, ids: Set<string>) {
-  const changes: FileChange[] = []
-  const manual: ManualItem[] = []
-  for (const file of packages) {
-    if (unitPackages.has(file)) continue
-    const pkg = readJson(file)
-    if (!pkg) continue
-    const scripts = isPlainObject(pkg.scripts) ? { ...pkg.scripts } : {}
-    let changed = false
-    for (const [name, command] of Object.entries(scripts)) {
-      if (typeof command !== "string" || !command.includes("swagger2api")) continue
-      if (command.includes("&&")) {
-        manual.push({ path: toPosix(path.relative(root, file)), reason: `脚本 ${name} 含复合命令，未自动改写` })
-        continue
-      }
-      if (/^\s*(?:npm|pnpm|yarn)\s+(?:run\s+)?api:check\s*$/.test(command)) {
-        delete scripts[name]
-        changed = true
-        continue
-      }
-      if (name.startsWith("api:") && /\sapi\s*$/.test(command)) {
-        const id = name.slice(4)
-        if (ids.has(id)) {
-          scripts[name] = command.replace(/\sapi\s*$/, ` swagger2api --target ${id}`)
-          changed = true
-          continue
-        }
-      }
-      const next = command.replace(/\bapi:([A-Za-z0-9_-]+)\b/g, (match, id) => {
-        if (name === `api:${id}`) return match
-        return ids.has(id) ? `swagger2api --target ${id}` : match
-      })
-      if (next !== command) {
-        scripts[name] = next
-        changed = true
-      }
-    }
-    if (changed) {
-      const before = readText(file)
-      const after = `${JSON.stringify({ ...pkg, scripts }, null, 2)}\n`
-      if (before !== after) changes.push({ path: file, before, after, reason: "改写聚合脚本引用" })
-    }
-  }
-  return { changes, manual }
-}
-
-/**
- * 复检旧资产。
+ * 复检旧资产：只报旧配置残留与直连生成脚本仍带的配置类参数。
  * @param units 单元
  * @param packages 仓库内 package.json
  * @return 问题列表
@@ -940,11 +976,12 @@ function checkLegacy(units: UpgradeUnit[], packages: string[]) {
     const pkg = readJson(file)
     const scripts = isPlainObject(pkg?.scripts) ? pkg?.scripts : {}
     for (const [name, command] of Object.entries(scripts ?? {})) {
-      if (typeof command !== "string" || !command.includes("swagger2api")) continue
-      const tokens = tokenizeArgs(command)
-      const direct = name === "api" ? command.trim() === "swagger2api" : tokens.includes("--target")
-      if ((isGenerateScript(name) && !direct) || command.includes("api:check")) issues.push(`旧脚本：${toPosix(file)} → ${name}`)
-      if (["--quick", "-q", "--config-all", "--config-scan"].some((flag) => tokens.includes(flag))) {
+      if (typeof command !== "string") continue
+      const call = locateCli(command)
+      if (!call) continue
+      const { config } = argsToConfig(call.args)
+      if (Object.keys(config).length > 0) issues.push(`旧脚本：${toPosix(file)} → ${name}（仍带配置类参数）`)
+      else if (["--quick", "-q", "--config-all", "--config-scan"].some((flag) => call.args.includes(flag))) {
         issues.push(`旧参数：${toPosix(file)} → ${name}`)
       }
     }
@@ -1058,12 +1095,6 @@ export async function runUpgrade(options: UpgradeOptions = {}): Promise<number> 
     manual.push(...result.manual)
     units.push({ rel: unit.rel, docs: result.docs, packageFile: unit.packageFile ? toPosix(path.relative(root, unit.packageFile)) : null })
   }
-  // 聚合脚本：仓库内其他 package.json 中的 api:<id> 引用改为内联目标
-  const unitPackages = new Set(selected.map((unit) => unit.packageFile).filter((file): file is string => Boolean(file)))
-  const knownIds = new Set(units.flatMap((unit) => unit.docs))
-  const aggregate = rewriteAggregates(root, found.packages, unitPackages, knownIds)
-  collected.push(...aggregate.changes)
-  manual.push(...aggregate.manual)
 
   // 路径统一为扫描根相对路径，并按文件去重（同一 package.json 只保留最后一次结果）
   const changeMap = new Map<string, FileChange>()

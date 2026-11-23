@@ -88,7 +88,7 @@ export const COMMAND_CAPABILITIES: CommandCapability[] = [
   {
     id: "upgrade",
     name: "swagger2api upgrade",
-    purpose: "迁移旧配置与生成脚本到 base + docs，备份后改写 package.json，支持回退",
+    purpose: "迁移旧配置到 base + docs，按命令值收敛直连脚本参数并保留脚本，备份后改写 package.json，支持回退",
     readOnly: false,
     destructive: false,
     params: ["--dry-run", "--diff", "--check", "--yes", "--only <目录>", "--skip <目录>", "--cwd <目录>", "--json", "--keep-legacy", "--restore <latest|目录>"],
