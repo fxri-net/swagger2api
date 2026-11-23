@@ -131,7 +131,7 @@ swagger2api --all           # 非交互环境更新全部文档
 
 ## 🛠️ 开发约定
 
-验收统一执行 `pnpm verify`：步骤清单的唯一真源在 `scripts/verify.mjs`，本地与 CI 共用同一份；构建、调试与提交规则见 [AGENTS.md](./AGENTS.md)。
+验收统一执行 `pnpm verify`：步骤清单的唯一真源在 `scripts/verify.mjs`，本地与 CI 共用同一份；构建、调试与提交规则见 [AGENTS.md](./AGENTS.md)。接入方回归用 `scripts/business-validate.mjs`；工具升级的同源双产物比对用 `scripts/product-contrast.mjs`（清单与报告含本机路径，不入库）。
 
 ## 📄 版权信息
 

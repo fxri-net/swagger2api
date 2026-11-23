@@ -19,6 +19,7 @@
 - 验收与提交须串联失败即止：`pnpm verify` 与 `git commit` 之间用 `&&` 串联或分步执行，禁止用 `;`；门禁失败后不得提交。
 - 验证有上限：同一改动提交前跑一次 `pnpm verify` 即可，失败则修复后重跑全量、通过后不再重复；已确认通过的检查不因再次被询问而重跑。
 - 接入方仓库验证：`node scripts/business-validate.mjs --manifest <清单> --generate --build --smoke`；脚本用本仓 `dist/cli.js` 代替已发布 CLI，在临时 worktree 内执行，清单与报告不入库（`scripts/business-*.local.json`）。
+- 工具升级的同源双产物比对：`node scripts/product-contrast.mjs --manifest scripts/business-contrast.local.json`；同一份 swagger 快照分别用旧版与当前 CLI 生成，比对导出契约与业务调用点，P0 非 0 即失败。旧 CLI 与两份产物都落在系统临时目录，不修改接入方仓库；清单与报告按 `scripts/business-*.local*.json` 忽略。
 - `toolkit tasks check` 的 error 与 warn 均为 0。
 - 开发与 CI 工具链保持 node 20（`.node-version` / `.ci/toolchain.json`），发布产物的运行时下限为 node 18.12，由 `engines`、构建 target 与 node18 运行时作业保证；构建工具 `tsup` 选用声明支持 node 18 及以上的 8.x 线，与开发版本保持一致。
 - CI 脚本只使用 Node 内置能力或 `.ci/toolchain.json` 已声明的 `system` 命令：GitHub runner 工具齐全、GitLab 镜像按声明精简，未声明的系统命令只会在 GitLab 侧暴露；新增系统命令须在两侧都验证。

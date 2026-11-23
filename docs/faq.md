@@ -53,6 +53,10 @@ node18 线使用 `swagger-typescript-api@13.0.28`：13.1 起改用 biome WASM �
 
 执行 `swagger2api upgrade --dry-run` 预览，`--diff` 查看差异，确认后 `--yes` 应用；迁移会把直连脚本的个性化参数收敛进配置，脚本名与数量保持不变，并备份旧文件，可用 `--restore latest` 回退，详见[一键迁移](./upgrade)。
 
+### 升级 swagger2api 会影响业务调用吗？
+
+先用旧产物固定接口面基线（`swagger2api surface --out .swagger2api/surface.json`），再用同一份 swagger 快照重新生成并执行 `swagger2api surface --compare .swagger2api/surface.json`：接口集合与类型名一致即调用方式不变。本地快照生成方式见[CLI 参考 · 接口面基线](./cli#接口面基线)。
+
 ### 每次生成都要确认一遍参数，太繁琐？
 
 新配置路径没有输入向导：单文档直接生成；多文档用 `--target <id>` 或 `--all` 显式选择，无需逐项确认。
