@@ -262,11 +262,24 @@ export function buildCollisionExports(dir: string, apiClassName: string) {
   const tsBarrel = path.join(dir, TYPES_DIR, "index.ts")
   const barrel = fs.existsSync(dtsBarrel) ? dtsBarrel : tsBarrel
   const source = fs.existsSync(barrel) ? fs.readFileSync(barrel, "utf8") : ""
-  const valueNames = new Set<string>()
-  for (const matched of source.matchAll(/^export\s*\{([^}]*)\}/gm)) {
-    matched[1].split(",").forEach((name) => valueNames.add(name.trim()))
+  /** 收集显式导出名（取 as 之后的别名），避免注释与类型名片段被误判 */
+  const collect = (pattern: RegExp) => {
+    const names = new Set<string>()
+    for (const matched of source.matchAll(pattern)) {
+      for (const item of matched[1].split(",")) {
+        const name = item.trim()
+        if (!name) continue
+        const alias = /\bas\s+([A-Za-z_$][\w$]*)\s*$/.exec(name)
+        names.add(alias ? alias[1] : name)
+      }
+    }
+    return names
   }
-  const has = (name: string) => new RegExp(`\\b${name}\\b`).test(source)
+  const valueNames = collect(/^export\s*\{([^}]*)\}/gm)
+  const typeNames = collect(/^export\s+type\s*\{([^}]*)\}/gm)
+  // 星号导出无法静态列举，退回文本匹配
+  const hasStar = /^export\s+\*\s+from/m.test(source)
+  const has = (name: string) => valueNames.has(name) || typeNames.has(name) || (hasStar && new RegExp(`\\b${name}\\b`).test(source))
   const lines: string[] = []
   for (const name of CLIENT_VALUE_EXPORTS) if (has(name)) lines.push(`export { ${name} } from "./${CLIENT_BASE}"`)
   for (const name of CLIENT_TYPE_EXPORTS) if (has(name)) lines.push(`export type { ${name} } from "./${CLIENT_BASE}"`)
