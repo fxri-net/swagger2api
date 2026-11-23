@@ -2103,8 +2103,8 @@ async function checkGroupedSplit() {
     if (!facade.includes('Object.defineProperty(this, "http", { value: http, enumerable: false })') || facade.includes("this.http = http")) {
       issues.push("门面请求器注入不是不可枚举")
     }
-    if (!facade.includes("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")) {
-      issues.push("门面未合并分片类型")
+    if (!facade.includes("export interface DgAdmin<SecurityDataType = unknown> extends Omit<DgAdminPart1<SecurityDataType>, keyof DgAdminPart2<SecurityDataType>>, DgAdminPart2<SecurityDataType> {}")) {
+      issues.push("门面未按覆盖顺序合并分片类型")
     }
     if (!part1.includes("declare readonly http: HttpClient<SecurityDataType>")) issues.push("分片缺少只读请求器声明")
     if (part1.includes("declare http:")) issues.push("请求器声明仍为可写")

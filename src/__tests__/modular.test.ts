@@ -237,9 +237,11 @@ describe("分片门面", () => {
 
   it("类型合并保持同一命名空间", () => {
     const code = buildSplitFacade(facade)
-    expect(code).toContain("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")
+    // 前面的分片剔除后续分片已有的成员，与运行时 Object.assign 的覆盖顺序一致
+    const expected = "export interface DgAdmin<SecurityDataType = unknown> extends Omit<DgAdminPart1<SecurityDataType>, keyof DgAdminPart2<SecurityDataType>>, DgAdminPart2<SecurityDataType> {}"
+    expect(code).toContain(expected)
     const declarations = buildSplitFacadeDeclarations(facade)
-    expect(declarations).toContain("export interface DgAdmin<SecurityDataType = unknown> extends DgAdminPart1<SecurityDataType>, DgAdminPart2<SecurityDataType> {}")
+    expect(declarations).toContain(expected)
     expect(declarations).toContain("export declare class DgAdmin<SecurityDataType = unknown>")
   })
 })

@@ -498,6 +498,22 @@ export function toSplitFacades(namespaces: SplitNamespacePlan[]): SplitFacade[] 
 }
 
 /**
+ * 分片门面的类型合并列表：后出现的分片覆盖同名成员，与运行时 Object.assign 的覆盖顺序一致，
+ * 避免同名方法分处不同分片时接口重复继承同一属性（TS2320）。
+ * @param chunks 分片
+ * @return extends 表达式
+ */
+function splitExtendsList(chunks: Array<{ className: string }>) {
+  return chunks
+    .map((chunk, index) => {
+      const shadowed = chunks.slice(index + 1).map((later) => `keyof ${later.className}<SecurityDataType>`)
+      const base = `${chunk.className}<SecurityDataType>`
+      return shadowed.length > 0 ? `Omit<${base}, ${shadowed.join(" | ")}>` : base
+    })
+    .join(", ")
+}
+
+/**
  * 生成分片门面的 TypeScript 内容：实例合并 + 类型合并，对外与单文件产物一致。
  * @param facade 门面
  * @param language 横幅语言
@@ -507,7 +523,7 @@ export function toSplitFacades(namespaces: SplitNamespacePlan[]): SplitFacade[] 
 export function buildSplitFacade(facade: SplitFacade, language: BannerLanguage = "zh", axios = true) {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
   const sources = facade.chunks.map((chunk) => `new ${chunk.className}(http)`).join(", ")
-  const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
+  const extendsList = splitExtendsList(facade.chunks)
   const instanceLines = axios
     ? [
         "",
@@ -577,7 +593,7 @@ export function buildSplitFacadeJs(facade: SplitFacade, language: BannerLanguage
  */
 export function buildSplitFacadeDeclarations(facade: SplitFacade, language: BannerLanguage = "zh") {
   const imports = facade.chunks.map((chunk) => `import { ${chunk.className} } from "./${chunk.fileName}"`)
-  const extendsList = facade.chunks.map((chunk) => `${chunk.className}<SecurityDataType>`).join(", ")
+  const extendsList = splitExtendsList(facade.chunks)
   return [
     ...generatedHeader(language),
     `import { HttpClient } from "./${CLIENT_BASE}"`,
