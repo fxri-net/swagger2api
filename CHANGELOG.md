@@ -1,5 +1,42 @@
 # Swagger 转 API
 
+## 1.4.1
+
+> 2026-11-23 发布
+
+### ✨ 新增功能
+
+- 本仓本地验证脚本 `scripts/product-contrast.mjs`，同一份 swagger 快照分别用旧版与当前 CLI 生成并比对导出契约与业务调用点
+- 比对脚本的 `--snapshot` 阶段，从配置 `source` 拉取快照（含凭据地址由 axios 转 Basic，日志只输出脱敏地址），生成前校验快照齐备，报告记录快照字节数与 sha256 指纹
+
+### 🔧 功能调整
+
+- 默认 HTTP 客户端改为 axios，需要 fetch 时用 `--fetch` 或配置 `client: "fetch"`
+- 默认生成响应类型信息（`types.responses`），关闭用 `--no-responses` 或配置 `false`
+- 默认把响应体转移到 `raw` 字段（`types.extractResponseRaw`），关闭用 `--no-extract-response-raw` 或配置 `false`
+
+### ⚡ 优化改进
+
+- `init` / `grouping` / `upgrade` 写盘省略等于默认值的字段，短对象保持单行（阈值 160 字符）
+
+### 🐛 问题修复
+
+- `output.clean: true` 在空输出目录下会删掉预建的契约目录，导致分组生成以 `types/index` 缺失失败
+- 根出口同名别名按契约 barrel 的真实导出名判定，避免注释或类型名片段触发误判导致 `TS2305`
+- 分片门面同名成员分散在不同分片时接口重复继承（TS2320），改按运行时覆盖顺序用 `Omit` 合并
+- `upgrade` 不再按脚本名识别并删除生成脚本，改为按命令值收敛 `swagger2api` 之后的参数，脚本名、数量与前缀全部保留
+- `upgrade` 不再改写聚合脚本、不再删除 `api:check`，旧版已删除的脚本不会自动恢复
+
+### 📝 文档更新
+
+- 补充「只写个性化配置」口径（配置参考 / CLI / 一键迁移 / 技能）
+- 同步配置默认值、提取响应的 axios 前提与入门示例结构
+- 补齐错误码清单中的 `E_SPEC_INVALID` / `E_NO_ENDPOINTS`（CLI 与能力总览），并补充 `base.output.prune` 配置键说明
+- 技能错误码清单移除已废弃的 `E_CONFIG_CONFLICT`，补齐 `E_DOC_SELECTION_REQUIRED`
+- 迁移说明补充取值等于默认值的 `client` / `language` 迁移后不会写出
+- README / AGENTS 补充脚本用法，FAQ 补充升级前接口面比对方法
+- README 与 `docs/` 同步「只收敛参数、保留脚本」口径，技能 `references/migration.md` 同步并递增至 1.3.4
+
 ## 1.4.0
 
 > 2026-11-23 发布
