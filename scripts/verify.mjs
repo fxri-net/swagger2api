@@ -580,6 +580,26 @@ async function checkGroupedOutput() {
     { name: "axios", args: ["--axios"] },
     { name: "fetch", args: [] }
   ]
+  // 空目录 + clean：清理不能删掉预建的契约目录（回归：types/index 丢失导致生成失败）
+  {
+    const out = mkdtempSync(join(tmpdir(), "s2a-grouped-clean-"))
+    const api = join(out, "api")
+    try {
+      const config = writeProjectConfig(join(out, "swagger2api.json"), {
+        source: join(root, "fixtures", "swagger.json"),
+        output: { dir: api, clean: true },
+        base: { output: { name: "index" } }
+      })
+      const result = spawnSync(process.execPath, [cli, "-c", config, "--js", "--modular", "--module-name-index", "0"], { cwd: root, encoding: "utf8" })
+      if (result.status !== 0 || !existsSync(join(api, "types", "index.js"))) {
+        console.error("✖ 分组产物（clean + 空目录）：契约出口缺失")
+        console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+        return 1
+      }
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  }
   for (const client of clients) {
     const out = mkdtempSync(join(tmpdir(), "s2a-grouped-"))
     const api = join(out, "api")

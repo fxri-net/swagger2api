@@ -768,6 +768,13 @@ async function onGenerateApi(data: Defines["data"]) {
   saveFile(datas.docFile, JSON.stringify(data))
   // 固定布局：客户端底座为 client，契约出口为 types/index；先建目录，生成器按嵌套路径直接落盘
   const outputDir = path.resolve(confs.param.output)
+  // 清理由本工具执行：生成器自带的 cleanOutput 会删掉预建的契约目录，导致 types/index 写不进去
+  if ((datas.config as Record<string, any>).cleanOutput) {
+    ;(datas.config as Record<string, any>).cleanOutput = false
+    if (!checkMode() && fs.existsSync(outputDir)) {
+      for (const entry of fs.readdirSync(outputDir)) fs.rmSync(path.join(outputDir, entry), { recursive: true, force: true })
+    }
+  }
   // 生成前快照：后处理失败时只回滚本轮新增文件，保留原有产物
   const snapshot = checkMode() ? null : snapshotOutputFiles(outputDir)
   let completed = false
