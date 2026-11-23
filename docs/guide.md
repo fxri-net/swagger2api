@@ -144,7 +144,7 @@ client.instance.interceptors.response.use(
 - 每个前端应用目录一份 `swagger2api.json`，`base` 写共享口径，`docs` 逐项声明输入输出；完整字段见 [配置参考](./config)。
 - 个人覆盖写在 `swagger2api.local.json`，按文档 `id` 合并，默认不入库；全局偏好放 `~/.swagger2api.json`，只允许 `base` / `profiles`。
 - 生成代码不会回写配置；需要调整参数时直接改配置或命令行。
-- 旧 `saconfig*`、`.swagger2apirc*`、`defaults` + `targets` 与 `api:*` 脚本用 [`swagger2api upgrade`](./upgrade) 迁移，支持差异预览、备份与回退。
+- 旧 `saconfig*`、`.swagger2apirc*`、`defaults` + `targets` 与直连 `swagger2api` 的脚本用 [`swagger2api upgrade`](./upgrade) 迁移：只收敛参数、不增删脚本，支持差异预览、备份与回退。
 
 ## swagger-typescript-api 扩展
 

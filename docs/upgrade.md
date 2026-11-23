@@ -7,7 +7,8 @@
 - 旧配置文件：`saconfig*.json`、`.swagger2apirc*`（含 `.local`）。
 - 旧版 `swagger2api.json`：`defaults` + `targets` 结构、根级 `url` / `file` / `input` / `output`、扁平字段。
 - 本地层 `swagger2api.local.json`：按文档 `id` 合并进新结构后保留文件。
-- 生成脚本：`api`、`api:*` 合并为单一 `"api": "swagger2api"`；`api:check` 删除；仓库内聚合脚本中的 `api:<id>` 引用改为内联 `--target`。
+- 生成脚本：只按命令值识别，凡命令是直连 `swagger2api` 调用（可带 `npx`、`pnpm exec` 或可执行文件路径前缀）的脚本，都把 `swagger2api` 之后的个性化参数收敛进配置，脚本键名与命令前缀原样保留；迁移不新增、不删除、不重命名任何脚本。
+- 跳过非生成用法：带 `--check` 的检查脚本、`grouping` / `inspect` / `prune` / `surface` / `config` / `skill` / `init` 等子命令、`--version` / `--help`，以及复合命令（`&&`、`||`、`;`、管道、后台 `&`）、含环境变量赋值或位置参数的脚本一律不动。
 
 按配置目录逐个处理，不同目录的配置不会合并。全局层 `~/.swagger2api.json` 的旧结构只报告人工项，不自动修改 home。
 
@@ -52,7 +53,10 @@ swagger2api upgrade --restore latest
 - 多个旧配置会各生成一个文档项，`id` 从文件名或输出目录推导；输出目录相同或互相嵌套时停止自动迁移并要求人工处理。
 - 同一文档的文件配置与脚本参数冲突时，脚本参数优先并提示。
 - 未知脚本参数不猜测：该项停止自动迁移并以退出码 1 结束，修正后重跑。
-- 迁移后每个配置目录只保留一个 `api` 脚本，文档之间用 `--target` 区分。
+- 脚本目标文档按以下顺序唯一确定：`--config <旧配置>` 指向的已迁移文件 → `--target <id>` → `--url` / `--output` / `--name` 与文档唯一匹配 → 该目录只有一个文档；仍无法唯一确定时保留原脚本并列为人工项，不猜测。
+- 重写脚本只替换 `swagger2api` 之后的参数：保留 `npx` / `pnpm exec` / 路径前缀，保留 `--profile`、`--all` 等工具级参数；单文档改写为 `swagger2api`，多文档改写为 `swagger2api --target <id>`。
+- `--check` 只报「旧配置文件仍存在」与「直连脚本仍带配置类参数」；`api:*` 引用、聚合脚本与检查脚本不算遗留。
+- 旧版本迁移时删除过的脚本不会自动恢复：需要时从版本库或备份手工补回，重新执行迁移只保留当前存在的脚本。
 
 ## 备份与恢复
 

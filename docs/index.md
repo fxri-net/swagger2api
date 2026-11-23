@@ -27,7 +27,7 @@ features:
     details: 一份 swagger2api.json 用 base + docs 管理多个接口文档，交互勾选或 --target / --all 精确更新。
   - icon: ⚡
     title: 一键迁移
-    details: upgrade 自动收编旧配置与 api:* 脚本，备份、差异预览与回退齐全。
+    details: upgrade 把旧配置归一为 base + docs，直连脚本的个性化参数收敛进配置且脚本本身保留，备份、差异预览与回退齐全。
   - icon: 🎯
     title: 唯一 operationId
     details: 接口地址与请求方法拼接生成唯一 ID，可选把无路径参数的 get 转为 query 作区分，告别 _n 后缀。
@@ -79,7 +79,7 @@ npx @fxri/swagger2api grouping
 | 后端 Swagger 文档到手，接口代码要手写 | 一行命令从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 |
 | 多个项目的接口配置散落，更新要挨个跑 | 每个应用目录一份 swagger2api.json，多文档勾选或 --target / --all 更新 |
 | 重名接口被加 _n 后缀，调用方看着懵 | 地址 + 请求方法拼接唯一 operationId，从源头避免重名 |
-| 旧配置与分文档脚本难维护 | upgrade 一键迁移为 base + docs 与单一 api 脚本 |
+| 旧配置与分文档脚本难维护 | upgrade 一键迁移为 base + docs，脚本参数收敛进配置且脚本保留 |
 | 接口太多、单文件太大、IDE 卡顿 | 分组输出按标签 / 路径段 / 规则拆成多文件，聚合入口与调用形态不变 |
 
 ## 文档索引
@@ -89,7 +89,7 @@ npx @fxri/swagger2api grouping
 | [快速开始](./getting-started) | 第一次接触，想 30 秒跑起来 |
 | [完整攻略](./guide) | 日常使用：三种模式、响应提取、配置文件 |
 | [CLI 参考](./cli) | 查命令、参数、默认值 |
-| [一键迁移](./upgrade) | 旧配置与 api:* 脚本迁移 |
+| [一键迁移](./upgrade) | 旧配置与脚本参数收敛 |
 | [常见问题](./faq) | 遇到问题先来这里找 |
 
 ## 环境要求

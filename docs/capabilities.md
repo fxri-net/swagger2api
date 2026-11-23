@@ -10,7 +10,7 @@
 | `preview` | `swagger2api --dry-run` | 只读 | 只输出分组报表，不写产物 |
 | `check` | `swagger2api --check` | 只读 | 校验产物是否与配置一致 |
 | `init` | `swagger2api init` | 写入 | 交互生成配置（`--from-script` 为 upgrade 别名） |
-| `upgrade` | `swagger2api upgrade` | 写入 | 迁移旧配置与脚本到 base + docs，支持备份与回退 |
+| `upgrade` | `swagger2api upgrade` | 写入 | 迁移旧配置到 base + docs，收敛直连脚本参数并保留脚本，支持备份与回退 |
 | `grouping` | `swagger2api grouping --target <id>` | 写入（需终端） | 查看指定文档分布并写入分组配置 |
 | `config-status` | `swagger2api config status` | 只读 | 配置分层与生效结果 |
 | `surface` | `swagger2api surface` | 写基线 / 只读比对 | 提取接口面、写基线或比对增删 |

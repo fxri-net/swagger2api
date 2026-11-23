@@ -72,7 +72,7 @@ request.getUsers().then((res) => console.log(res))
 | --- | --- | --- |
 | 快速生成 | 从 Swagger JSON 生成 TS/JS 接口文件，含请求方法与类型定义 | [快速开始](./docs/getting-started.md) |
 | 多文档配置 | 一份 `swagger2api.json` 用 `base` + `docs` 声明多个文档，交互勾选或 `--target` / `--all` 更新 | [配置参考 · 基本结构](./docs/config.md#基本结构) |
-| 一键迁移 | 旧配置与 `api:*` 脚本收编为单一 `api`，支持差异预览、备份与回退 | [一键迁移](./docs/upgrade.md) |
+| 一键迁移 | 旧配置归一为 `base` + `docs`，直连脚本的个性化参数收敛进配置且保留脚本本身，支持差异预览、备份与回退 | [一键迁移](./docs/upgrade.md) |
 | 分层配置与向导 | `swagger2api.json` 项目 / 个人 / 全局三层合并，本地层按文档 `id` 覆盖，`config status` 排障 | [配置参考](./docs/config.md#分层配置) |
 | 分组输出 | 大文档按规则 / tag / 路径段拆分为多文件，聚合入口保持单一出口 | [完整攻略](./docs/guide.md#分组输出) |
 | 唯一 operationId | 接口地址 + 请求方法拼接唯一 ID，可选 get 转 query 作区分 | [完整攻略](./docs/guide.md#唯一-operationid-拼接规则) |
@@ -123,7 +123,7 @@ swagger2api --target base   # 只更新指定文档
 swagger2api --all           # 非交互环境更新全部文档
 ```
 
-交互环境下运行 `swagger2api` 会列出文档供勾选，默认全不选。旧配置与 `api:*` 脚本可用 `swagger2api upgrade` 一键迁移，详见[一键迁移](./docs/upgrade.md)。
+交互环境下运行 `swagger2api` 会列出文档供勾选，默认全不选。旧配置与直连 `swagger2api` 的脚本可用 `swagger2api upgrade` 一键迁移：只收敛参数、不增删脚本，详见[一键迁移](./docs/upgrade.md)。
 
 ## ⚙️ 环境要求
 

@@ -51,7 +51,7 @@ node18 线使用 `swagger-typescript-api@13.0.28`：13.1 起改用 biome WASM �
 
 ### 旧配置和 api:* 脚本怎么迁移？
 
-执行 `swagger2api upgrade --dry-run` 预览，`--diff` 查看差异，确认后 `--yes` 应用；迁移会收编为单一 `api` 脚本并备份旧文件，可用 `--restore latest` 回退，详见[一键迁移](./upgrade)。
+执行 `swagger2api upgrade --dry-run` 预览，`--diff` 查看差异，确认后 `--yes` 应用；迁移会把直连脚本的个性化参数收敛进配置，脚本名与数量保持不变，并备份旧文件，可用 `--restore latest` 回退，详见[一键迁移](./upgrade)。
 
 ### 每次生成都要确认一遍参数，太繁琐？
 

@@ -13,7 +13,11 @@ swagger2api upgrade --restore latest # 回退
 ```
 
 - 发现 `saconfig*`、`.swagger2apirc*`、旧版 `defaults` + `targets` 与根级扁平字段，按配置目录独立迁移为 `base` + `docs`。
-- 生成脚本收编为单一 `"api": "swagger2api"`，删除 `api:*` 与 `api:check`；仓库内聚合脚本的 `api:<id>` 引用改为内联 `--target`。
+- 生成脚本只按命令值识别：直连 `swagger2api` 调用（可带 `npx` / `pnpm exec` / 可执行文件路径前缀）的个性化参数收敛进配置，脚本名、数量与命令前缀原样保留；单文档改写为 `swagger2api`，多文档改写为 `swagger2api --target <id>`。
+- 带 `--check` 的脚本、`grouping` / `inspect` / `prune` / `surface` / `config` / `skill` / `init` 等子命令、`--version` / `--help`，以及复合命令（`&&`、`||`、`;`、管道、后台 `&`）、含环境变量赋值或位置参数的脚本一律不动。
+- 脚本目标文档按序唯一确定：`--config <旧配置>` → `--target <id>` → `--url` / `--output` / `--name` 唯一匹配 → 单文档兜底；仍无法唯一确定时保留原脚本并列为人工项。
+- 不要向用户承诺「迁移会把脚本收成一个 `api`」：迁移不新增、不删除、不重命名脚本；旧版本删掉的脚本也不会自动恢复，需要时从版本库或备份补回。
+- `upgrade --check` 只报「旧配置文件仍存在」与「直连脚本仍带配置类参数」；`api:*` 引用、聚合脚本与检查脚本不算遗留。
 - `defaults` → `base`、`targets` → `docs`、`input` → `source`，`client` / `language` 对象收敛为字符串。
 - 未知脚本参数不猜：该项停止自动迁移并以退出码 1 结束；修正后重跑。
 - 写入前备份到 `.swagger2api/backup/<时间>/`，`--restore latest` 可回退；`--keep-legacy` 保留旧配置。
@@ -23,7 +27,7 @@ swagger2api upgrade --restore latest # 回退
 
 - 新项目直接用 `base` + `docs`；旧项目的绝对路径、令牌不要带过来，相对路径按新配置目录重定。
 - 多个旧配置各写一个文档项，`id` 唯一；同一配置内输出目录不得相同或嵌套。
-- 迁移后每个应用目录只保留一份 `swagger2api.json` 与一个 `api` 脚本。
+- 迁移后每个应用目录只保留一份 `swagger2api.json`；脚本数量与名称保持不变，多文档用 `--target` 区分。
 
 ## 跨版本迁移比对
 

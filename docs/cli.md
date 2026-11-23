@@ -101,7 +101,7 @@ swagger2api upgrade --restore latest
 ```
 
 - 迁移 `saconfig*`、`.swagger2apirc*`、旧版 `defaults` + `targets` 与生成脚本；按配置目录独立处理，不跨目录合并。
-- 生成脚本收编为单一 `"api": "swagger2api"`，删除 `api:*` 与 `api:check`；聚合脚本中的 `api:<id>` 引用改为内联 `--target`。
+- 生成脚本按命令值收敛：把直连 `swagger2api` 调用之后的个性化参数移入配置，脚本名、数量与 `npx` / `pnpm exec` 等前缀原样保留；`--check`、聚合脚本与复合命令不动。
 - 写入前备份到 `.swagger2api/backup/<时间>/`；`--restore` 可回退。
 - 非 TTY 缺 `--yes` 退出 2；存在未知脚本参数时停止写入并退出 1。
 
